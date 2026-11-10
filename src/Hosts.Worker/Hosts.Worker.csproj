@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Marrow.Kernel\Marrow.Kernel.csproj" />
+    <ProjectReference Include="..\Marrow.Timeline\Marrow.Timeline.csproj" />
+    <ProjectReference Include="..\Marrow.Infrastructure\Marrow.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+</Project>

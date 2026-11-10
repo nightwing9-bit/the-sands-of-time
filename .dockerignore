@@ -1,0 +1,14 @@
+.git
+.kiro
+.env
+.env.*
+!.env.example
+**/bin/
+**/obj/
+**/node_modules/
+**/dist/
+**/TestResults/
+audit
+design-inputs
+docs
+web

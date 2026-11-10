@@ -1,0 +1,15 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/GhostLap.Contracts/GhostLap.Contracts.csproj" />
+    <Project Path="src/Hosts.Api/Hosts.Api.csproj" />
+    <Project Path="src/Hosts.Realtime/Hosts.Realtime.csproj" />
+    <Project Path="src/Hosts.Worker/Hosts.Worker.csproj" />
+    <Project Path="src/Marrow.Infrastructure/Marrow.Infrastructure.csproj" />
+    <Project Path="src/Marrow.Kernel/Marrow.Kernel.csproj" />
+    <Project Path="src/Marrow.Timeline/Marrow.Timeline.csproj" />
+    <Project Path="src/Revenant.Contracts/Revenant.Contracts.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Architecture/Architecture.Tests.csproj" />
+  </Folder>
+</Solution>

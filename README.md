@@ -11,6 +11,38 @@
 3. Start **spec-01-foundation-bootstrap** in Kiro; execute its tasks in listed order. There is deliberately **no application implementation code in this archive**.
 4. Run checks on real code once implemented, record **actual** test/credit/CI evidence in `docs/kiro-log.md`. Never mark planned work complete from these documents alone.
 
+## Local setup (from a fresh clone)
+
+Prerequisites: .NET SDK 10 (`global.json` pins 10.0.100, roll-forward to the latest feature band), Node.js 20+ with npm, Docker with Compose v2, `openssl`, and Git. License: MIT (`LICENSE`).
+
+```
+git clone <repo-url> the-sands-of-time && cd the-sands-of-time
+
+# 1. Secrets: there are no defaults. .env is gitignored; .env.example holds placeholders only.
+cp .env.example .env
+sed -i.bak "s/REPLACE_ME_POSTGRES/$(openssl rand -hex 24)/;s/REPLACE_ME_REDIS/$(openssl rand -hex 24)/" .env && rm .env.bak
+
+# 2. .NET: build and run the architecture gate
+dotnet build TheSandsOfTime.slnx
+dotnet test tests/Architecture/Architecture.Tests.csproj
+
+# 3. Web: install, typecheck, build both shells
+(cd web && npm ci && npm run typecheck && npm run build)
+
+# 4. Postgres, Redis, one-shot migrate, then API / Realtime / Worker
+docker compose --env-file .env -f deploy/compose/docker-compose.yml up --build -d
+curl -fsS http://127.0.0.1:8081/health/ready   # API; Realtime is 8082, Worker 8083
+
+# 5. Browser shells (separate terminals)
+(cd web/apps/ghost-lap && npm run dev)   # http://localhost:5174
+(cd web/apps/revenant && npm run dev)    # http://localhost:5175
+
+# Stop and wipe local data
+docker compose --env-file .env -f deploy/compose/docker-compose.yml down -v
+```
+
+More detail: `deploy/compose/README.md` (ports, health, migrations) and `scripts/checks/README.md` (gate scripts). `.kiro/` is committed on purpose; never ignore it. Real test, Kiro and CI results are recorded only in `docs/kiro-log.md`.
+
 ## Contents
 
 - `docs/architecture/`: master architecture, 13-spec DAG, versioned interface contracts, acceptance/coverage matrix, decision register.
@@ -19,7 +51,7 @@
 - `.kiro/steering/`: three small foundation files and three focused conditional/manual files.
 - `.kiro/settings/mcp.json`: selected Context7 and Chrome DevTools MCP configurations. Chrome disabled until browser apps exist; no credentials included.
 - `.kiro/hooks/`: three valid Kiro hook configs, initially disabled until their referenced check scripts and apps exist (see workflow).
-- `docs/kiro-log.md`: empty evidence ledger with instructions (not fabricated use).
+- `docs/kiro-log.md`: evidence ledger with instructions; only performed work is recorded.
 
 ## Non-negotiable boundaries
 

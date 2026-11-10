@@ -1,0 +1,8 @@
+# Sample task gate marker. Copy to scripts/checks/.active-gate (gitignored runtime state) to arm spec-gate.sh.
+# Format: key=value, one per line. '#' starts a comment. The file is parsed, never sourced or executed.
+# Keys: spec, task (informational labels), suites (comma-separated allow-list names), browser_route (for browser-evidence.sh).
+# Allow-listed suites: dotnet-build, architecture, web-typecheck, unit-marrow, unit-revenant, unit-ghostlap
+# Unknown keys or suite names make spec-gate.sh exit 2 without running anything.
+spec=spec-01-foundation-bootstrap
+task=1.4
+suites=architecture,web-typecheck,unit-marrow

@@ -1,0 +1,81 @@
+name: ci
+
+# Fast gate for pull requests and pushes to main: restore, compile, typed JS checks,
+# architecture boundary checks and cheap unit tests.
+# Integration (Testcontainers) and Playwright E2E suites are deliberately NOT run here.
+# They get their own workflow/jobs when those suites exist (specs 02/03 onward).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  dotnet:
+    name: dotnet restore/build/test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore TheSandsOfTime.slnx
+
+      - name: Build (warnings are errors)
+        run: dotnet build TheSandsOfTime.slnx --configuration Release --no-restore -warnaserror
+
+      # Compiled-assembly boundary rules (NetArchTest).
+      - name: Architecture boundary tests
+        run: dotnet test tests/Architecture/Architecture.Tests.csproj --configuration Release --no-build
+
+      # Remaining cheap unit tests. Integration and E2E tests must carry these traits to stay out of the fast job.
+      - name: Cheap unit tests
+        run: dotnet test TheSandsOfTime.slnx --configuration Release --no-build --filter "Category!=Integration&Category!=E2E"
+
+  web:
+    name: npm ci/typecheck/build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install (lockfile only)
+        run: npm ci
+
+      - name: Typecheck all workspaces
+        run: npm run typecheck
+
+      - name: Build both browser apps
+        run: npm run build
+
+  scripts:
+    name: check scripts lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax-check and lint check scripts
+        run: |
+          for f in scripts/checks/*.sh; do bash -n "$f"; done
+          shellcheck -x scripts/checks/*.sh
