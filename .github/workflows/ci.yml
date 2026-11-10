@@ -1,9 +1,9 @@
 name: ci
 
 # Fast gate for pull requests and pushes to main: restore, compile, typed JS checks,
-# architecture boundary checks and cheap unit tests.
-# Integration (Testcontainers) and Playwright E2E suites are deliberately NOT run here.
-# They get their own workflow/jobs when those suites exist (specs 02/03 onward).
+# architecture boundary checks and cheap unit tests (job `dotnet`).
+# Real-service tests (Category=Integration: Testcontainers PostgreSQL 18.6 / Redis 7.4) run in the separate,
+# bounded `integration` job. Playwright E2E suites get their own job when they exist (Spec 04 onward).
 
 on:
   pull_request:
@@ -43,6 +43,50 @@ jobs:
       - name: Cheap unit tests
         run: dotnet test TheSandsOfTime.slnx --configuration Release --no-build --filter "Category!=Integration&Category!=E2E"
 
+  integration:
+    name: dotnet integration (Testcontainers)
+    runs-on: ubuntu-latest
+    # Docker is preinstalled on GitHub-hosted Ubuntu runners; Testcontainers starts PostgreSQL/Redis per fixture.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - name: Pull service images
+        timeout-minutes: 5
+        run: |
+          docker pull postgres:18.6-alpine3.24
+          docker pull redis:7.4-alpine
+      - name: Restore
+        run: dotnet restore TheSandsOfTime.slnx
+      - name: Build (warnings are errors)
+        run: dotnet build TheSandsOfTime.slnx --configuration Release --no-restore -warnaserror
+      # The whole tests/Integration project, unfiltered, so no identity/MFA, hub authorization/revocation,
+      # outbox/inbox or deployment-guard test can be skipped by a missing trait. A hung test is dumped and killed.
+      - name: Integration project (identity, realtime, outbox, deployment guard)
+        timeout-minutes: 15
+        run: >-
+          dotnet test tests/Integration/Integration.Tests.csproj --configuration Release --no-build
+          --logger "console;verbosity=normal" --logger "trx"
+          --blame-hang-timeout 5m --blame-hang-dump-type mini
+          --results-directory TestResults/integration
+      # Timeline PostgreSQL suites (Spec 02) that the fast job excludes.
+      - name: Marrow real-PostgreSQL tests
+        timeout-minutes: 10
+        run: >-
+          dotnet test tests/Marrow/Marrow.Tests.csproj --configuration Release --no-build
+          --filter "Category=Integration"
+          --logger "console;verbosity=normal" --logger "trx"
+          --blame-hang-timeout 5m --blame-hang-dump-type mini
+          --results-directory TestResults/integration
+      - name: Upload integration results
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: integration-test-results
+          path: TestResults/integration
+          retention-days: 7
   web:
     name: npm ci/typecheck/build
     runs-on: ubuntu-latest
@@ -64,6 +108,9 @@ jobs:
 
       - name: Typecheck all workspaces
         run: npm run typecheck
+      # Realtime envelope/cursor contract tests (node --test, scripted transport). Live hub client: Spec 04.
+      - name: Contracts tests
+        run: npm test --workspace packages/contracts
 
       - name: Build both browser apps
         run: npm run build
@@ -79,3 +126,6 @@ jobs:
         run: |
           for f in scripts/checks/*.sh; do bash -n "$f"; done
           shellcheck -x scripts/checks/*.sh
+      # One-Realtime-instance invariant: fails if the resolved Compose model scales Realtime beyond one replica.
+      - name: Realtime single-replica guard
+        run: bash scripts/checks/realtime-scale-guard.sh

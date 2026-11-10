@@ -5,10 +5,12 @@
 # If `migrate` fails, the hosts never start. Hosts never run migrations themselves.
 name: sands-of-time
 
+# Hosts never use the POSTGRES_USER superuser: each connects with its own least-privilege login, which the
+# migrate job provisions (scripts/db/migrate.sh): sands_api and sands_realtime hold marrow_identity_runtime only,
+# sands_worker holds no schema role yet. Pooled Npgsql connections (bounded pool, 5 s pool/connect wait, 15 s
+# command timeout) are set per host below.
 x-host-environment: &host-environment
   ASPNETCORE_ENVIRONMENT: Production
-  # Pooled Npgsql connections (bounded pool, 5 s pool/connect wait, 15 s command timeout).
-  ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB:?set POSTGRES_DB in .env};Username=${POSTGRES_USER:?set POSTGRES_USER in .env};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env};Maximum Pool Size=20;Timeout=5;Command Timeout=15"
   # Redis is a transport/cache only, never the source of truth.
   ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}"
 
@@ -42,8 +44,11 @@ services:
     image: redis:7.4-alpine
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
-    # No persistence: Redis never holds authoritative state.
-    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\" --save '' --appendonly no"]
+    # Redis never holds authoritative state, but outbox entries already confirmed as published live only in the
+    # stream until consumers acknowledge them, so the append-only file (fsync per write) keeps them across a restart.
+    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\" --save '' --appendonly yes --appendfsync always"]
+    volumes:
+      - redis-data:/data
     ports:
       - "127.0.0.1:${REDIS_HOST_PORT:-56379}:6379"
     healthcheck:
@@ -63,6 +68,10 @@ services:
       PGUSER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
       PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       PGDATABASE: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+      # Passwords of the per-host runtime logins the executor provisions after migrating.
+      API_DB_PASSWORD: ${API_DB_PASSWORD:?set API_DB_PASSWORD in .env}
+      REALTIME_DB_PASSWORD: ${REALTIME_DB_PASSWORD:?set REALTIME_DB_PASSWORD in .env}
+      WORKER_DB_PASSWORD: ${WORKER_DB_PASSWORD:?set WORKER_DB_PASSWORD in .env}
     volumes:
       - ../../scripts/db:/scripts/db:ro
     depends_on:
@@ -76,6 +85,10 @@ services:
       dockerfile: deploy/docker/Api.Dockerfile
     environment:
       <<: *host-environment
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB:?set POSTGRES_DB in .env};Username=sands_api;Password=${API_DB_PASSWORD:?set API_DB_PASSWORD in .env};Maximum Pool Size=20;Timeout=5;Command Timeout=15"
+      # Master secret for access tokens, guest cookies, CSRF and TOTP-at-rest keys. No default: Production refuses to
+      # start without a strong, non-placeholder value (src/Marrow.Infrastructure/Identity/IdentityKeyMaterial.cs).
+      Identity__MasterSecret: ${IDENTITY_MASTER_SECRET:?set IDENTITY_MASTER_SECRET in .env}
     depends_on: *host-depends-on
     ports:
       - "127.0.0.1:${API_HOST_PORT:-8081}:8080"
@@ -94,10 +107,15 @@ services:
       dockerfile: deploy/docker/Realtime.Dockerfile
     environment:
       <<: *host-environment
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB:?set POSTGRES_DB in .env};Username=sands_realtime;Password=${REALTIME_DB_PASSWORD:?set REALTIME_DB_PASSWORD in .env};Maximum Pool Size=20;Timeout=5;Command Timeout=15"
+      # Same secret as the API: the hub validates staff access tokens and guest session cookies the API issued.
+      Identity__MasterSecret: ${IDENTITY_MASTER_SECRET:?set IDENTITY_MASTER_SECRET in .env}
     depends_on: *host-depends-on
     # WARNING: keep replicas at 1. Match/room loops are owned by exactly ONE Realtime process.
     # A Redis backplane is transport only and does NOT make a second authoritative replica safe
     # (two match authorities are forbidden). Do not scale this service.
+    # Enforced by scripts/checks/realtime-scale-guard.sh (config) and a PostgreSQL advisory lock at startup (runtime);
+    # see docs/architecture/07-realtime-room-authority.md.
     deploy:
       replicas: 1
     ports:
@@ -111,6 +129,7 @@ services:
       dockerfile: deploy/docker/Worker.Dockerfile
     environment:
       <<: *host-environment
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB:?set POSTGRES_DB in .env};Username=sands_worker;Password=${WORKER_DB_PASSWORD:?set WORKER_DB_PASSWORD in .env};Maximum Pool Size=20;Timeout=5;Command Timeout=15"
     depends_on: *host-depends-on
     ports:
       - "127.0.0.1:${WORKER_HOST_PORT:-8083}:8080"
@@ -119,3 +138,4 @@ services:
 
 volumes:
   postgres-data:
+  redis-data:

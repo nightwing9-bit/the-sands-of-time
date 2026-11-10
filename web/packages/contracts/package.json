@@ -5,5 +5,5 @@
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",
-  "scripts": { "typecheck": "tsc -p tsconfig.json" }
+  "scripts": { "typecheck": "tsc -p tsconfig.json", "test": "node --test test/realtime.test.ts" }
 }

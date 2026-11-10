@@ -80,3 +80,21 @@ C1 after 02: one engine with two test-only reducer shapes. C2 after 06: shared e
 - Ratings/history/share = GhostLap services, consumed from MatchFinalized outbox.
 - Identity sessions = Marrow identity; app permissions = respective app.
 - Scrubber = shared web package; app-specific scenes/charts remain in each app.
+
+## Spec 03 deferral register
+
+Concerns left open at the Spec 03 exit gate (2026-11-10). Each owner must show the listed proof before its own exit gate. Spec 03 semantics they build on: `07-realtime-room-authority.md`.
+
+| Concern | Owner | Required proof in the owning spec |
+|---|---|---|
+| TypeScript `RealtimeStreamClient` tested only with a scripted transport; browser reconnect | 04 (final Ghost Lap journeys: 13) | Real browser client against the real `Hosts.Realtime` hub: subscribe, drop, reconnect, gap refetch, forbidden stream. |
+| Real owner/membership lookups behind the default-deny ports | 05, 07 (Revenant); 06, 10, 11 (Ghost Lap) | Domain `IResourceOwnershipLookup`/`IMembershipLookup` from the domain's own tables; cross-owner and cross-identity denial tests at its endpoints and hub streams. |
+| `TenantId` is always null (single tenant) | 07 (with 09) | Validated tenant claim plus RLS as Spec 07 specifies; a guessed tenant or history id is denied even with a forged request owner. Shared identity must not invent tenancy before then. |
+| Domain outbox/inbox tables and transactions | 07 (financial effects); 10, 12 (match results, social/ranking consumers) | Domain migration with the `MessagingTables` shape; business row + outbox row in the domain's own transaction; consumer effect + inbox row atomic; duplicate delivery gives one effect. |
+| Stream trimming, retention, poison/dead-letter requeue tooling, Redis throughput under `appendfsync always`, re-publish after Redis volume loss | 07, 12; verified again at final deployment acceptance | Measured throughput (no unmeasured claims). Trimming never removes entries any group has pending or unread. Requeue goes through outbox/inbox so dedup still holds. Operator procedure for poisoned rows and dead-letter streams. |
+| Host registration and domain use of the Timeline engine | 05, 06; Ghost Lap durable histories 11 | `AddMarrowTimeline` in the hosts with a login holding `marrow_timeline_runtime` (extend `scripts/db/migrate.sh` login mapping); domain adapters through `ITimelineEngine` only. |
+| Per-room ownership and fencing under real game traffic; revalidation sweep cost at room scale | 10 | Fencing-token/epoch ADR before any Realtime replica > 1; stale owner writes rejected; measured revocation bound with real room connection counts. |
+| Worker/Realtime domain DB grants | each domain spec that adds Worker or Realtime work (07, 09, 10, 12) | Grant only the new module runtime role to `sands_worker`/`sands_realtime`; least-privilege test like `The_executor_provisions_least_privilege_host_logins_without_printing_passwords`. |
+| Staff password reset/change, per-account login rate limiting beyond Identity lockout (5 failures, 15 min) | not in any Spec 03 requirement; first spec that exposes staff accounts beyond dev seeding (07/09 operator workflows) must decide | If adopted: reset tokens single-use and hashed, sessions revoked on password change, rate limits per account and per source. |
+
+Accepted v1 limitations (no owner change needed): the advisory lock is a deployment guard, not a fenced lease (about 10 s possible overlap after a silent lock-session loss); hub revocation is bounded (default 10 s), not instantaneous; loss of the Redis data volume or of fsynced storage is outside the supported outbox failure model.

@@ -113,3 +113,53 @@ for module in $MODULES; do
 done
 
 log "done: $applied applied, $skipped already applied"
+
+# Runtime logins (deployment configuration, not a migration, so passwords never enter a checksummed file).
+# Each host gets its own LOGIN role holding only the module runtime roles it needs. The superuser/migration
+# credentials above are for this executor only. A login is provisioned when its password variable is set;
+# re-running converges it (password, attributes and memberships). Passwords are read by psql's \getenv, so
+# they are never on a command line, never interpolated by the shell into SQL, and never printed.
+#   API_DB_PASSWORD      -> sands_api       member of marrow_identity_runtime
+#   REALTIME_DB_PASSWORD -> sands_realtime  member of marrow_identity_runtime (session revalidation, advisory lock)
+#   WORKER_DB_PASSWORD   -> sands_worker    no schema access yet (health checks only); domain specs grant more
+RUNTIME_ROLES="marrow_timeline_runtime marrow_identity_runtime"
+provision_login() {
+  login=$1 var=$2 members=$3
+  eval "password=\${$var:-}"
+  if [ -z "$password" ]; then
+    log "runtime login $login: $var not set, not provisioned"
+    return 0
+  fi
+  case "$password" in REPLACE_ME*) fail "$var is still the .env.example placeholder" ;; esac
+  case "$password" in *[!A-Za-z0-9]*) fail "$var must contain only letters and digits" ;; esac
+  [ "${#password}" -ge 24 ] || fail "$var must be at least 24 characters"
+  revoke=""
+  grant=""
+  for role in $RUNTIME_ROLES; do
+    if sql -c "SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = '$role'" | grep -q 1; then
+      revoke="${revoke}REVOKE $role FROM $login;
+"
+    fi
+  done
+  for role in $members; do grant="${grant}GRANT $role TO $login;
+"; done
+  # Only ERROR/FATAL lines are shown on failure (psql's LINE/caret context could echo statement text).
+  if ! errors=$(sql 2>&1 >/dev/null <<SQL
+\\getenv login_password $var
+BEGIN;
+SELECT pg_advisory_xact_lock(hashtext('the-sands-of-time:migrate'));
+SELECT 'CREATE ROLE $login' WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = '$login') \\gexec
+ALTER ROLE $login WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS INHERIT PASSWORD :'login_password';
+GRANT CONNECT ON DATABASE :"DBNAME" TO $login;
+$revoke$grant
+COMMIT;
+SQL
+  ); then
+    printf '%s\n' "$errors" | grep -E 'ERROR|FATAL' | grep -v 'LINE' >&2 || true
+    fail "runtime login $login could not be provisioned"
+  fi
+  log "runtime login $login: provisioned (${members:-no schema roles})"
+}
+provision_login sands_api API_DB_PASSWORD "marrow_identity_runtime"
+provision_login sands_realtime REALTIME_DB_PASSWORD "marrow_identity_runtime"
+provision_login sands_worker WORKER_DB_PASSWORD ""

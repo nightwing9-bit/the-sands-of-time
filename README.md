@@ -13,18 +13,22 @@
 
 ## Local setup (from a fresh clone)
 
-Prerequisites: .NET SDK 10 (`global.json` pins 10.0.100, roll-forward to the latest feature band), Node.js 20+ with npm, Docker with Compose v2, `openssl`, and Git. License: MIT (`LICENSE`).
+Prerequisites: .NET SDK 10.0.402 or newer 10.0 feature band (`global.json` requires at least 10.0.402, whose ASP.NET Core 10.0.13+ runtime is patched for CVE-2026-70159; older SDKs are refused), Node.js 22+ with npm, Docker with Compose v2, `openssl`, and Git. License: MIT (`LICENSE`).
 
 ```
 git clone https://github.com/nightwing9-bit/the-sands-of-time && cd the-sands-of-time
 
 # 1. Secrets: there are no defaults. .env is gitignored; .env.example holds placeholders only.
+#    Generates the Postgres superuser (migrate job only), Redis, the three per-host DB logins and the identity master secret.
 cp .env.example .env
-sed -i.bak "s/REPLACE_ME_POSTGRES/$(openssl rand -hex 24)/;s/REPLACE_ME_REDIS/$(openssl rand -hex 24)/" .env && rm .env.bak
+for k in POSTGRES REDIS API_DB REALTIME_DB WORKER_DB; do sed -i.bak "s/=REPLACE_ME_${k}\$/=$(openssl rand -hex 24)/" .env; done
+sed -i.bak "s/=REPLACE_ME_IDENTITY\$/=$(openssl rand -hex 32)/" .env && rm .env.bak
+grep -v '^#' .env | grep -c REPLACE_ME   # must print 0
 
-# 2. .NET: build and run the architecture gate
+# 2. .NET: build and run the architecture gate (real-service tests need Docker; see the integration job in ci.yml)
 dotnet build TheSandsOfTime.slnx
 dotnet test tests/Architecture/Architecture.Tests.csproj
+dotnet test tests/Integration/Integration.Tests.csproj   # optional: Testcontainers PostgreSQL/Redis
 
 # 3. Web: install, typecheck, build both shells
 (cd web && npm ci && npm run typecheck && npm run build)

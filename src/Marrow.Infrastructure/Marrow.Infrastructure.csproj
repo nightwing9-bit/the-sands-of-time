@@ -5,12 +5,14 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Marrow.Tests" />
+    <InternalsVisibleTo Include="Integration.Tests" />
   </ItemGroup>
   <ItemGroup>
     <!-- Host-composition plumbing (DI, health endpoints). Domain assemblies must not reference this project. -->
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.14" />
     <PackageReference Include="Npgsql" Version="10.0.3" />
     <PackageReference Include="StackExchange.Redis" Version="3.4.31" />
   </ItemGroup>

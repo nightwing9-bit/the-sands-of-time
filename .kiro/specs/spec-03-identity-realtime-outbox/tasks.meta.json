@@ -1,0 +1,65 @@
+{
+  "pbtResults": {},
+  "executionHistory": {
+    "**3.1 Staff/guest auth and session migration**": [
+      {
+        "executionId": "a5f9f888-2502-41cd-9829-a505d4271ab8",
+        "chatSessionId": "sess_0e4aea9a-acc3-4d3d-a0d3-c75694b79eb5",
+        "timestamp": 1794293863957
+      },
+      {
+        "executionId": "a5f9f888-2502-41cd-9829-a505d4271ab8",
+        "chatSessionId": "sess_0e4aea9a-acc3-4d3d-a0d3-c75694b79eb5",
+        "timestamp": 1794295165248
+      }
+    ],
+    "**3.2 Domain policy interface and enforcement**": [
+      {
+        "executionId": "1bbaf7a9-8794-4db3-9935-1d66e2bb1436",
+        "chatSessionId": "sess_d9b12840-781d-472f-8809-d70c9742f845",
+        "timestamp": 1794295472514
+      },
+      {
+        "executionId": "1bbaf7a9-8794-4db3-9935-1d66e2bb1436",
+        "chatSessionId": "sess_d9b12840-781d-472f-8809-d70c9742f845",
+        "timestamp": 1794295725744
+      }
+    ],
+    "**3.3 Durable outbox/inbox**": [
+      {
+        "executionId": "b29cb766-574f-4344-bcc1-4f192f95c42f",
+        "chatSessionId": "sess_17c31700-0f11-4cc2-ba2d-f7b22d2ed223",
+        "timestamp": 1794296100939
+      },
+      {
+        "executionId": "b29cb766-574f-4344-bcc1-4f192f95c42f",
+        "chatSessionId": "sess_17c31700-0f11-4cc2-ba2d-f7b22d2ed223",
+        "timestamp": 1794296895428
+      }
+    ],
+    "**3.4 Typed hub and gap recovery**": [
+      {
+        "executionId": "94e95e9a-fe94-44c2-99aa-59cb0159c624",
+        "chatSessionId": "sess_60bf4792-15d3-4051-b359-b6a252f241ee",
+        "timestamp": 1794297216682
+      },
+      {
+        "executionId": "94e95e9a-fe94-44c2-99aa-59cb0159c624",
+        "chatSessionId": "sess_60bf4792-15d3-4051-b359-b6a252f241ee",
+        "timestamp": 1794298366722
+      }
+    ],
+    "**3.5 Deployment guard and quality gate**": [
+      {
+        "executionId": "46c4bcd3-ff73-4d89-9334-175f62021615",
+        "chatSessionId": "sess_07a52cb4-c0bc-4f4f-b36f-968dcd9856d8",
+        "timestamp": 1794298656393
+      },
+      {
+        "executionId": "46c4bcd3-ff73-4d89-9334-175f62021615",
+        "chatSessionId": "sess_07a52cb4-c0bc-4f4f-b36f-968dcd9856d8",
+        "timestamp": 1794301191401
+      }
+    ]
+  }
+}

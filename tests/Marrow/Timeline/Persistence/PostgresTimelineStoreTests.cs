@@ -19,12 +19,36 @@ public sealed class PostgresTimelineStoreTests(TimelinePostgresDatabase db) : IC
     [Fact]
     public async Task Migration_is_applied_by_the_spec01_runner_and_a_rerun_is_a_noop()
     {
-        Assert.Contains("module marrow_timeline: applying 0001_timeline_journal", db.FirstMigrationOutput, StringComparison.Ordinal);
-        Assert.Contains("done: 1 applied, 0 already applied", db.FirstMigrationOutput, StringComparison.Ordinal);
+        // The single executor also applies other modules' migrations (e.g. marrow_identity), so the "done:" totals
+        // are not Timeline-specific. Assert on the Timeline module's own lines and history table instead.
+        const string applyingTimeline = "module marrow_timeline: applying 0001_timeline_journal";
+        Assert.Equal(1, CountOccurrences(db.FirstMigrationOutput, applyingTimeline));
+        Assert.Contains("done: ", db.FirstMigrationOutput, StringComparison.Ordinal);
+        Assert.Equal(1L, await TimelineMigrationRowsAsync());
 
         var rerun = await db.RunMigratorAsync();
 
-        Assert.Contains("done: 0 applied, 1 already applied", rerun, StringComparison.Ordinal);
+        Assert.DoesNotContain("applying", rerun, StringComparison.Ordinal);
+        Assert.Contains("done: 0 applied, ", rerun, StringComparison.Ordinal);
+        Assert.Equal(1L, await TimelineMigrationRowsAsync());
+
+        static int CountOccurrences(string text, string value)
+        {
+            var count = 0;
+            for (var i = text.IndexOf(value, StringComparison.Ordinal); i >= 0; i = text.IndexOf(value, i + value.Length, StringComparison.Ordinal))
+            {
+                count++;
+            }
+
+            return count;
+        }
+
+        async Task<long> TimelineMigrationRowsAsync()
+        {
+            await using var cmd = db.Owner.CreateCommand(
+                "SELECT count(*) FROM marrow_timeline.schema_migrations WHERE version = '0001_timeline_journal'");
+            return (long)(await cmd.ExecuteScalarAsync())!;
+        }
     }
 
     [Fact]
