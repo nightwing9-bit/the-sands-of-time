@@ -43,4 +43,6 @@
 
 A genuine six-bank v7/v8 branch produces distinct, computed hold/settlement/liquidity states and synthetic metrics through Marrow; source unchanged; V1 browser path works; no claim of DB posting before 07.
 
+> **Exit verification recorded 2026-11-10 in `docs/kiro-log.md`: SPEC 05 EXIT GATE: PASSED.** The joint B2 basket gate stays pending until Spec 06 exits.
+
 Minimum proof includes successful targeted automated tests and relevant integration observation **actually performed**. Record real result paths, commands, commit IDs, encountered defects and measured Kiro credit use (if observable) in `docs/kiro-log.md`; if any check cannot run, mark blocker and leave task/spec incomplete. Do **not** infer a passing test from this document.

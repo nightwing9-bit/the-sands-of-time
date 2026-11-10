@@ -90,7 +90,12 @@ public sealed class FridayRingTimelineTests(RevenantTimelineDatabase db, ITestOu
             Assert.Equal(10, end.Metrics.FraudDeferredAtHorizonCount);
             Assert.Equal(0, end.Metrics.FraudPreventedCount);
             Assert.Equal(0, end.Metrics.FraudPreventedExposureMinor);
-            Assert.True(end.Metrics.LegitimateDelayedCount >= 1);
+            // Exact figures from the independent reference calculation: the 09:00 fork is position 30, so legitimate
+            // FR-0021 (position 21) stays in the shared v7 prefix and only FR-0054 is delayed; a full v8 run delays both.
+            Assert.Equal(30, forkAt);
+            Assert.Equal((1, 250L, 360L, -610L, 11),
+                (end.Metrics.LegitimateDelayedCount, end.Metrics.FalsePositiveCostMinor, end.Metrics.IncrementalDelayCostMinor,
+                 end.Metrics.NetEffectMinor, end.Metrics.DecisionDifferenceCount));
 
             // R05.05 (cancel): a cancelled continuation stays Recording at T; resuming reaches the same hash.
             var second = Ok(await adapter.CreateBranchAsync(Request(source.Id, forkAt, run.Manifest, v8Ref), Ct));

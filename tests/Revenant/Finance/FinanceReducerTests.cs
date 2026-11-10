@@ -61,21 +61,92 @@ public sealed class FinanceReducerTests
 
         var heldLegit = v8.Payments.Values.Where(p => p.Intent.Truth == SyntheticTruth.Legitimate && p.IsPendingHold).ToList();
         var expectedDelayCost = heldLegit.Sum(p =>
-            Math.Min((v8.ClockUtcMs - v7.Payments[p.Intent.IntentId].SettledAtUtcMs!.Value) / 60_000, 120) * 1_000);
+            Math.Min((v8.ClockUtcMs - v7.Payments[p.Intent.IntentId].SettledAtUtcMs!.Value) / 60_000, 120) * 10);
         Assert.Equal(0, metrics.FraudPreventedCount);
         Assert.Equal(0, metrics.FraudPreventedExposureMinor);
         Assert.Equal(10, metrics.FraudDeferredAtHorizonCount);
         Assert.Equal(2, metrics.LegitimateDelayedCount);
-        Assert.Equal(2 * 25_000, metrics.FalsePositiveCostMinor);
+        Assert.Equal(2 * 250, metrics.FalsePositiveCostMinor);
         Assert.Equal(expectedDelayCost, metrics.IncrementalDelayCostMinor);
         Assert.True(expectedDelayCost > 0);
-        Assert.Equal(-(50_000 + expectedDelayCost), metrics.NetEffectMinor);
+        Assert.Equal(-(500 + expectedDelayCost), metrics.NetEffectMinor);
         Assert.Equal(12, metrics.DecisionDifferenceCount);
         Assert.Equal(ScenarioSchemas.LabelSchemaVersion, metrics.LabelSchemaVersion);
 
         var shorter = Project(run with { Intents = [.. run.Intents.Take(run.Intents.Length - 1)] }, PolicyCatalog.V8);
         Assert.Equal(FinanceErrorCode.NotAligned, CounterfactualMetrics.Compare(v7, shorter, CounterfactualCostModel.V1).Error.Code);
     }
+
+    /// <summary>
+    /// Every literal below comes from a separate throwaway reference calculation (SplitMix64 generator and the
+    /// documented v7/v8 rules re-implemented outside the repository), not from this implementation's output.
+    /// </summary>
+    [Fact]
+    public void Seed_42_matches_an_independent_reference_and_full_run_versus_fork_metrics_reconcile()
+    {
+        var run = FridayRingScenarioTests.Create(42, RunA);
+        Assert.Equal(90, run.Intents.Length);
+        var first = run.Intents[0];
+        Assert.Equal(("FR-0001", 1767945723000L, 81_860L, "BANK-B/ACC-1", "BANK-F/ACC-1"),
+            (first.IntentId, first.EventTimeUtcMs, first.Amount.MinorUnits, first.SourceAccountId, first.DestAccountId));
+        var ring = run.Intents.First(i => i.Truth == SyntheticTruth.FraudMuleRing);
+        Assert.Equal(("FR-0032", 1767949327000L, 146_519L), (ring.IntentId, ring.EventTimeUtcMs, ring.Amount.MinorUnits));
+        Assert.Equal(
+            ["FR-0021", "FR-0054"],
+            run.Intents.Where(i => i.Truth == SyntheticTruth.Legitimate && i.Features.NewBeneficiary && i.Amount.MinorUnits >= 150_000)
+                .Select(i => i.IntentId));
+
+        // SHA-256 over a plain text rendering of all 90 intents, computed by the reference calculation. A single
+        // drift in the SplitMix64 stream, ordering, amounts, times, accounts, labels or beneficiary flags changes it.
+        var rendering = string.Join("\n", run.Intents.Select(i =>
+            $"{i.Sequence}|{i.IntentId}|{i.EventTimeUtcMs}|{i.SourceAccountId}|{i.DestAccountId}|{i.Amount.MinorUnits}|{i.Truth}|{(i.Features.NewBeneficiary ? 1 : 0)}"));
+        Assert.Equal(
+            "e025399797c52bf4f0e6c851d3c3960eb493f5f51ddc6a4d01a94df69156cb97",
+            Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(rendering))));
+
+        // Full-run comparison: both policies see the same 90 intents from the same opening state.
+        var v7 = Project(run, PolicyCatalog.V7);
+        var v8 = Project(run, PolicyCatalog.V8);
+        Assert.Equal(
+            ["FR-0021", "FR-0039", "FR-0041", "FR-0050", "FR-0052", "FR-0054", "FR-0062", "FR-0063", "FR-0073", "FR-0074", "FR-0085", "FR-0086"],
+            v8.Payments.Values.Where(p => p.IsPendingHold).Select(p => p.Intent.IntentId).Order(StringComparer.Ordinal));
+        Assert.Equal([10_166_230L, 11_085_635, 10_681_597, 11_233_942, 10_991_580, 11_841_016], v7.Banks.Select(b => b.PostedMinor));
+        Assert.Equal([10_432_656L, 10_895_872, 10_865_882, 11_244_655, 11_176_291, 11_384_644], v8.Banks.Select(b => b.PostedMinor));
+        Assert.Equal(66_000_000, v7.TotalPostedMinor);
+        Assert.Equal(66_000_000, v8.TotalPostedMinor);
+        // Reserved money is a hold on availability, not a settled balance: it is outside the posted figures above.
+        Assert.Equal(1_704_910, v8.TotalReservedMinor);
+        Assert.Equal(v8.TotalPostedMinor - 1_704_910, v8.Banks.Sum(b => b.AvailableMinor));
+        var full = CounterfactualMetrics.Compare(v7, v8, CounterfactualCostModel.V1).Value;
+        Assert.Equal((0, 0L, 10, 2, 500L, 1_120L, -1_620L, 12),
+            (full.FraudPreventedCount, full.FraudPreventedExposureMinor, full.FraudDeferredAtHorizonCount,
+             full.LegitimateDelayedCount, full.FalsePositiveCostMinor, full.IncrementalDelayCostMinor,
+             full.NetEffectMinor, full.DecisionDifferenceCount));
+
+        // v8 continuation forked from v7 at position 30 (the 09:00 selection). FR-0021 sits at position 21, inside
+        // the shared v7 prefix, so it is settled under v7 in both branches and cannot be delayed: 1 legitimate, not 2.
+        const int fork = 30;
+        Assert.Equal(fork, FinanceTimelineAdapterPosition(run));
+        var v7Context = Pin(run, PolicyCatalog.V7);
+        var prefix = FinanceReducer.ApplyAll(FinanceReducer.Initial(run, v7Context).Value, run.Intents.Where(i => i.Sequence <= fork), v7Context).Value;
+        var branch = FinanceReducer.ApplyAll(prefix, run.Intents.Where(i => i.Sequence > fork), Pin(run, PolicyCatalog.V8)).Value;
+        Assert.Equal(PaymentStatus.Settled, branch.Payments["FR-0021"].Status);
+        Assert.Equal(PolicyCatalog.V7Id, branch.Payments["FR-0021"].PolicyId);
+        var forked = CounterfactualMetrics.Compare(v7, branch, CounterfactualCostModel.V1).Value;
+        Assert.Equal((0, 0L, 10, 1, 250L, 360L, -610L, 11),
+            (forked.FraudPreventedCount, forked.FraudPreventedExposureMinor, forked.FraudDeferredAtHorizonCount,
+             forked.LegitimateDelayedCount, forked.FalsePositiveCostMinor, forked.IncrementalDelayCostMinor,
+             forked.NetEffectMinor, forked.DecisionDifferenceCount));
+        Assert.Equal(1_518_490, branch.TotalReservedMinor);
+        Assert.Equal([10_432_656L, 11_082_292, 10_679_462, 11_244_655, 11_176_291, 11_384_644], branch.Banks.Select(b => b.PostedMinor));
+        // The held ring payments are identical in both views (all 10 after position 30); only the legit hold differs.
+        Assert.Equal(
+            v8.Payments.Values.Where(p => p.IsPendingHold && p.Intent.Truth == SyntheticTruth.FraudMuleRing).Select(p => p.Intent.IntentId),
+            branch.Payments.Values.Where(p => p.IsPendingHold && p.Intent.Truth == SyntheticTruth.FraudMuleRing).Select(p => p.Intent.IntentId));
+    }
+
+    private static long FinanceTimelineAdapterPosition(ScenarioRun run) =>
+        Revenant.Timeline.FinanceTimelineAdapter.PositionAtOrBefore(run, run.Manifest.StartUtcMs + (60 * 60 * 1000L));
 
     [Fact]
     public void Upstream_hold_starves_a_downstream_payment_which_v8_terminally_returns()

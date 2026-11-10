@@ -213,6 +213,16 @@ test("Friday Ring click path: start, scrub to 09:00, pick policy v8, fork; every
   await expect(page.getByTestId("metric-false-positive-cost").locator("b")).toHaveText(money(m.falsePositiveCostMinor));
   await expect(page.getByTestId("metric-delay-cost").locator("b")).toHaveText(money(m.incrementalDelayCostMinor));
   await expect(page.getByTestId("metric-net").locator("b")).toHaveText(money(m.netEffectMinor));
+  // Cost model v1 is stated in USD minor units (250 and 10 per minute), so these are cents on screen. Seed 42 forked at 09:00
+  // (position 30) has these exact figures in an independent reference calculation, not copied from this implementation's output.
+  expect({ seed: run.scenario.seed, fork: nineAm.position }).toEqual({ seed: 42, fork: "30" });
+  {
+    expect({ delayed: m.legitimateDelayedCount, fp: m.falsePositiveCostMinor, delay: m.incrementalDelayCostMinor, net: m.netEffectMinor, deferred: m.fraudDeferredAtHorizonCount, prevented: m.fraudPreventedCount })
+      .toEqual({ delayed: 1, fp: 250, delay: 360, net: -610, deferred: 10, prevented: 0 });
+    await expect(page.getByTestId("metric-false-positive-cost").locator("b")).toHaveText("USD 2.50");
+    await expect(page.getByTestId("metric-delay-cost").locator("b")).toHaveText("USD 3.60");
+    await expect(page.getByTestId("metric-net").locator("b")).toHaveText("-USD 6.10");
+  }
   expect(m.fraudDeferredAtHorizonCount).toBeGreaterThanOrEqual(1);
   expect(last.alternate.counters.fraudPendingHold).toBeGreaterThanOrEqual(m.fraudDeferredAtHorizonCount);
   expect(m.fraudPreventedCount).toBe(last.alternate.counters.fraudTerminallyStopped - last.original.counters.fraudTerminallyStopped);
@@ -220,6 +230,10 @@ test("Friday Ring click path: start, scrub to 09:00, pick policy v8, fork; every
   await expect(page.getByTestId("metrics-caveat")).toContainText("not real-world fraud findings");
   await expect(page.getByTestId("metrics-caveat")).toContainText("A held payment is pending, not prevented");
   await expect(page.getByText(/ledger (entries )?posted|posted to the ledger/i)).toHaveCount(0);
+  // The synthetic / projection-only banner is still on screen next to the comparison, not only at the start.
+  await expect(page.getByTestId("truth-banner")).toBeVisible();
+  await expect(page.getByTestId("truth-banner")).toContainText("SYNTHETIC DATA");
+  await expect(page.getByTestId("ledger-posting")).toHaveText("NO LEDGER POSTING");
 
   // 7. PostgreSQL: one child at the fork position with the browser's key; the source rows did not move; hashes are the stored ones.
   const sourceAfter = await facts(run.timelineId);

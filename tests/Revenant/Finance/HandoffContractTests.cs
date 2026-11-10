@@ -50,6 +50,16 @@ public sealed class HandoffContractTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void Cost_model_v1_is_stated_in_usd_minor_units_as_the_spec_defines_it()
+    {
+        // Spec 05 and Spec 09 design: 250 and 10 are USD *minor units* (USD 2.50 and USD 0.10), capped at 120 minutes.
+        var costs = CounterfactualCostModel.V1;
+        Assert.Equal(("USD", 250L, 10L, 120), (costs.Currency, costs.FalsePositiveCostMinor, costs.DelayCostPerMinuteMinor, costs.DelayCapMinutes));
+        Assert.Equal(typeof(long), typeof(CounterfactualCostModel).GetProperty(nameof(CounterfactualCostModel.FalsePositiveCostMinor))!.PropertyType);
+        Assert.Equal(typeof(long), typeof(CounterfactualCostModel).GetProperty(nameof(CounterfactualCostModel.DelayCostPerMinuteMinor))!.PropertyType);
+    }
+
+    [Fact]
     public void Domain_assembly_has_no_persistence_host_or_clock_dependencies()
     {
         var names = typeof(FinanceReducer).Assembly.GetReferencedAssemblies().Select(a => a.Name ?? "").ToArray();

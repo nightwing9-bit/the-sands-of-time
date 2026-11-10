@@ -5,9 +5,10 @@ namespace Revenant.Finance;
 
 /// <summary>
 /// Scenario cost assumptions for synthetic comparison metrics. They are not real banking losses.
-/// <c>counterfactual-cost-v1</c>: USD 250.00 per newly held or stopped labelled-legitimate payment, and
-/// USD 10.00 per whole additional minute a labelled-legitimate payment settles later (or stays unsettled)
-/// than in the original, capped at 120 minutes per payment.
+/// <c>counterfactual-cost-v1</c> (Spec 05 and Spec 09 design, stated in USD minor units): 250 minor units
+/// (USD 2.50) per newly held or stopped labelled-legitimate payment, and 10 minor units (USD 0.10) per whole
+/// additional minute a labelled-legitimate payment settles later (or stays unsettled) than in the original,
+/// capped at 120 minutes per payment. Both are integers; no floating point enters the cost arithmetic.
 /// </summary>
 public sealed record CounterfactualCostModel(
     string Version,
@@ -16,7 +17,7 @@ public sealed record CounterfactualCostModel(
     long DelayCostPerMinuteMinor,
     int DelayCapMinutes)
 {
-    public static CounterfactualCostModel V1 { get; } = new("counterfactual-cost-v1", "USD", 25_000, 1_000, 120);
+    public static CounterfactualCostModel V1 { get; } = new("counterfactual-cost-v1", "USD", 250, 10, 120);
 }
 
 /// <summary>

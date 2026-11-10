@@ -98,3 +98,19 @@ Concerns left open at the Spec 03 exit gate (2026-11-10). Each owner must show t
 | Staff password reset/change, per-account login rate limiting beyond Identity lockout (5 failures, 15 min) | not in any Spec 03 requirement; first spec that exposes staff accounts beyond dev seeding (07/09 operator workflows) must decide | If adopted: reset tokens single-use and hashed, sessions revoked on password change, rate limits per account and per source. |
 
 Accepted v1 limitations (no owner change needed): the advisory lock is a deployment guard, not a fenced lease (about 10 s possible overlap after a silent lock-session loss); hub revocation is bounded (default 10 s), not instantaneous; loss of the Redis data volume or of fsynced storage is outside the supported outbox failure model.
+
+## Spec 05 handoff register
+
+Spec 05 (2026-11-10) delivers the pure `FinanceReducer`, `CounterfactualMetrics`, scenario generator, versioned codecs and `FinanceTimelineAdapter`, plus a test-only HTTP bridge (`tests/E2E/backend/RevenantSliceEndpoints.cs`). Ownership below was checked against the requirement files of specs 07, 08 and 09.
+
+| Concern left open by Spec 05 | Owner | Required proof in the owning spec |
+|---|---|---|
+| Real posting, ledger transactions, balanced-posting trigger, legal lifecycle in PostgreSQL. Slice `Settled` is a projection only. | 07 (R07.01, R07.02, R07.11) | `Settled` commits balanced linked legs atomically. The reducer is consumed unchanged (`HandoffContractTests` freeze its surface). |
+| Durable `ScenarioRunId` identity. The slice run registry is in memory and loses bank names and the recorded source hash on a host restart. | 07 (R07.12); 09 (R09.12) | Run-scoped bank/account state and `(ScenarioRunId,intentId)` idempotency persisted in the Revenant schema. Both runs' records retained. |
+| Production Revenant API with bank-staff/tenant authorization. The slice authorizes only the guest owner of the history. | 07 (R07.05, R07.08, R07.13), 09 (R09.03, R09.04) | Domain `IResourceOwnershipLookup`/`IMembershipLookup` from Revenant tables. Cross-owner, cross-tenant and unauthorized-staff denial tests at the real endpoints. |
+| Production host registration of the Revenant Timeline engine (`AddMarrowTimeline` with `FinanceTimelineVersions.All` in `Hosts.Api`/`Hosts.Worker`). Today only the test host and `tests/Revenant` register it. | 07 (API), 09 (`Worker.Replay`) | Host composition with a login in `marrow_timeline_runtime`. Committed OpenAPI/TS contract updated in the same change. |
+| Financial outbox/inbox for payment, hold and settlement events. | 07 (R07.09) | Business row and outbox row in one transaction. Duplicate delivery gives one effect. |
+| Review actions on holds. Input schema `revenant-payment-intent/1` has none, so a hold stays pending and `fraudPreventedCount` stays 0 in the slice. | 07 (release/reject), 09 (R09.11 `analyst-continuation-v1`) | Terminal prevention counted only after a recorded reject/return that never settled. |
+| Fraud/risk scoring, anomaly and liquidity forecast. The slice uses rule policies `policy-v7`/`policy-v8` with no learned model (`NoModelArtifact`). | 08 (R08.02, R08.04, R08.06) | Version-pinned model artifacts and evidence recorded per decision. Forecasts built from the actual causal series. |
+| Metric presentation, replay isolation and interpretation: Worker.Replay role, hash audit, five screens. `counterfactual-cost-v1` is in USD minor units (250 per false positive, 10 per delay minute, 120-minute cap); Spec 09 design states the same units. | 09 (R09.04, R09.05, R09.07, R09.10) | Source ledger rows and hashes unchanged after a branch. Pending fraud shown as deferred and never monetized. |
+| Joint B2 basket gate (same engine and scrubber across both apps). | 05 and 06 together | Runs once Spec 06 exits. Revenant half recorded in `docs/kiro-log.md`. |
