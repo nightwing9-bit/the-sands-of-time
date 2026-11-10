@@ -48,6 +48,18 @@
         "chatSessionId": "sess_8999b71c-a67c-4d1f-bf8e-6d428d16adac",
         "timestamp": 1794291474288
       }
+    ],
+    "**2.5 Cross-domain-shape proof and gate**": [
+      {
+        "executionId": "17cc2aa3-1a48-4a7c-9775-d84b9ab65e7c",
+        "chatSessionId": "sess_90e799ce-70ca-47d8-8066-0e3f89e73645",
+        "timestamp": 1794292163756
+      },
+      {
+        "executionId": "17cc2aa3-1a48-4a7c-9775-d84b9ab65e7c",
+        "chatSessionId": "sess_90e799ce-70ca-47d8-8066-0e3f89e73645",
+        "timestamp": 1794292641913
+      }
     ]
   }
 }

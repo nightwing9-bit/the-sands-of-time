@@ -32,7 +32,7 @@
   - **Verification:** sibling branches with changed context, prefix under original context, child cold restore, terminal-position behavior, cancel/retry and typed error tests.
   - **Done when:** branches are independently reproducible.
 
-- [ ] **2.5 Cross-domain-shape proof and gate**
+- [x] **2.5 Cross-domain-shape proof and gate**
   - **Precondition/input & inspect:** tests/Marrow fake tick+event reducers, shared Assembly refs. Completed prerequisite spec exit gate must already have evidence.
   - **Produce/modify:** end-to-end Testcontainers proof, docs for domain adapter usage.
   - **Forbidden changes:** passing tests only from in-memory fake store. Do not change frozen shared public contracts without ADR.

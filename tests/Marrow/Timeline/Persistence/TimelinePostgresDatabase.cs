@@ -83,6 +83,9 @@ public sealed class TimelinePostgresDatabase : IAsyncLifetime
         return new PostgresTimelineStore(dataSource);
     }
 
+    /// <summary>Runtime-login connection string, for a fresh host container that owns its own pool (changes on restart).</summary>
+    public string AppConnectionString => _appConnectionString ?? throw new InvalidOperationException("Database not started.");
+
     private readonly List<NpgsqlDataSource> _coldSources = [];
     private string? _appConnectionString;
 
