@@ -1,0 +1,16 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Architecture & Quality Gate",
+      "description": "Run bounded suite after a spec task, not after every file save",
+      "trigger": "PostTaskExecution",
+      "action": {
+        "type": "command",
+        "command": "bash scripts/checks/spec-gate.sh"
+      },
+      "timeout": 180,
+      "enabled": false
+    }
+  ]
+}

@@ -1,0 +1,259 @@
+{
+  "project": "The Sands Of Time",
+  "planned_specs": 13,
+  "file_count_excluding_manifest": 63,
+  "files": {
+    ".kiro/hooks/architecture-quality-gate.json": {
+      "sha256": "0b927ef16b5fea0cad00726959258f4ef8c870fea18f662e4bb1b44f75590ce1",
+      "bytes": 375
+    },
+    ".kiro/hooks/browser-evidence-capture.json": {
+      "sha256": "8c87cd0db9713db8e354ce15725244c113a4492db9a1c40be4377638a233cbfa",
+      "bytes": 395
+    },
+    ".kiro/hooks/marrow-contract-guardian.json": {
+      "sha256": "b49e8551a12da2f0e5de4fbf838cb26b7c4681ff374958fb14883282df772b59",
+      "bytes": 533
+    },
+    ".kiro/settings/mcp.json": {
+      "sha256": "b9c6678bc868c311a8a4c324068ec1cb99c03357bb4216a1509c79f1e64a947d",
+      "bytes": 368
+    },
+    ".kiro/specs/README.md": {
+      "sha256": "c6678739315e24af4efbbd717cb8f15e2ab9bcb45f52ad431f6528fe0962bc22",
+      "bytes": 439
+    },
+    ".kiro/specs/spec-01-foundation-bootstrap/design.md": {
+      "sha256": "ff9846d102f30d369a855ffae91dac45a0c64cb53d85c0f19d376f8e251eede9",
+      "bytes": 5827
+    },
+    ".kiro/specs/spec-01-foundation-bootstrap/requirements.md": {
+      "sha256": "59fa4d4ce4c69747339585ee9bace39ee453c42bae313441547c9b1f44de5ce5",
+      "bytes": 3691
+    },
+    ".kiro/specs/spec-01-foundation-bootstrap/tasks.md": {
+      "sha256": "8033c108e543111d8ae448fc0e173af47a4a27403213c79d0c30c7301dbd6cca",
+      "bytes": 4247
+    },
+    ".kiro/specs/spec-02-timeline-journal-simulation/design.md": {
+      "sha256": "9834b0f6c19915de6849ff3dd28a8efe12a17c90f8565bedf0984e43407e0e1b",
+      "bytes": 6464
+    },
+    ".kiro/specs/spec-02-timeline-journal-simulation/requirements.md": {
+      "sha256": "2ae79b8fa17b50bcfe8716efec56fdbe57f5946b244d2504d546131aa4f00d7a",
+      "bytes": 4068
+    },
+    ".kiro/specs/spec-02-timeline-journal-simulation/tasks.md": {
+      "sha256": "e481a72e9e571225fa99af0edb412c526a9826263464a2b17e7b0cf21832b805",
+      "bytes": 4131
+    },
+    ".kiro/specs/spec-03-identity-realtime-outbox/design.md": {
+      "sha256": "0b7d361f4fcf623ac9f653c0d85bf015d007f1d2869fe5da4ae8e6216bc4a416",
+      "bytes": 5595
+    },
+    ".kiro/specs/spec-03-identity-realtime-outbox/requirements.md": {
+      "sha256": "82a3bcc769e04a8affb7899073603b760febf6cd03a7006438f4967485b7c1fd",
+      "bytes": 3867
+    },
+    ".kiro/specs/spec-03-identity-realtime-outbox/tasks.md": {
+      "sha256": "6dc41f8545f361fd74438b17925fd8ce125af42508e39a59a1c57e4d4fc889a4",
+      "bytes": 4107
+    },
+    ".kiro/specs/spec-04-shared-web-timeline/design.md": {
+      "sha256": "db507b3ca9327ea48b3fef28b76d1fc5a01834362126c1adcb6ad6ba7b131302",
+      "bytes": 4909
+    },
+    ".kiro/specs/spec-04-shared-web-timeline/requirements.md": {
+      "sha256": "2bed77d126ae561717287c140b4d80dc5465339727d521f1f0eb6be21f9fbb74",
+      "bytes": 3521
+    },
+    ".kiro/specs/spec-04-shared-web-timeline/tasks.md": {
+      "sha256": "b74b16426b0fd382a37a4683d16db8b195689253c2de9436288706b1a7d4c289",
+      "bytes": 4039
+    },
+    ".kiro/specs/spec-05-revenant-v1-slice/design.md": {
+      "sha256": "e7ee996450e52277a6cc33170a3c4609f6fd26fc07c1f42ad4c414098feb278c",
+      "bytes": 7151
+    },
+    ".kiro/specs/spec-05-revenant-v1-slice/requirements.md": {
+      "sha256": "2135bf73c8b7a4025380bf07bd50b9902c21dc85779fc4b779a750ebbdc31946",
+      "bytes": 4026
+    },
+    ".kiro/specs/spec-05-revenant-v1-slice/tasks.md": {
+      "sha256": "2920a64664105232389957c4d644932a9972c67224137bf0ff90227b75790f17",
+      "bytes": 4126
+    },
+    ".kiro/specs/spec-06-ghostlap-v1-slice/design.md": {
+      "sha256": "5edb4ff694b4afe0363b846e2f7a3fe66b814bbf848b33574513e3bbfe164bdb",
+      "bytes": 7036
+    },
+    ".kiro/specs/spec-06-ghostlap-v1-slice/requirements.md": {
+      "sha256": "50f49e64c3c20783f06162d24a1ff93475bc04e8a07f7a1161db9ea7e4f953d8",
+      "bytes": 4307
+    },
+    ".kiro/specs/spec-06-ghostlap-v1-slice/tasks.md": {
+      "sha256": "a8bc64a635d430942fd26bcf9d292780a394ac18b97483d5a6bcb3b18e7ed875",
+      "bytes": 4307
+    },
+    ".kiro/specs/spec-07-revenant-ledger-operations/design.md": {
+      "sha256": "fe6d62c89e63f4e9c71dc1ea607ef71668fb425df78fbfd0faae39d1660e80a2",
+      "bytes": 6689
+    },
+    ".kiro/specs/spec-07-revenant-ledger-operations/requirements.md": {
+      "sha256": "205b1ee9c72ece06cef84f75547ab501e29eb76dc918ccc5d06fb66394951fb6",
+      "bytes": 4124
+    },
+    ".kiro/specs/spec-07-revenant-ledger-operations/tasks.md": {
+      "sha256": "befe5348e0bf57392d1fa562ffde90317e5758a182d00507df58a515904a6c23",
+      "bytes": 4241
+    },
+    ".kiro/specs/spec-08-revenant-intelligence-liquidity/design.md": {
+      "sha256": "898a4ae3cdcbb31965c9a49e854a843a2e870be02c0730e685ce0fb9cfed3a11",
+      "bytes": 6837
+    },
+    ".kiro/specs/spec-08-revenant-intelligence-liquidity/requirements.md": {
+      "sha256": "a87a1ff5d678688e612bcc66b49a4101d2e2c38ed62202c4d66cef569055b788",
+      "bytes": 4064
+    },
+    ".kiro/specs/spec-08-revenant-intelligence-liquidity/tasks.md": {
+      "sha256": "63ceb05920ed8f3468afbcfb8ac586e991b9fbcc53bdbf523169f7269505de8a",
+      "bytes": 4162
+    },
+    ".kiro/specs/spec-09-revenant-counterfactual-ui/design.md": {
+      "sha256": "590c27c7b2d934590a2488a642e493253cf09620509e406aa3ecc8940c327d41",
+      "bytes": 6967
+    },
+    ".kiro/specs/spec-09-revenant-counterfactual-ui/requirements.md": {
+      "sha256": "8495dd54daabaae84157c23fe18aeade0760554d9ff991f7974250cf3efd6064",
+      "bytes": 3922
+    },
+    ".kiro/specs/spec-09-revenant-counterfactual-ui/tasks.md": {
+      "sha256": "83c6d87fe49035580e452c9f07a0e8e8ba3f18e0fdac3103275cca26d144656f",
+      "bytes": 4172
+    },
+    ".kiro/specs/spec-10-ghostlap-authoritative-multiplayer/design.md": {
+      "sha256": "27202085506b8d9a48b1215d93db40730ca3951fc9ffcecf021b3b1312cb68c5",
+      "bytes": 6407
+    },
+    ".kiro/specs/spec-10-ghostlap-authoritative-multiplayer/requirements.md": {
+      "sha256": "825fe51e079e24ccd774d8de13b9543f52b7e4cc780a7fb96f86fa1794aba7f9",
+      "bytes": 3950
+    },
+    ".kiro/specs/spec-10-ghostlap-authoritative-multiplayer/tasks.md": {
+      "sha256": "a7de9a54ebb23d5cfb240430f120d4e30a9dd1908dc4a4a4d0a8a5c15c1da8e8",
+      "bytes": 4039
+    },
+    ".kiro/specs/spec-11-ghostlap-solo-history-branches/design.md": {
+      "sha256": "3cebcb111088640f65d5644de08782d834152ad00cbf5e5aab30fb3eced61db5",
+      "bytes": 6827
+    },
+    ".kiro/specs/spec-11-ghostlap-solo-history-branches/requirements.md": {
+      "sha256": "f475d37f57b14134e4457ab01d38623f6ac36c7abf97f0dfa67bba02731fcc92",
+      "bytes": 4061
+    },
+    ".kiro/specs/spec-11-ghostlap-solo-history-branches/tasks.md": {
+      "sha256": "355aee7c775ef18fd7663f558a6a35e490a35408170a1bc270eaf18486f0d604",
+      "bytes": 4258
+    },
+    ".kiro/specs/spec-12-ghostlap-social-ranking/design.md": {
+      "sha256": "325e05b51b24a02c44deb69ce2bb37579650df384c98ea0c8c0453539f071920",
+      "bytes": 6485
+    },
+    ".kiro/specs/spec-12-ghostlap-social-ranking/requirements.md": {
+      "sha256": "c1f303eaf6de67dc324cdebf5480236df71a3df1790501ebf92643001458ac56",
+      "bytes": 3892
+    },
+    ".kiro/specs/spec-12-ghostlap-social-ranking/tasks.md": {
+      "sha256": "1a703e131383aee9e6bc3a1e52576f5572800498b1bb38ad5d254aa4b39bdaba",
+      "bytes": 3998
+    },
+    ".kiro/specs/spec-13-ghostlap-complete-browser/design.md": {
+      "sha256": "1535db391fd7aabebd32a2893fe8db8ce585c656e6b5ff0a2b30b83b6d5d1614",
+      "bytes": 7464
+    },
+    ".kiro/specs/spec-13-ghostlap-complete-browser/requirements.md": {
+      "sha256": "66ee0dabd03f94a7b258086cb7c1501477085862d3c9493ced7f235590795fcc",
+      "bytes": 4366
+    },
+    ".kiro/specs/spec-13-ghostlap-complete-browser/tasks.md": {
+      "sha256": "38f7246b758dadf8bcc25fd11612fd50ebce7ec1a7325a8077b5e414e98dc26c",
+      "bytes": 4722
+    },
+    ".kiro/steering/finance-integrity.md": {
+      "sha256": "9017d3197758c57557e92091209eb58fcd33115935e225d4d3e613f930ab3118",
+      "bytes": 717
+    },
+    ".kiro/steering/game-authority.md": {
+      "sha256": "80f6db6c73150b44f073fd57b572c4adf2313b98fe36216a4600a233af80aa09",
+      "bytes": 694
+    },
+    ".kiro/steering/product.md": {
+      "sha256": "c2ce36ff9ba23dc906bab97fb663bd82cc135674a685e9efd1b44ef104a86dd9",
+      "bytes": 757
+    },
+    ".kiro/steering/structure.md": {
+      "sha256": "e19787e2a83ad5779c6e5a5d12059ad6a1e07f1ac79d82f9fa90073901d0872b",
+      "bytes": 759
+    },
+    ".kiro/steering/tech.md": {
+      "sha256": "b4313c1597f00b889dea6a2459b51234359d3a89c926f808eb5c90eb551efd17",
+      "bytes": 786
+    },
+    ".kiro/steering/timeline-correctness.md": {
+      "sha256": "7e2610295f37e416b51141f4a340d430cfa65ca3d46bf74b63c694028759e30e",
+      "bytes": 815
+    },
+    "MANIFEST.json": {
+      "sha256": "6dd7db854759ad29b9bb26a75f99d723122ad670cea55a80cd3485c026631964",
+      "bytes": 10493
+    },
+    "README.md": {
+      "sha256": "3e5cb1ffbaf38d4d40e1dba6291e50ddf2de98ed729a26cc7a67abdbfbe8dd45",
+      "bytes": 3430
+    },
+    "docs/architecture/01-master.md": {
+      "sha256": "75a80d45e3e41a475fb0724e6000e3d10f7f5af1132904356637311dbbb042e5",
+      "bytes": 11455
+    },
+    "docs/architecture/02-spec-map.md": {
+      "sha256": "d9536452f18478fc7568393cba6aa4b928dc4ec42ef3195dfaf290788ef9ae3f",
+      "bytes": 7339
+    },
+    "docs/architecture/03-contracts.md": {
+      "sha256": "4fa71aa716bc71bded03eea8cdec23d7eaa83527c0bee5540c7e9a5f6e63735e",
+      "bytes": 8903
+    },
+    "docs/architecture/04-decisions.md": {
+      "sha256": "735b76dd30b8b8c4b3462b38e3438c287cb29840389c9d4df5d829c5d5fa71f5",
+      "bytes": 3129
+    },
+    "docs/architecture/05-coverage-readiness.md": {
+      "sha256": "44f3ecf54263db4804f6230fad22090cb09621c9891270a1d97e344699c60503",
+      "bytes": 6089
+    },
+    "docs/architecture/06-official-rules-check.md": {
+      "sha256": "83778725747fd7c7eb9858fcdc233d330ace3b53141e79513302d59a30df967d",
+      "bytes": 2119
+    },
+    "docs/kiro-log.md": {
+      "sha256": "1ea49d24e0dfa53ab0d6bd23affd8391ee707ac9fa19a0f422d6c92513c1d50d",
+      "bytes": 613
+    },
+    "docs/workflow/01-execution.md": {
+      "sha256": "efe24c6ef9c85a616d03ffb3aa315d56fe1ea849d571ced20cf11e238716a8f2",
+      "bytes": 3420
+    },
+    "docs/workflow/02-steering-and-assets.md": {
+      "sha256": "089fd94f4dd50e0529eb2c8dabb74590f6e72a7791d34e1c3d2d04c2c51ce6f2",
+      "bytes": 2904
+    },
+    "docs/workflow/03-kiro-tooling-ci.md": {
+      "sha256": "a2966684c76883c5f2b3364b6fb8db53c9aafa7fe99c24f89f33e3d7a143f238",
+      "bytes": 5679
+    },
+    "docs/workflow/04-credit-strategy.md": {
+      "sha256": "b8208f2354eb8f3cf852a17b625f9dacd2dc68ceee6d44359df8044308f8d9e8",
+      "bytes": 2973
+    }
+  }
+}

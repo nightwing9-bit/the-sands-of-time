@@ -1,0 +1,16 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Browser Evidence Capture",
+      "description": "Capture reproducible, actual browser failures/evidence after UI spec milestone",
+      "trigger": "PostTaskExecution",
+      "action": {
+        "type": "command",
+        "command": "bash scripts/checks/browser-evidence.sh"
+      },
+      "timeout": 180,
+      "enabled": false
+    }
+  ]
+}

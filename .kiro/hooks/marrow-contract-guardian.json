@@ -1,0 +1,17 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Marrow Contract Guardian",
+      "description": "Fast compile/type/architecture compatibility on public contract changes",
+      "trigger": "PostFileSave",
+      "matcher": "(src/(Marrow\\.Timeline|Marrow\\.Kernel|Revenant\\.Contracts|GhostLap\\.Contracts)/.*\\.cs|web/packages/contracts/.*\\.(ts|tsx))$",
+      "action": {
+        "type": "command",
+        "command": "bash scripts/checks/contract-guardian.sh"
+      },
+      "timeout": 50,
+      "enabled": false
+    }
+  ]
+}
