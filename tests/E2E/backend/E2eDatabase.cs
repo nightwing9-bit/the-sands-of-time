@@ -5,7 +5,7 @@ namespace Sands.E2E.Backend;
 /// <summary>
 /// Real PostgreSQL 18 (the Compose image) migrated by the Spec-01 one-shot executor <c>scripts/db/migrate.sh</c>, run inside the
 /// container exactly as <c>tests/Integration</c> does. The API under test connects with one dedicated, non-superuser login that is a
-/// member of the identity and Timeline runtime roles only; the owner connection exists solely for fixture inspection and for the
+/// member of the identity, Timeline and (task 6.5) Ghost Lap runtime roles only; the owner connection exists solely for fixture inspection and for the
 /// storage-tamper scenario, and is never registered as the API's data source.
 /// </summary>
 public sealed class E2eDatabase : IAsyncDisposable
@@ -50,7 +50,7 @@ public sealed class E2eDatabase : IAsyncDisposable
         var password = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
         await using (var command = Owner.CreateCommand(
             $"CREATE ROLE {ApiLogin} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD '{password}'; " +
-            $"GRANT marrow_identity_runtime, marrow_timeline_runtime TO {ApiLogin};"))
+            $"GRANT marrow_identity_runtime, marrow_timeline_runtime, ghostlap_runtime TO {ApiLogin};"))
         {
             await command.ExecuteNonQueryAsync(ct);
         }

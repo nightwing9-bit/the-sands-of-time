@@ -16,13 +16,13 @@ export interface GhostLapTimelineWire {
   fork(timelineId: string, position: TimelinePosition, operationKey: string, options: unknown): Promise<{ branchId: string }>;
 }
 
-function csrfHeader(token: string | null): Record<string, string> {
+export function csrfHeader(token: string | null): Record<string, string> {
   return token ? { [CSRF_HEADER]: token } : {};
 }
-function fail(failure: TransportFailure): never {
+export function fail(failure: TransportFailure): never {
   throw { failure };
 }
-async function call(doFetch: typeof fetch, url: string, init: RequestInit): Promise<unknown> {
+export async function call(doFetch: typeof fetch, url: string, init: RequestInit): Promise<unknown> {
   let response: Response;
   try {
     response = await doFetch(url, { ...init, credentials: "include", cache: "no-store" });

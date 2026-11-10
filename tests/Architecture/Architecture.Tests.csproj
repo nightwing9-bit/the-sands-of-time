@@ -26,6 +26,7 @@
     <ProjectReference Include="..\..\src\Revenant.Contracts\Revenant.Contracts.csproj" />
     <ProjectReference Include="..\..\src\Revenant\Revenant.csproj" />
     <ProjectReference Include="..\..\src\GhostLap.Contracts\GhostLap.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\GhostLap\GhostLap.csproj" />
     <ProjectReference Include="..\..\src\Hosts.Api\Hosts.Api.csproj" />
     <ProjectReference Include="..\..\src\Hosts.Realtime\Hosts.Realtime.csproj" />
     <ProjectReference Include="..\..\src\Hosts.Worker\Hosts.Worker.csproj" />

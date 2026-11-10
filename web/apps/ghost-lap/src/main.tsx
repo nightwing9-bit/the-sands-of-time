@@ -4,10 +4,13 @@ import { createMarrowTransport, describeFailure, describeHandshake, type ApiResu
 import { TimelineScrubber, type VerifiedPreview } from "@sands/timeline-ui";
 import { createGhostLapAdapter, type GhostLapTimelineDescriptor, type GhostLapPreview } from "./ghostLapTimelineAdapter.ts";
 import { createTestHostHttpWire } from "./ghostLapTimelineWire.ts";
+import { GhostLapGreybox } from "./greybox/GhostLapGreybox.tsx";
+import { createGreyboxHttpWire } from "./greybox/greyboxWire.ts";
 // Same-origin: Vite (dev) or the reverse proxy (deployed) forwards /meta, /auth, /timeline and /hubs to the API and Realtime hosts.
 // Both shells build their typed clients from this one @sands/contracts factory and mount the one @sands/timeline-ui scrubber.
 const transport = createMarrowTransport({ apiBaseUrl: "", realtimeBaseUrl: "" });
 const wire = createTestHostHttpWire();
+const greyboxWire = createGreyboxHttpWire();
 const timelineId = new URLSearchParams(window.location.search).get("timeline");
 
 type Loaded = { kind: "loading" } | { kind: "failed"; failure: TransportFailure } | { kind: "ready"; descriptor: GhostLapTimelineDescriptor };
@@ -61,7 +64,8 @@ function Shell() {
     <main data-testid="app-shell">
       <h1>Ghost Lap</h1>
       <p data-testid="contract-status" role="status">{describeHandshake(handshake)}</p>
-      {!timelineId ? <p data-testid="no-timeline">Open this page with ?timeline=&lt;id&gt; to inspect a history.</p> : compatible ? <TimelinePanel id={timelineId} /> : null}
+      {/* ?timeline=<id> keeps the generic history inspector (spec 04). Without it, the Ghost Lap V1 greybox (spec 06, task 6.5). */}
+      {!compatible ? null : timelineId ? <TimelinePanel id={timelineId} /> : <GhostLapGreybox transport={transport} wire={greyboxWire} />}
     </main>
   );
 }

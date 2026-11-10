@@ -4,35 +4,35 @@
 
 ## Ordered implementation tasks
 
-- [ ] **6.1 Implement versioned arena, schedule and physics**
+- [x] **6.1 Implement versioned arena, schedule and physics**
   - **Precondition/input & inspect:** `src/GhostLap`, `GameRules`, Marrow reducer contract. Completed prerequisite spec exit gate must already have evidence.
   - **Produce/modify:** fixed-point geometry/collision, authored spawn sockets, deterministic candle plan.
   - **Forbidden changes:** DateTime-driven spawns, client distance score or global random coupled to pickups. Do not change frozen shared public contracts without ADR.
   - **Verification:** unit tick/geometry replay tests and 2/3/4 spawn property checks.
   - **Done when:** same input produces same state hash.
 
-- [ ] **6.2 Implement charge/contact/Burst/score**
+- [x] **6.2 Implement charge/contact/Burst/score**
   - **Precondition/input & inspect:** rule engine, event priority table, rules hash. Completed prerequisite spec exit gate must already have evidence.
   - **Produce/modify:** full four-stage Soulfire, contact cooldown, score clamps, manual+auto Burst and finish; canonical fixed-point distance/remainder and effective input/latch state in the single Spec-06 state/input codec.
   - **Forbidden changes:** unversioned constants or duplicate client simulation authority. Do not change frozen shared public contracts without ADR.
   - **Verification:** FsCheck same-tick, charge, overlap, Burst once; missing/late inputs, Burst edge and checkpoint at 1023/1024 score-unit boundary.
   - **Done when:** server rule kernel handles complete greybox game.
 
-- [ ] **6.3 Record and restore original solo**
+- [x] **6.3 Record and restore original solo**
   - **Precondition/input & inspect:** Marrow Timeline, guest identity/session, complete codec. Completed prerequisite spec exit gate must already have evidence.
   - **Produce/modify:** 2700 canonical effective-input steps, the one final versioned game input/state codec, checkpoint/hash, verified original Timeline source with owner; Spec 11 later adds catalog/listing, never replaces this codec.
   - **Forbidden changes:** saving only position/video or false save toast. Do not change frozen shared public contracts without ADR.
   - **Verification:** real DB replay all tick sample/any T, refresh and owner tests.
   - **Done when:** original survives refresh and hash verification.
 
-- [ ] **6.4 Branch and inert ghost**
+- [x] **6.4 Branch and inert ghost**
   - **Precondition/input & inspect:** source trace adapter, source/branch worlds, common component. Completed prerequisite spec exit gate must already have evidence.
   - **Produce/modify:** exact checkpoint fork T, same opportunities, independent collection and score curves.
   - **Forbidden changes:** ghost collider or separate replay backend engine. Do not change frozen shared public contracts without ADR.
   - **Verification:** nonzero-charge/pickups T test; source-hash unchanged.
   - **Done when:** real branch changes outcome independent of ghost.
 
-- [ ] **6.5 Connect usable browser greybox (B2 joint proof is a separate basket gate)**
+- [x] **6.5 Connect usable browser greybox (B2 joint proof is a separate basket gate)**
   - **Precondition/input & inspect:** GhostLap React/Pixi placeholders and shared UI package; **no need for completed Spec 05 inside this spec**. Completed prerequisite spec exit gate must already have evidence.
   - **Produce/modify:** play keyboard/Burst, seek and Rewrite, old/current aligned HUD.
   - **Forbidden changes:** static mock score animation or new scrubber copy. Do not change frozen shared public contracts without ADR.

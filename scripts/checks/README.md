@@ -15,6 +15,8 @@ Shared exit codes: `0` ok (skips are reported), `1` a check that ran failed, `2`
 
 `browser-evidence.sh` never downloads Playwright. If Playwright, the config or the route spec is missing it prints `NOT PROVISIONED`. Without `--required` that is a reported skip (exit 0). With `--required` (or `BROWSER_EVIDENCE_REQUIRED=1`) it exits 3. Route names must match `[a-z0-9][a-z0-9-]{0,63}`. Provisioning Playwright, the E2E project and secret-masked trace capture belong to specs 04/09/13; the "run Playwright" path has not been exercised yet.
 
+## .NET SDK environment
+`global.json` requires SDK 10.0.402 or newer. A system `dotnet` of 10.0.401 is refused ("The command could not be loaded"). `source scripts/checks/dotnet-env.sh` puts `~/.dotnet-10.0.403` (override with `DOTNET_SDK_DIR`) first on `PATH`, sets `DOTNET_ROOT`, and prints the resolved path and version. It never edits `global.json`. Source it in every shell that runs `dotnet`, including the Playwright `webServer` commands, which inherit the environment.
 ## Task gate marker
 
 `spec-gate.sh` is armed by `scripts/checks/.active-gate`. That file is local runtime state and is gitignored. `.active-gate.sample` is the tracked template.

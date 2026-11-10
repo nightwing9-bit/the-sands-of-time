@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>GhostLap.Domain</AssemblyName>
+    <RootNamespace>GhostLap</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Only Solo/SoloOriginalStore uses the driver, for the GhostLap-owned ghostlap schema; the rule engine stays pure. -->
+    <PackageReference Include="Npgsql" Version="10.0.3" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Marrow.Kernel\Marrow.Kernel.csproj" />
+    <ProjectReference Include="..\Marrow.Timeline\Marrow.Timeline.csproj" />
+  </ItemGroup>
+</Project>

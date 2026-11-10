@@ -26,6 +26,8 @@ sed -i.bak "s/=REPLACE_ME_IDENTITY\$/=$(openssl rand -hex 32)/" .env && rm .env.
 grep -v '^#' .env | grep -c REPLACE_ME   # must print 0
 
 # 2. .NET: build and run the architecture gate (real-service tests need Docker; see the integration job in ci.yml)
+#    global.json needs SDK 10.0.402+. If `dotnet` says "The command could not be loaded" the system SDK is older:
+#    install 10.0.403 into ~/.dotnet-10.0.403 and run `source scripts/checks/dotnet-env.sh` first (sets DOTNET_ROOT and PATH).
 dotnet build TheSandsOfTime.slnx
 dotnet test tests/Architecture/Architecture.Tests.csproj
 dotnet test tests/Integration/Integration.Tests.csproj   # optional: Testcontainers PostgreSQL/Redis

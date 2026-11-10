@@ -77,7 +77,7 @@ public static class E2eTimelineEndpoints
     public const string FixtureTokenHeader = "X-E2E-Fixture-Token";
     public static bool IsFixturePath(PathString path) =>
         path.StartsWithSegments("/timeline", StringComparison.Ordinal) || path.StartsWithSegments("/__e2e", StringComparison.Ordinal)
-        || RevenantSliceEndpoints.IsSlicePath(path);
+        || RevenantSliceEndpoints.IsSlicePath(path) || GhostLapSoloEndpoints.IsGhostLapPath(path);
     public static void Map(IEndpointRouteBuilder routes)
     {
         var timeline = routes.MapGroup("/timeline/{id:guid}").RequireAuthorization(IdentityPolicies.Guest);
@@ -85,6 +85,7 @@ public static class E2eTimelineEndpoints
         timeline.MapGet("/restore", Restore);
         timeline.MapPost("/fork", Fork);
         RevenantSliceEndpoints.Map(routes);
+        GhostLapSoloEndpoints.Map(routes);
         var control = routes.MapGroup("/__e2e");
         control.MapGet("/info", Info);
         control.MapPost("/provision", Provision).RequireAuthorization(IdentityPolicies.Guest);
@@ -501,6 +502,12 @@ public static class E2eFixtureServiceCollectionExtensions
         services.AddSingleton(sp => new FinanceTimelineAdapter(
             sp.GetRequiredService<Marrow.Timeline.ITimelineEngine<FinanceProjectionState, PaymentIntent, FinanceContext>>()));
         services.AddSingleton<SliceRunRegistry>();
+        // Task 6.5: the real Ghost Lap engine (GhostLapTimelineVersions) and the solo handlers over the API's own data source.
+        services.AddMarrowTimeline(GhostLap.Timeline.GhostLapTimelineVersions.All, GhostLap.Timeline.GhostLapTimelineVersions.CheckpointInterval);
+        services.AddSingleton(sp => new GhostLapSoloServices(
+            sp.GetRequiredService<Marrow.Timeline.ITimelineEngine<GhostLap.Simulation.GameState, GhostLap.Simulation.GameInput, GhostLap.Simulation.GameContext>>(),
+            sp.GetRequiredService<NpgsqlDataSource>()));
+        services.AddSingleton<GhostLapSessionRegistry>();
         services.AddSingleton(new E2eFixtureOptions(fixtureToken));
         services.AddSingleton(new E2eOwnerAccess(ownerSource));
         services.AddSingleton<E2eRequestLog>();

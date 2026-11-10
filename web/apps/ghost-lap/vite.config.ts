@@ -18,6 +18,8 @@ export default defineConfig(({ mode }) => {
         "/meta": { target: api, changeOrigin: false },
         "/auth": { target: api, changeOrigin: false },
         "/timeline": { target: api, changeOrigin: false },
+        // Spec 06 task 6.5: the Ghost Lap greybox routes (served by the test-only host until the production Ghost Lap API exists).
+        "/ghost-lap": { target: api, changeOrigin: false },
         "/hubs": { target: realtime, ws: true, changeOrigin: false },
       },
     },

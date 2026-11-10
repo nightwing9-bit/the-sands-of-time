@@ -8,7 +8,8 @@
     "test:adapters": "playwright test adapters.spec.ts",
     "test:smoke": "playwright test browser-smoke.spec.ts",
     "test:real": "playwright test --config playwright.real.config.ts",
-    "test:revenant": "playwright test --config playwright.revenant.config.ts"
+    "test:revenant": "playwright test --config playwright.revenant.config.ts",
+    "test:ghostlap": "playwright test --config playwright.ghostlap.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "1.65.0"
