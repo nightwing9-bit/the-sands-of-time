@@ -16,7 +16,7 @@
 Prerequisites: .NET SDK 10 (`global.json` pins 10.0.100, roll-forward to the latest feature band), Node.js 20+ with npm, Docker with Compose v2, `openssl`, and Git. License: MIT (`LICENSE`).
 
 ```
-git clone <repo-url> the-sands-of-time && cd the-sands-of-time
+git clone https://github.com/nightwing9-bit/the-sands-of-time && cd the-sands-of-time
 
 # 1. Secrets: there are no defaults. .env is gitignored; .env.example holds placeholders only.
 cp .env.example .env

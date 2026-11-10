@@ -1,6 +1,10 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="..\Marrow.Kernel\Marrow.Kernel.csproj" />
+    <ProjectReference Include="..\Marrow.Timeline\Marrow.Timeline.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Marrow.Tests" />
   </ItemGroup>
   <ItemGroup>
     <!-- Host-composition plumbing (DI, health endpoints). Domain assemblies must not reference this project. -->

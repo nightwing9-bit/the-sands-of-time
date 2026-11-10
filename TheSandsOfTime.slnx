@@ -11,5 +11,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Architecture/Architecture.Tests.csproj" />
+    <Project Path="tests/Marrow/Marrow.Tests.csproj" />
   </Folder>
 </Solution>
