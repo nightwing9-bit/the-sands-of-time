@@ -1,0 +1,65 @@
+{
+  "pbtResults": {},
+  "executionHistory": {
+    "**5.1 Define scenario/versioned exogenous input codec**": [
+      {
+        "executionId": "841793e0-4e6b-4475-8d30-e83a21b5fba6",
+        "chatSessionId": "sess_3d4559d7-f27a-405a-81bc-3084da532061",
+        "timestamp": 1794318065544
+      },
+      {
+        "executionId": "841793e0-4e6b-4475-8d30-e83a21b5fba6",
+        "chatSessionId": "sess_3d4559d7-f27a-405a-81bc-3084da532061",
+        "timestamp": 1794318450225
+      }
+    ],
+    "**5.2 Implement pure payments and policy kernel**": [
+      {
+        "executionId": "31472236-42d0-40fb-a3c7-ca3cb28bd05d",
+        "chatSessionId": "sess_4cf2b11c-788c-4b0f-adcc-56efe7045535",
+        "timestamp": 1794318747450
+      },
+      {
+        "executionId": "31472236-42d0-40fb-a3c7-ca3cb28bd05d",
+        "chatSessionId": "sess_4cf2b11c-788c-4b0f-adcc-56efe7045535",
+        "timestamp": 1794319324509
+      }
+    ],
+    "**5.3 Bind adapter to one Marrow Timeline**": [
+      {
+        "executionId": "b1f99c1b-ca3a-4250-8b68-572cd458fef2",
+        "chatSessionId": "sess_bd89a397-02bf-4216-ab7f-bc997b651991",
+        "timestamp": 1794319724734
+      },
+      {
+        "executionId": "b1f99c1b-ca3a-4250-8b68-572cd458fef2",
+        "chatSessionId": "sess_bd89a397-02bf-4216-ab7f-bc997b651991",
+        "timestamp": 1794320383638
+      }
+    ],
+    "**5.4 Implement thin Revenant slice UI**": [
+      {
+        "executionId": "807ad38c-2764-4a89-90c0-e0fe75d0d667",
+        "chatSessionId": "sess_9a1fd2fd-cc85-4488-933d-320ffef7a9ea",
+        "timestamp": 1794320762301
+      },
+      {
+        "executionId": "807ad38c-2764-4a89-90c0-e0fe75d0d667",
+        "chatSessionId": "sess_9a1fd2fd-cc85-4488-933d-320ffef7a9ea",
+        "timestamp": 1794321673367
+      }
+    ],
+    "**5.5 Confirm integration handoff to 07/08/09**": [
+      {
+        "executionId": "3a4d0b95-0c80-473d-931f-c0991bdf388f",
+        "chatSessionId": "sess_930a720a-084d-43e7-ba81-536402fb5c67",
+        "timestamp": 1794321969516
+      },
+      {
+        "executionId": "3a4d0b95-0c80-473d-931f-c0991bdf388f",
+        "chatSessionId": "sess_930a720a-084d-43e7-ba81-536402fb5c67",
+        "timestamp": 1794322135604
+      }
+    ]
+  }
+}

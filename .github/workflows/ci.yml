@@ -180,6 +180,12 @@ jobs:
         timeout-minutes: 10
         run: npm run test:real
         working-directory: tests/E2E
+      # Spec 05 task 5.4: Friday Ring click path (start, scrub to 09:00, policy v8, fork, compare) against the same real-backend host
+      # with the real Revenant finance engine; every displayed value is compared with the API response and PostgreSQL-stored hashes.
+      - name: Playwright Revenant slice suite
+        timeout-minutes: 10
+        run: npm run test:revenant
+        working-directory: tests/E2E
       - name: Upload browser evidence
         if: always()
         uses: actions/upload-artifact@v4

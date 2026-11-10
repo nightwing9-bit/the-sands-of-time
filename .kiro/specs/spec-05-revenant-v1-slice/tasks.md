@@ -4,35 +4,35 @@
 
 ## Ordered implementation tasks
 
-- [ ] **5.1 Define scenario/versioned exogenous input codec**
+- [x] **5.1 Define scenario/versioned exogenous input codec**
   - **Precondition/input & inspect:** `Revenant.Contracts`, Timeline adapter, sources baseline. Completed prerequisite spec exit gate must already have evidence.
   - **Produce/modify:** six-bank seeded manifest, stable labels, immutable intent stream and run-scoped `ScenarioRunId`/intent/bank/account state and deterministic starting balances (no destructive reset).
   - **Forbidden changes:** derived settlement results as branch inputs. Do not change frozen shared public contracts without ADR.
   - **Verification:** same seed/version same canonical exogenous facts for two distinct run IDs (ignoring namespace), different seed known variation; different run IDs never collide.
   - **Done when:** Friday Ring has reproducible inputs.
 
-- [ ] **5.2 Implement pure payments and policy kernel**
+- [x] **5.2 Implement pure payments and policy kernel**
   - **Precondition/input & inspect:** `src/Revenant` domain, payment transitions, Money. Completed prerequisite spec exit gate must already have evidence.
   - **Produce/modify:** v7/v8 config, hold/reserve and causal balance reducer.
   - **Forbidden changes:** DB writes inside reducer, floats or precomputed graph. Do not change frozen shared public contracts without ADR.
   - **Verification:** legal statuses, balances conserved, fraud ring classification checks.
   - **Done when:** pure projection produces actual financial differences.
 
-- [ ] **5.3 Bind adapter to one Marrow Timeline**
+- [x] **5.3 Bind adapter to one Marrow Timeline**
   - **Precondition/input & inspect:** spec-02 contracts, snapshot codec, domain context. Completed prerequisite spec exit gate must already have evidence.
   - **Produce/modify:** real recorded source, restore/fork/continue/compare and source immutability.
   - **Forbidden changes:** new finance-specific replay engine or external time sorting. Do not change frozen shared public contracts without ADR.
   - **Verification:** replay hash and source pre/post byte comparison.
   - **Done when:** both policy branches use one engine.
 
-- [ ] **5.4 Implement thin Revenant slice UI**
+- [x] **5.4 Implement thin Revenant slice UI**
   - **Precondition/input & inspect:** `web/apps/revenant`, shared UI package, API. Completed prerequisite spec exit gate must already have evidence.
   - **Produce/modify:** six banks, source events, position select, v7/v8 and comparison.
   - **Forbidden changes:** false production ledger badges, fake chart numbers. Do not change frozen shared public contracts without ADR.
   - **Verification:** Playwright Friday Ring click path and real API state check.
   - **Done when:** result is visibly causal and labelled synthetic.
 
-- [ ] **5.5 Confirm integration handoff to 07/08/09**
+- [x] **5.5 Confirm integration handoff to 07/08/09**
   - **Precondition/input & inspect:** public finance kernel APIs, test fixtures, metrics. Completed prerequisite spec exit gate must already have evidence.
   - **Produce/modify:** frozen contract tests and same source/branch hash report.
   - **Forbidden changes:** code that 07 would need to discard. Do not change frozen shared public contracts without ADR.

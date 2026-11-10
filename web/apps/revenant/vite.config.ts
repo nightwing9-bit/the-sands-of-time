@@ -18,6 +18,8 @@ export default defineConfig(({ mode }) => {
         "/meta": { target: api, changeOrigin: false },
         "/auth": { target: api, changeOrigin: false },
         "/timeline": { target: api, changeOrigin: false },
+        // Spec 05 task 5.4: the Revenant slice routes (served by the test-only host until the production Revenant API exists).
+        "/revenant": { target: api, changeOrigin: false },
         "/hubs": { target: realtime, ws: true, changeOrigin: false },
       },
     },

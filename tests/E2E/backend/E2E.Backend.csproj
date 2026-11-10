@@ -24,6 +24,9 @@
     <ProjectReference Include="..\..\..\src\Marrow.Kernel\Marrow.Kernel.csproj" />
     <ProjectReference Include="..\..\..\src\Marrow.Timeline\Marrow.Timeline.csproj" />
     <ProjectReference Include="..\..\..\src\Marrow.Infrastructure\Marrow.Infrastructure.csproj" />
+    <!-- Task 5.4: the real Revenant finance domain behind the test-only slice routes (RevenantSliceEndpoints.cs). -->
+    <ProjectReference Include="..\..\..\src\Revenant\Revenant.csproj" />
+    <ProjectReference Include="..\..\..\src\Revenant.Contracts\Revenant.Contracts.csproj" />
   </ItemGroup>
   <ItemGroup>
     <!-- The same synthetic tick-shaped and event-shaped reducers/codecs the Spec 02 engine tests use (linked, not copied). -->

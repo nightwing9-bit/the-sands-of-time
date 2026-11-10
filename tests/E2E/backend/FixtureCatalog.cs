@@ -54,7 +54,7 @@ public sealed class FixtureOwnershipLookup(FixtureCatalog catalog, FixtureDomain
             return null;
         }
         var row = await catalog.FindAsync(id, ct);
-        if (row is null || domains.Find(row.DomainId) is null)
+        if (row is null || (domains.Find(row.DomainId) is null && row.DomainId != Revenant.Timeline.FinanceTimelineVersions.DomainId))
         {
             return null;
         }

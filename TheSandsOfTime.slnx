@@ -8,11 +8,13 @@
     <Project Path="src/Marrow.Kernel/Marrow.Kernel.csproj" />
     <Project Path="src/Marrow.Timeline/Marrow.Timeline.csproj" />
     <Project Path="src/Revenant.Contracts/Revenant.Contracts.csproj" />
+    <Project Path="src/Revenant/Revenant.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Architecture/Architecture.Tests.csproj" />
     <Project Path="tests/E2E/backend/E2E.Backend.csproj" />
     <Project Path="tests/Integration/Integration.Tests.csproj" />
     <Project Path="tests/Marrow/Marrow.Tests.csproj" />
+    <Project Path="tests/Revenant/Revenant.Tests.csproj" />
   </Folder>
 </Solution>

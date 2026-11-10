@@ -5,10 +5,13 @@ import { TimelineScrubber, type VerifiedPreview } from "@sands/timeline-ui";
 import { createRevenantAdapter, type RevenantTimelineDescriptor, type RevenantPreview } from "./revenantTimelineAdapter.ts";
 import { formatBusinessTime } from "./revenantTimelineAdapter.ts";
 import { createTestHostHttpWire } from "./revenantTimelineWire.ts";
+import { FridaySlice } from "./slice/FridaySlice.tsx";
+import { createSliceHttpWire } from "./slice/sliceWire.ts";
 // Same-origin: Vite (dev) or the reverse proxy (deployed) forwards /meta, /auth, /timeline and /hubs to the API and Realtime hosts.
 // Both shells build their typed clients from this one @sands/contracts factory and mount the one @sands/timeline-ui scrubber.
 const transport = createMarrowTransport({ apiBaseUrl: "", realtimeBaseUrl: "" });
 const wire = createTestHostHttpWire();
+const sliceWire = createSliceHttpWire();
 const timelineId = new URLSearchParams(window.location.search).get("timeline");
 
 type Loaded = { kind: "loading" } | { kind: "failed"; failure: TransportFailure } | { kind: "ready"; descriptor: RevenantTimelineDescriptor };
@@ -62,7 +65,8 @@ function Shell() {
     <main data-testid="app-shell">
       <h1>Revenant</h1>
       <p data-testid="contract-status" role="status">{describeHandshake(handshake)}</p>
-      {!timelineId ? <p data-testid="no-timeline">Open this page with ?timeline=&lt;id&gt; to inspect a history.</p> : compatible ? <TimelinePanel id={timelineId} /> : null}
+      {/* ?timeline=<id> keeps the generic history inspector (spec 04). Without it, the Friday Ring V1 slice (spec 05, task 5.4). */}
+      {!compatible ? null : timelineId ? <TimelinePanel id={timelineId} /> : <FridaySlice transport={transport} wire={sliceWire} />}
     </main>
   );
 }

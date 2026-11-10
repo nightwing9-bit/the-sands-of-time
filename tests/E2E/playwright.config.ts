@@ -6,7 +6,7 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: ".",
   testMatch: "*.spec.ts",
-  testIgnore: "real-backend.spec.ts",
+  testIgnore: ["real-backend.spec.ts", "revenant-slice.spec.ts"],
   workers: 1,
   reporter: [["list"]],
   use: { trace: "retain-on-failure" },

@@ -15,6 +15,10 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Npgsql;
+using Marrow.Infrastructure.Timeline;
+using Revenant.Contracts;
+using Revenant.Finance;
+using Revenant.Timeline;
 namespace Sands.E2E.Backend;
 /// <summary>Per-run secret that gates the fixture control routes (<c>/__e2e/provision|facts|log</c>).</summary>
 public sealed record E2eFixtureOptions(string FixtureToken);
@@ -72,13 +76,15 @@ public static class E2eTimelineEndpoints
 {
     public const string FixtureTokenHeader = "X-E2E-Fixture-Token";
     public static bool IsFixturePath(PathString path) =>
-        path.StartsWithSegments("/timeline", StringComparison.Ordinal) || path.StartsWithSegments("/__e2e", StringComparison.Ordinal);
+        path.StartsWithSegments("/timeline", StringComparison.Ordinal) || path.StartsWithSegments("/__e2e", StringComparison.Ordinal)
+        || RevenantSliceEndpoints.IsSlicePath(path);
     public static void Map(IEndpointRouteBuilder routes)
     {
         var timeline = routes.MapGroup("/timeline/{id:guid}").RequireAuthorization(IdentityPolicies.Guest);
         timeline.MapGet("", Describe);
         timeline.MapGet("/restore", Restore);
         timeline.MapPost("/fork", Fork);
+        RevenantSliceEndpoints.Map(routes);
         var control = routes.MapGroup("/__e2e");
         control.MapGet("/info", Info);
         control.MapPost("/provision", Provision).RequireAuthorization(IdentityPolicies.Guest);
@@ -307,7 +313,7 @@ public static class E2eTimelineEndpoints
     private static IResult Log(string? timeline, HttpContext http, E2eFixtureOptions options, E2eRequestLog log) =>
         TokenOk(http, options) ? Results.Json(log.Query(timeline)) : TokenRejected();
     // ---- Helpers ---------------------------------------------------------------------------------------------------
-    private static async Task<IResult?> DenyAsync(
+    internal static async Task<IResult?> DenyAsync(
         HttpContext http, IActorContext actor, IResourceAuthorizer authorizer, Guid id, ResourceOperation operation)
     {
         var decision = await authorizer.AuthorizeAsync(
@@ -490,6 +496,11 @@ public static class E2eFixtureServiceCollectionExtensions
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(fixtureToken);
         FixtureDomains.AddFixtureEngines(services);
+        // Task 5.4: the real Revenant finance engine (the one FinanceTimelineVersions key) over the same PostgreSQL pool, and the adapter on it.
+        services.AddMarrowTimeline(FinanceTimelineVersions.All, FinanceTimelineVersions.CheckpointInterval);
+        services.AddSingleton(sp => new FinanceTimelineAdapter(
+            sp.GetRequiredService<Marrow.Timeline.ITimelineEngine<FinanceProjectionState, PaymentIntent, FinanceContext>>()));
+        services.AddSingleton<SliceRunRegistry>();
         services.AddSingleton(new E2eFixtureOptions(fixtureToken));
         services.AddSingleton(new E2eOwnerAccess(ownerSource));
         services.AddSingleton<E2eRequestLog>();

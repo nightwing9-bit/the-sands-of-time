@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>Revenant.Domain</AssemblyName>
+    <RootNamespace>Revenant</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Revenant.Contracts\Revenant.Contracts.csproj" />
+    <ProjectReference Include="..\Marrow.Kernel\Marrow.Kernel.csproj" />
+    <ProjectReference Include="..\Marrow.Timeline\Marrow.Timeline.csproj" />
+  </ItemGroup>
+</Project>
