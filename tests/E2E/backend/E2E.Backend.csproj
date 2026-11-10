@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    TEST-ONLY real-backend host for the Spec 04 exit gate. It runs the real Hosts.Api composition (WebApplicationFactory +
+    Kestrel) on loopback, real PostgreSQL (Testcontainers, migrated by scripts/db/migrate.sh) and the real Marrow Timeline
+    engine, and adds a fixture Timeline HTTP surface that exists only in this assembly. No product host references this
+    project; the architecture and integration tests prove Hosts.Api serves none of these routes.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <AssemblyName>E2E.Backend</AssemblyName>
+    <RootNamespace>Sands.E2E.Backend</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.14" />
+    <PackageReference Include="Testcontainers.PostgreSql" Version="4.16.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\Hosts.Api\Hosts.Api.csproj" />
+    <ProjectReference Include="..\..\..\src\Marrow.Kernel\Marrow.Kernel.csproj" />
+    <ProjectReference Include="..\..\..\src\Marrow.Timeline\Marrow.Timeline.csproj" />
+    <ProjectReference Include="..\..\..\src\Marrow.Infrastructure\Marrow.Infrastructure.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The same synthetic tick-shaped and event-shaped reducers/codecs the Spec 02 engine tests use (linked, not copied). -->
+    <Compile Include="..\..\Marrow\TestDomains\*.cs" Link="TestDomains\%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

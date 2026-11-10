@@ -11,6 +11,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Architecture/Architecture.Tests.csproj" />
+    <Project Path="tests/E2E/backend/E2E.Backend.csproj" />
     <Project Path="tests/Integration/Integration.Tests.csproj" />
     <Project Path="tests/Marrow/Marrow.Tests.csproj" />
   </Folder>

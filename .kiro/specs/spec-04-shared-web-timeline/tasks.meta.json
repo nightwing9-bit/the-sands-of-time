@@ -1,0 +1,55 @@
+{
+  "pbtResults": {},
+  "executionHistory": {
+    "**4.1 Implement typed API and hub clients**": [
+      {
+        "executionId": "5b6649bc-9427-487b-be59-da908cf62664",
+        "chatSessionId": "sess_530e0e60-a4de-45a4-92be-a556abc23077",
+        "timestamp": 1794310308231
+      },
+      {
+        "executionId": "5b6649bc-9427-487b-be59-da908cf62664",
+        "chatSessionId": "sess_530e0e60-a4de-45a4-92be-a556abc23077",
+        "timestamp": 1794311809724
+      }
+    ],
+    "**4.2 Build controlled shared scrubber**": [
+      {
+        "executionId": "bba02412-65a5-43ac-b329-3b64d726bb34",
+        "chatSessionId": "sess_53c63aa0-b44d-404a-adfd-02d88586bf48",
+        "timestamp": 1794312055397
+      },
+      {
+        "executionId": "bba02412-65a5-43ac-b329-3b64d726bb34",
+        "chatSessionId": "sess_53c63aa0-b44d-404a-adfd-02d88586bf48",
+        "timestamp": 1794312270111
+      }
+    ],
+    "**4.3 Implement thin app adapters**": [
+      {
+        "executionId": "6b5144b5-9d41-494c-8ab6-55d34ee371c2",
+        "chatSessionId": "sess_eb7d5153-0126-4a96-83e2-68f1137ee2f3",
+        "timestamp": 1794312518356
+      }
+    ],
+    "**4.4 Instrument browser evidence**": [
+      {
+        "executionId": "477fd0ea-d52b-486e-992b-3cc1259acf21",
+        "chatSessionId": "sess_aa6e7263-9421-4e8a-bbae-2bc01a845fa4",
+        "timestamp": 1794313372500
+      },
+      {
+        "executionId": "477fd0ea-d52b-486e-992b-3cc1259acf21",
+        "chatSessionId": "sess_aa6e7263-9421-4e8a-bbae-2bc01a845fa4",
+        "timestamp": 1794313453799
+      }
+    ],
+    "**4.5 Gate UI correctness**": [
+      {
+        "executionId": "478802f4-f0bf-4e05-92ad-8cef2f2bb568",
+        "chatSessionId": "sess_50b48775-c075-4989-8b4b-7a53a3b9ef6b",
+        "timestamp": 1794313649164
+      }
+    ]
+  }
+}

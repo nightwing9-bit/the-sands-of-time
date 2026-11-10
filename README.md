@@ -13,7 +13,7 @@
 
 ## Local setup (from a fresh clone)
 
-Prerequisites: .NET SDK 10.0.402 or newer 10.0 feature band (`global.json` requires at least 10.0.402, whose ASP.NET Core 10.0.13+ runtime is patched for CVE-2026-70159; older SDKs are refused), Node.js 22+ with npm, Docker with Compose v2, `openssl`, and Git. License: MIT (`LICENSE`).
+Prerequisites: .NET SDK 10.0.402 or newer 10.0 feature band (`global.json` requires at least 10.0.402, whose ASP.NET Core 10.0.13+ runtime is patched for CVE-2026-70159; older SDKs are refused), Node.js 22.18+ or 24 with npm (`web/package.json` `engines`, enforced by `web/.npmrc`), Docker with Compose v2, `openssl`, and Git. License: MIT (`LICENSE`).
 
 ```
 git clone https://github.com/nightwing9-bit/the-sands-of-time && cd the-sands-of-time

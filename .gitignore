@@ -15,3 +15,4 @@
 
 # Local runtime state for scripts/checks/spec-gate.sh (copy from .active-gate.sample)
 scripts/checks/.active-gate
+**/test-results/

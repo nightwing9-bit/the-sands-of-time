@@ -39,4 +39,4 @@ All three files in `.kiro/hooks/` keep `"enabled": false`. Enable one only after
 
 ## Not covered here
 
-R01.08 (OpenAPI schema plus generated typed client with a stale-client check) has no script yet because no endpoint DTOs exist. Add it as one script path under `scripts/checks/` when the first public DTO ships.
+R01.08 / R04.08 (OpenAPI -> generated TypeScript with a stale-output check) lives in `scripts/contracts/generate.sh [--check]`, run by the CI job `contracts`. It is not a hook script: it builds `Hosts.Api`, so it takes longer than the 50 s hook budget on a cold restore. See `web/packages/contracts/README.md`.

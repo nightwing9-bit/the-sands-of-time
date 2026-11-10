@@ -178,8 +178,8 @@ export class RealtimeStreamCursor<T> {
 /** The subset of @microsoft/signalr HubConnection this client needs; pass the real connection. */
 export interface RealtimeHubConnection {
   invoke<T = unknown>(methodName: string, ...args: unknown[]): Promise<T>;
-  on(methodName: string, handler: (...args: any[]) => void): void;
-  off(methodName: string, handler: (...args: any[]) => void): void;
+  on(methodName: string, handler: (...args: unknown[]) => void): void;
+  off(methodName: string, handler: (...args: unknown[]) => void): void;
   onreconnected(callback: (connectionId?: string) => void): void;
 }
 
@@ -198,20 +198,29 @@ export interface StreamHandlers<TState = unknown, TEvent = unknown> {
  */
 export class RealtimeStreamClient {
   private readonly connection: RealtimeHubConnection;
-  private readonly streams = new Map<string, { cursor: RealtimeStreamCursor<RealtimeEnvelope>; handlers: StreamHandlers<any, any> }>();
+  private readonly streams = new Map<string, { cursor: RealtimeStreamCursor<RealtimeEnvelope>; handlers: StreamHandlers<unknown, unknown> }>();
   private readonly receive = (raw: unknown): void => this.onReceive(raw);
 
   constructor(connection: RealtimeHubConnection) {
     this.connection = connection;
     connection.on(RealtimeClientMethods.receive, this.receive);
     connection.onreconnected(() => {
-      for (const streamId of this.streams.keys()) void this.resubscribe(streamId);
+      void this.resync();
     });
   }
 
   async subscribe<TState, TEvent>(streamId: string, handlers: StreamHandlers<TState, TEvent>): Promise<RealtimeReply<TState>> {
-    this.streams.set(streamId, { cursor: new RealtimeStreamCursor(streamId), handlers });
+    this.streams.set(streamId, { cursor: new RealtimeStreamCursor(streamId), handlers: handlers as StreamHandlers<unknown, unknown> });
     return this.resubscribe(streamId) as Promise<RealtimeReply<TState>>;
+  }
+
+  /**
+   * Resubscribes every stream and replaces local state with a fresh snapshot. Called after a reconnect and by the
+   * link's own restart. A failed invoke (connection dropped again) is reported as `unavailable` and the stream stays
+   * registered, so the next resync retries it; it never becomes an unhandled rejection.
+   */
+  async resync(): Promise<void> {
+    await Promise.all([...this.streams.keys()].map((streamId) => this.guarded(streamId, () => this.resubscribe(streamId))));
   }
 
   async unsubscribe(streamId: string): Promise<void> {
@@ -251,7 +260,15 @@ export class RealtimeStreamClient {
     if (!outcome.accepted) return;
     entry.handlers.onSnapshot(reply.snapshot.payload, sequence);
     for (const envelope of outcome.ready) entry.handlers.onEvent(envelope);
-    if (outcome.gapRemains) void this.refetch(streamId);
+    if (outcome.gapRemains) void this.guarded(streamId, () => this.refetch(streamId));
+  }
+
+  private async guarded(streamId: string, operation: () => Promise<unknown>): Promise<void> {
+    try {
+      await operation();
+    } catch {
+      this.streams.get(streamId)?.handlers.onFailure?.('unavailable');
+    }
   }
 
   private onReceive(raw: unknown): void {
@@ -261,6 +278,6 @@ export class RealtimeStreamClient {
     if (!entry) return;
     const action = entry.cursor.accept(parseSequence(envelope.sequence) as bigint, envelope);
     if (action === 'apply') entry.handlers.onEvent(envelope);
-    else if (action === 'gap') void this.refetch(envelope.streamId);
+    else if (action === 'gap') void this.guarded(envelope.streamId, () => this.refetch(envelope.streamId));
   }
 }

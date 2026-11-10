@@ -1,10 +1,17 @@
 {
   "name": "sands-of-time-web",
   "private": true,
-  "workspaces": ["apps/*", "packages/*"],
+  "engines": {
+    "node": "^22.18.0 || ^24.0.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "build": "npm run build --workspaces --if-present"
+    "build": "npm run build --workspaces --if-present",
+    "check:bundles": "node scripts/check-bundle-graph.mjs"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

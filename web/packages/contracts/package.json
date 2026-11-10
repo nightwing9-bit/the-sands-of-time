@@ -5,5 +5,17 @@
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",
-  "scripts": { "typecheck": "tsc -p tsconfig.json", "test": "node --test test/realtime.test.ts" }
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test test/*.test.ts",
+    "generate": "bash ../../../scripts/contracts/generate.sh",
+    "generate:check": "bash ../../../scripts/contracts/generate.sh --check"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "openapi-typescript": "7.13.0"
+  },
+  "dependencies": {
+    "@microsoft/signalr": "10.0.11"
+  }
 }

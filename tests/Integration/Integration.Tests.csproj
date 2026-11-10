@@ -18,6 +18,8 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Hosts.Api\Hosts.Api.csproj" />
+    <!-- The test-only Timeline host (real Hosts.Api composition + fixture routes); proven absent from the product API below. -->
+    <ProjectReference Include="..\E2E\backend\E2E.Backend.csproj" />
     <!-- Both hosts define a global Program; the alias lets WebApplicationFactory target the Realtime one. -->
     <ProjectReference Include="..\..\src\Hosts.Realtime\Hosts.Realtime.csproj" Aliases="realtime" />
   </ItemGroup>

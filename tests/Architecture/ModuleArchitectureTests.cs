@@ -59,6 +59,19 @@ public sealed class ModuleArchitectureTests
         AssertNone(ModuleDependencyRules.HostReferenceViolations());
     }
 
+    /// <summary>
+    /// The test-only Timeline host (E2E.Backend) and test assemblies must never become a dependency of shipped code, otherwise the
+    /// fixture routes could reach a product host. Product assemblies are all the project assemblies in the output directory.
+    /// </summary>
+    [Fact]
+    public void No_product_assembly_references_a_test_only_assembly()
+    {
+        var violations = ModuleGraph.ProjectAssemblies.Values.SelectMany(assembly =>
+            ModuleGraph.DirectReferences(assembly)
+                .Where(reference => reference == "E2E.Backend" || reference.EndsWith(".Tests", StringComparison.Ordinal))
+                .Select(reference => $"{assembly.GetName().Name} -> {reference}"));
+        AssertNone(violations);
+    }
     [Fact]
     public void Expected_modules_are_present_as_compiled_assemblies()
     {

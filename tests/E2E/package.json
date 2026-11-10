@@ -1,0 +1,15 @@
+{
+  "name": "sands-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:stubbed": "playwright test",
+    "test:adapters": "playwright test adapters.spec.ts",
+    "test:smoke": "playwright test browser-smoke.spec.ts",
+    "test:real": "playwright test --config playwright.real.config.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0"
+  }
+}

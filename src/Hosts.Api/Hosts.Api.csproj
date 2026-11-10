@@ -8,10 +8,24 @@
     <ProjectReference Include="..\GhostLap.Contracts\GhostLap.Contracts.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.14" />
+    <!-- Build-time OpenAPI emission is opt-in (-p:EmitOpenApi=true, scripts/contracts/generate.sh): a normal build or Docker publish must not start the host. -->
+    <PackageReference Include="Microsoft.Extensions.ApiDescription.Server" Version="10.0.14" PrivateAssets="all" />
+  </ItemGroup>
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(EmitOpenApi)' == 'true'">
+    <OpenApiGenerateDocuments>true</OpenApiGenerateDocuments>
+    <OpenApiGenerateDocumentsOnBuild>true</OpenApiGenerateDocumentsOnBuild>
+    <OpenApiDocumentsDirectory>$(OpenApiOutputDirectory)</OpenApiDocumentsDirectory>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(EmitOpenApi)' != 'true'">
+    <OpenApiGenerateDocuments>false</OpenApiGenerateDocuments>
+    <OpenApiGenerateDocumentsOnBuild>false</OpenApiGenerateDocumentsOnBuild>
   </PropertyGroup>
 
 </Project>

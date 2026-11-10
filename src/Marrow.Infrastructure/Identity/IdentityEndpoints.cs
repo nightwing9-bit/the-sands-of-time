@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Security.Claims;
+using Marrow.Infrastructure.Contracts;
 using Marrow.Infrastructure.Identity.Csrf;
 using Marrow.Infrastructure.Identity.Guest;
 using Marrow.Infrastructure.Identity.Staff;
@@ -30,32 +31,40 @@ public sealed record StaffSessionResponse(
 public sealed record GuestSessionResponse(string Subject, DateTimeOffset ExpiresAtUtc, bool Resumed, string CsrfToken);
 
 public sealed record ActorResponse(string Subject, string Kind, IReadOnlyCollection<string> Roles, IReadOnlyCollection<string> Claims);
+public sealed record MfaVerifiedResponse(DateTimeOffset MfaVerifiedUntilUtc);
 
 public static class IdentityEndpoints
 {
     private const int MaxFieldLength = 256;
 
+    /// <summary>Documents the typed failure body every identity endpoint can return.</summary>
+    private static RouteHandlerBuilder WithProblems(this RouteHandlerBuilder builder) => builder
+        .Produces<ApiProblem>(StatusCodes.Status400BadRequest)
+        .Produces<ApiProblem>(StatusCodes.Status401Unauthorized)
+        .Produces<ApiProblem>(StatusCodes.Status403Forbidden)
+        .Produces<ApiProblem>(StatusCodes.Status404NotFound)
+        .Produces<ApiProblem>(StatusCodes.Status409Conflict);
+
     /// <summary>Maps the shared staff/guest authentication endpoints. Host composition only; no domain rules.</summary>
     public static IEndpointRouteBuilder MapMarrowIdentityEndpoints(this IEndpointRouteBuilder app)
     {
+        // Produces<T> metadata only feeds the OpenAPI document that generates the TypeScript client; it changes no behavior.
         var staff = app.MapGroup("/auth/staff");
-        staff.MapPost("/login", StaffLogin);
-        staff.MapPost("/refresh", StaffRefresh);
-        staff.MapPost("/logout", StaffLogout);
-        staff.MapGet("/me", Me).RequireAuthorization(IdentityPolicies.Staff);
-        staff.MapPost("/mfa/enroll", BeginEnrollment).RequireAuthorization(IdentityPolicies.Staff);
-        staff.MapPost("/mfa/confirm", ConfirmEnrollment).RequireAuthorization(IdentityPolicies.Staff);
-        staff.MapPost("/mfa/verify", VerifyMfa).RequireAuthorization(IdentityPolicies.Staff);
-
+        staff.MapPost("/login", StaffLogin).WithName("StaffLogin").Produces<StaffSessionResponse>().WithProblems();
+        staff.MapPost("/refresh", StaffRefresh).WithName("StaffRefresh").Produces<StaffSessionResponse>().WithProblems();
+        staff.MapPost("/logout", StaffLogout).WithName("StaffLogout").Produces(StatusCodes.Status204NoContent).WithProblems();
+        staff.MapGet("/me", Me).RequireAuthorization(IdentityPolicies.Staff).WithName("StaffMe").Produces<ActorResponse>().WithProblems();
+        staff.MapPost("/mfa/enroll", BeginEnrollment).RequireAuthorization(IdentityPolicies.Staff).WithName("StaffMfaEnroll").Produces<MfaEnrollment>().WithProblems();
+        staff.MapPost("/mfa/confirm", ConfirmEnrollment).RequireAuthorization(IdentityPolicies.Staff).WithName("StaffMfaConfirm").Produces<MfaVerifiedResponse>().WithProblems();
+        staff.MapPost("/mfa/verify", VerifyMfa).RequireAuthorization(IdentityPolicies.Staff).WithName("StaffMfaVerify").Produces<MfaVerifiedResponse>().WithProblems();
         var guest = app.MapGroup("/auth/guest");
-        guest.MapPost("/start", GuestStart);
-        guest.MapPost("/signout", GuestSignOut);
-        guest.MapGet("/me", Me).RequireAuthorization(IdentityPolicies.Guest);
-
+        guest.MapPost("/start", GuestStart).WithName("GuestStart").Produces<GuestSessionResponse>().WithProblems();
+        guest.MapPost("/signout", GuestSignOut).WithName("GuestSignOut").Produces(StatusCodes.Status204NoContent).WithProblems();
+        guest.MapGet("/me", Me).RequireAuthorization(IdentityPolicies.Guest).WithName("GuestMe").Produces<ActorResponse>().WithProblems();
         // The privileged staff actions owned by identity itself: revoking sessions and banning guests.
         var admin = app.MapGroup("/auth/admin").RequireAuthorization(IdentityPolicies.StaffSupervisor);
-        admin.MapPost("/staff-sessions/{sessionId:guid}/revoke", RevokeStaffSession);
-        admin.MapPost("/guests/{guestId:guid}/ban", BanGuest);
+        admin.MapPost("/staff-sessions/{sessionId:guid}/revoke", RevokeStaffSession).WithName("RevokeStaffSession").Produces(StatusCodes.Status204NoContent).WithProblems();
+        admin.MapPost("/guests/{guestId:guid}/ban", BanGuest).WithName("BanGuest").Produces(StatusCodes.Status204NoContent).WithProblems();
         return app;
     }
 
@@ -122,7 +131,7 @@ public static class IdentityEndpoints
         }
 
         var result = await step(caller, body!.Code!);
-        return result.Match(until => Results.Ok(new { mfaVerifiedUntilUtc = until }), AuthProblem.ToResult);
+        return result.Match(until => Results.Ok(new MfaVerifiedResponse(until)), AuthProblem.ToResult);
     }
 
     private static async Task<IResult> RevokeStaffSession(Guid sessionId, StaffAuthService staff, CancellationToken ct) =>

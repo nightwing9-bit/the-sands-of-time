@@ -3,7 +3,8 @@ name: ci
 # Fast gate for pull requests and pushes to main: restore, compile, typed JS checks,
 # architecture boundary checks and cheap unit tests (job `dotnet`).
 # Real-service tests (Category=Integration: Testcontainers PostgreSQL 18.6 / Redis 7.4) run in the separate,
-# bounded `integration` job. Playwright E2E suites get their own job when they exist (Spec 04 onward).
+# bounded `integration` job. Browser suites run in the bounded `e2e` job: the fast stubbed Playwright suites and the Spec 04
+# real-backend suite (real Hosts.Api composition, real Timeline engine, PostgreSQL in Docker; no mocked /timeline answers).
 
 on:
   pull_request:
@@ -88,7 +89,7 @@ jobs:
           path: TestResults/integration
           retention-days: 7
   web:
-    name: npm ci/typecheck/build
+    name: npm ci/typecheck/test/build
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -96,25 +97,97 @@ jobs:
         working-directory: web
     steps:
       - uses: actions/checkout@v4
-
+      # One Node line for every web job; web/package.json "engines" and web/.npmrc (engine-strict) reject anything older.
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: web/package-lock.json
-
       - name: Install (lockfile only)
         run: npm ci
-
-      - name: Typecheck all workspaces
+      - name: Typecheck all workspaces (strict)
         run: npm run typecheck
-      # Realtime envelope/cursor contract tests (node --test, scripted transport). Live hub client: Spec 04.
+      # Contract tests: node --test, scripted transport, source hygiene. The live-host tests skip unless CONTRACTS_LIVE_API_ORIGIN is set;
+      # the real-host proof is the e2e job.
       - name: Contracts tests
         run: npm test --workspace packages/contracts
-
+      - name: Timeline UI component tests
+        run: npm test --workspace packages/timeline-ui
       - name: Build both browser apps
         run: npm run build
-
+      # Reads the bundler's module list for both production builds: one shared scrubber module, no cross-app modules, no test files.
+      - name: Bundle import graph
+        run: npm run check:bundles
+  contracts:
+    name: contracts freshness (OpenAPI -> TypeScript)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install web dependencies (lockfile only)
+        run: npm ci
+        working-directory: web
+      # Rebuilds Hosts.Api, re-emits OpenAPI and regenerates the TypeScript, then fails with a diff if the committed
+      # web/packages/contracts/openapi/hosts-api.json or src/generated/*.ts differ. Fix: run scripts/contracts/generate.sh.
+      - name: Generated client output is current
+        run: bash scripts/contracts/generate.sh --check
+  e2e:
+    name: browser e2e (stubbed + real backend)
+    runs-on: ubuntu-latest
+    # Docker is preinstalled on GitHub-hosted Ubuntu runners; the test host starts PostgreSQL through Testcontainers and ends itself
+    # after E2E_BACKEND_MAX_SECONDS (1500 s) even if Playwright's teardown were missed.
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            tests/E2E/package-lock.json
+      - name: Pull service image
+        timeout-minutes: 5
+        run: docker pull postgres:18.6-alpine3.24
+      - name: Install web dependencies (lockfile only)
+        run: npm ci
+        working-directory: web
+      - name: Install Playwright dependencies (lockfile only)
+        run: npm ci
+        working-directory: tests/E2E
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+        working-directory: tests/E2E
+      # Fast suites: both shells, browser-edge stubs for /meta and /timeline (they say so); keyboard, reduced motion, smoke.
+      - name: Playwright stubbed suites
+        timeout-minutes: 8
+        run: npm run test:stubbed
+        working-directory: tests/E2E
+      # Spec 04 exit gate: no page.route. Builds and starts tests/E2E/backend (real Hosts.Api + Timeline engine + PostgreSQL), both
+      # Vite shells proxied to it, then drives seek / fork / typed failures / stale seek / lost-fork-retry in Chromium for both apps.
+      - name: Playwright real-backend suite
+        timeout-minutes: 10
+        run: npm run test:real
+        working-directory: tests/E2E
+      - name: Upload browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-results
+          path: |
+            tests/E2E/test-results
+          retention-days: 7
   scripts:
     name: check scripts lint
     runs-on: ubuntu-latest
@@ -124,8 +197,8 @@ jobs:
 
       - name: Syntax-check and lint check scripts
         run: |
-          for f in scripts/checks/*.sh; do bash -n "$f"; done
-          shellcheck -x scripts/checks/*.sh
+          for f in scripts/checks/*.sh scripts/contracts/*.sh; do bash -n "$f"; done
+          shellcheck -x scripts/checks/*.sh scripts/contracts/*.sh
       # One-Realtime-instance invariant: fails if the resolved Compose model scales Realtime beyond one replica.
       - name: Realtime single-replica guard
         run: bash scripts/checks/realtime-scale-guard.sh
