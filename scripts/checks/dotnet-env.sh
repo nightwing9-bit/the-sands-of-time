@@ -8,7 +8,10 @@
 DOTNET_SDK_DIR="${DOTNET_SDK_DIR:-$HOME/.dotnet-10.0.403}"
 if [ ! -x "$DOTNET_SDK_DIR/dotnet" ]; then
   echo "dotnet-env: no SDK at $DOTNET_SDK_DIR (set DOTNET_SDK_DIR or install 10.0.402+)" >&2
-  return 1 2>/dev/null || exit 1
+  if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    exit 1
+  fi
+  return 1
 fi
 export DOTNET_ROOT="$DOTNET_SDK_DIR"
 export PATH="$DOTNET_ROOT:$PATH"
