@@ -77,7 +77,7 @@ run_test_dir() { # suite name, tests dir (relative)
   if [ -z "$proj" ]; then
     skip_step "$name" "no test project under $dir"
   else
-    run_step "$name" dotnet test "${proj#"$REPO_ROOT"/}" --nologo -v minimal --filter "Category!=Integration&Category!=E2E&Category!=MlSsaX64"
+    run_step "$name" dotnet test "${proj#"$REPO_ROOT"/}" --nologo -v minimal --filter "Category!=Integration&Category!=E2E&Category!=MlSsaX64&Category!=OfflineTraining"
   fi
 }
 

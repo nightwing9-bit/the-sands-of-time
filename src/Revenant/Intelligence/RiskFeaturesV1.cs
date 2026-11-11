@@ -112,6 +112,8 @@ public static class RiskFeaturesV1
 
     public const double TransferFractionCap = 10d;
 
+    public const int FeatureCount = 4;
+
     private static readonly string[] Names = ["logAmount", "logSourcePostedBefore", "transferFraction", "wouldDrainPosted"];
 
     /// <summary>The exact ordered model input columns. This list is also the allow-list: nothing else may reach the trainer.</summary>

@@ -21,4 +21,17 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="Npgsql" Version="10.0.3" />
   </ItemGroup>
+  <!--
+    Spec 08 task 8.2: the offline risk-classifier trainer and the artifact loader (src/Revenant/Intelligence) use ML.NET core and
+    FastTree only, the same pinned 5.0.1 family as the platform probe. Microsoft.ML.TimeSeries (SSA, Linux x64 only) is NOT referenced
+    here. Ghost Lap and Marrow never reference ML.NET. The pure finance/scenario/timeline code does not use these namespaces.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.ML" Version="5.0.1" />
+    <PackageReference Include="Microsoft.ML.FastTree" Version="5.0.1" />
+  </ItemGroup>
+  <!-- The committed, checksummed artifact travels with the assembly so a Worker can load it from AppContext.BaseDirectory. -->
+  <ItemGroup>
+    <None Include="Intelligence\Artifacts\**\*" CopyToOutputDirectory="PreserveNewest" LinkBase="Intelligence\Artifacts" Link="Intelligence\Artifacts\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
 </Project>

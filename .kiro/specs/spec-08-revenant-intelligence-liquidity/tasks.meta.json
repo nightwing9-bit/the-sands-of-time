@@ -12,6 +12,18 @@
         "chatSessionId": "sess_735ab563-9852-4794-9d57-096f9109274c",
         "timestamp": 1794383911807
       }
+    ],
+    "**8.2 Train, load and independently evaluate the fraud classifier — offline only**": [
+      {
+        "executionId": "20bcae29-6693-4392-a28a-d447dbfca3dc",
+        "chatSessionId": "sess_26c768a7-33a5-4440-87af-342ef843ffd7",
+        "timestamp": 1794389640812
+      },
+      {
+        "executionId": "20bcae29-6693-4392-a28a-d447dbfca3dc",
+        "chatSessionId": "sess_26c768a7-33a5-4440-87af-342ef843ffd7",
+        "timestamp": 1794390370720
+      }
     ]
   }
 }

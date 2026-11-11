@@ -42,3 +42,11 @@ Added types and files only. `Revenant.Contracts`, `Marrow.*`, `FinanceReducer`, 
 - *Put run and intent ids in the vector:* would make a PaySim row and a live row diverge and invite identifier leakage.
 - *Clamp out-of-range probabilities or balances:* hides a model or ledger defect behind a plausible number.
 - *Add ML.NET to `Revenant.Domain` now:* nothing in 8.1 needs it; 8.2 adds it with the trainer.
+
+## Addendum (Spec 08 task 8.2): trained artifact and manifest contract
+- `Revenant.Domain` now references `Microsoft.ML` and `Microsoft.ML.FastTree` 5.0.1 (not TimeSeries). Code lives in `src/Revenant/Intelligence`: `RiskEvaluation` (pure metrics and threshold rule), `RiskModelTrainer` (offline only), `RiskModelScorer` (verify-then-load, PPM scoring), `RiskModelManifest`.
+- Artifact directory `src/Revenant/Intelligence/Artifacts/<model-id>/` holds `model.zip`, `manifest.json` (`risk-model-manifest/1`, self-hash `ManifestSha256`) and `model.zip.sha256`. It is copied next to the assembly. Files are immutable; a retrain is a new model id and directory, and `train-risk-model.sh` refuses to overwrite.
+- `InferenceEvidenceV1` fields map to `RiskModelIdentity`: `ModelId`, `ArtifactSha256`, `ManifestSha256`, `MlNetPackageVersion`, `ThresholdPpm`. 8.3 should copy them from `RiskModelScorer.Identity`, never from configuration.
+- Loader order: manifest JSON, manifest self-hash, feature contract (`ValidateModelInputColumns`), artifact size and SHA-256, ML.NET package version, then ML.NET load from the same verified bytes and a model schema check (`Features` Single[4], `Label`, Single `Probability`). Every failure is a typed `RiskModelFailure`; there is no fallback.
+- Scoring uses `ITransformer.Transform` per call. No `PredictionEngine` is shared.
+- Compatibility: additive types and files; `Revenant.Contracts`, `Marrow.*`, finance reducers, codecs and migrations are unchanged. The tie rule "then higher threshold" in the threshold selection is unreachable for distinct scores (equal F1 and equal precision imply an identical held set); it is kept as the pinned final tie-break.
