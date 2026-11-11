@@ -1,6 +1,7 @@
 using Marrow.Infrastructure.Hosting;
 using Marrow.Infrastructure.Identity;
 using Marrow.Infrastructure.Realtime;
+using Revenant.Api;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddMarrowHostDefaults();
@@ -10,6 +11,8 @@ builder.Services.AddMarrowIdentity(builder.Configuration, builder.Environment);
 // Single process by design: no SignalR backplane, so room/stream authority cannot be split across replicas.
 // A second instance against the same database refuses to start (RealtimeInstanceGuard advisory lock).
 builder.Services.AddMarrowRealtime(builder.Configuration);
+// Spec 07: revenant-run streams, authorized by the Revenant staff policy. Registered only when ConnectionStrings:RevenantLedger is set.
+builder.Services.AddRevenantRealtime(builder.Configuration);
 var app = builder.Build();
 
 // Hosts never run migrations; scripts/db/migrate.sh is the single executor.

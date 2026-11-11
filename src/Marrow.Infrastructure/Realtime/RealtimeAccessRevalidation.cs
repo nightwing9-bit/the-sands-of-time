@@ -107,6 +107,11 @@ internal sealed class RealtimeAccess(RealtimeStreamRegistry streams)
                 new(IdentityClaimTypes.Kind, IdentityClaimTypes.KindStaff),
             };
             claims.AddRange(state.Roles.Select(role => new Claim(IdentityClaimTypes.Role, role)));
+            if (state.TenantId is { } tenant)
+            {
+                // Re-read with the session on every check: a revoked tenant membership drops tenant-scoped streams.
+                claims.Add(new Claim(IdentityClaimTypes.Tenant, tenant));
+            }
             if (staff.IsMfaFresh(state.MfaVerifiedAt))
             {
                 claims.Add(new Claim(IdentityClaimTypes.Mfa, "true"));

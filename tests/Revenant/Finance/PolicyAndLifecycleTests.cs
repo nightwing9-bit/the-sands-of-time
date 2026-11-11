@@ -13,12 +13,15 @@ public sealed class PolicyAndLifecycleTests
         (PaymentStatus.Initiated, PaymentStatus.Screened),
         (PaymentStatus.Screened, PaymentStatus.Held),
         (PaymentStatus.Screened, PaymentStatus.Cleared),
+        (PaymentStatus.Screened, PaymentStatus.Rejected),
         (PaymentStatus.Held, PaymentStatus.Approved),
         (PaymentStatus.Held, PaymentStatus.Rejected),
         (PaymentStatus.Held, PaymentStatus.Returned),
         (PaymentStatus.Approved, PaymentStatus.Cleared),
+        (PaymentStatus.Approved, PaymentStatus.Returned),
         (PaymentStatus.Cleared, PaymentStatus.Settled),
         (PaymentStatus.Cleared, PaymentStatus.Returned),
+        (PaymentStatus.Settled, PaymentStatus.Returned),
     ];
 
     [Fact]

@@ -4,6 +4,8 @@
     <ProjectReference Include="..\Marrow.Kernel\Marrow.Kernel.csproj" />
     <ProjectReference Include="..\Marrow.Timeline\Marrow.Timeline.csproj" />
     <ProjectReference Include="..\Marrow.Infrastructure\Marrow.Infrastructure.csproj" />
+    <!-- Spec 07 task 7.4: the Revenant run stream and its tenant/membership policy on the hub (composition only). -->
+    <ProjectReference Include="..\Revenant\Revenant.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

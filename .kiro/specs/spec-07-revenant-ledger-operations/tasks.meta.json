@@ -1,0 +1,65 @@
+{
+  "pbtResults": {},
+  "executionHistory": {
+    "**7.1 Migrations, balances and DB constraints**": [
+      {
+        "executionId": "47054787-3fc4-4482-b603-e09687cf7c7a",
+        "chatSessionId": "sess_9ca919b5-34bc-478f-b37e-2eb4c1e9818e",
+        "timestamp": 1794363033228
+      },
+      {
+        "executionId": "47054787-3fc4-4482-b603-e09687cf7c7a",
+        "chatSessionId": "sess_9ca919b5-34bc-478f-b37e-2eb4c1e9818e",
+        "timestamp": 1794363793724
+      }
+    ],
+    "**7.2 Payment machine and idempotent intake**": [
+      {
+        "executionId": "44f956f2-aff0-45db-9c90-43a229edce06",
+        "chatSessionId": "sess_a8ac684d-c840-4117-b512-52cac5270611",
+        "timestamp": 1794364269045
+      },
+      {
+        "executionId": "44f956f2-aff0-45db-9c90-43a229edce06",
+        "chatSessionId": "sess_a8ac684d-c840-4117-b512-52cac5270611",
+        "timestamp": 1794365613275
+      }
+    ],
+    "**7.3 Holds, settlement and safe retries**": [
+      {
+        "executionId": "f822a8b9-e869-45ab-861f-5ab5960eb6ce",
+        "chatSessionId": "sess_03dfa14c-0156-4f9e-b1f9-42463bef5730",
+        "timestamp": 1794366047313
+      },
+      {
+        "executionId": "f822a8b9-e869-45ab-861f-5ab5960eb6ce",
+        "chatSessionId": "sess_03dfa14c-0156-4f9e-b1f9-42463bef5730",
+        "timestamp": 1794367087528
+      }
+    ],
+    "**7.4 Case workflows and four-eyes**": [
+      {
+        "executionId": "e0019ee2-c07f-4d46-98c9-8a15e6a3f585",
+        "chatSessionId": "sess_9a9b1d9b-7bfe-472a-9ebc-f125acb6e19f",
+        "timestamp": 1794368223190
+      },
+      {
+        "executionId": "e0019ee2-c07f-4d46-98c9-8a15e6a3f585",
+        "chatSessionId": "sess_9a9b1d9b-7bfe-472a-9ebc-f125acb6e19f",
+        "timestamp": 1794369972503
+      }
+    ],
+    "**7.5 Audit and scenario integration**": [
+      {
+        "executionId": "3dbe363e-47f9-4aa1-b4c4-635e2f08bff9",
+        "chatSessionId": "sess_9730258b-31fa-4559-a3b7-e0ede76594ab",
+        "timestamp": 1794370769006
+      },
+      {
+        "executionId": "3dbe363e-47f9-4aa1-b4c4-635e2f08bff9",
+        "chatSessionId": "sess_9730258b-31fa-4559-a3b7-e0ede76594ab",
+        "timestamp": 1794373277698
+      }
+    ]
+  }
+}

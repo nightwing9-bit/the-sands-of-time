@@ -7,7 +7,9 @@ name: sands-of-time
 
 # Hosts never use the POSTGRES_USER superuser: each connects with its own least-privilege login, which the
 # migrate job provisions (scripts/db/migrate.sh): sands_api and sands_realtime hold marrow_identity_runtime only,
-# sands_worker holds no schema role yet. Pooled Npgsql connections (bounded pool, 5 s pool/connect wait, 15 s
+# sands_worker holds marrow_timeline_runtime + revenant_replay_reader + revenant_read_projector (V2 projection and read-model consumer; no live finance write). The Revenant
+# ledger uses separate logins and pools (ConnectionStrings__RevenantLedger): sands_api_ledger (revenant_ledger_writer),
+# sands_realtime_ledger (revenant_replay_reader), sands_worker_ledger (revenant_ledger_writer + revenant_outbox_relay). Pooled Npgsql connections (bounded pool, 5 s pool/connect wait, 15 s
 # command timeout) are set per host below.
 x-host-environment: &host-environment
   ASPNETCORE_ENVIRONMENT: Production
@@ -72,6 +74,9 @@ services:
       API_DB_PASSWORD: ${API_DB_PASSWORD:?set API_DB_PASSWORD in .env}
       REALTIME_DB_PASSWORD: ${REALTIME_DB_PASSWORD:?set REALTIME_DB_PASSWORD in .env}
       WORKER_DB_PASSWORD: ${WORKER_DB_PASSWORD:?set WORKER_DB_PASSWORD in .env}
+      API_LEDGER_DB_PASSWORD: ${API_LEDGER_DB_PASSWORD:?set API_LEDGER_DB_PASSWORD in .env}
+      REALTIME_LEDGER_DB_PASSWORD: ${REALTIME_LEDGER_DB_PASSWORD:?set REALTIME_LEDGER_DB_PASSWORD in .env}
+      WORKER_LEDGER_DB_PASSWORD: ${WORKER_LEDGER_DB_PASSWORD:?set WORKER_LEDGER_DB_PASSWORD in .env}
     volumes:
       - ../../scripts/db:/scripts/db:ro
     depends_on:
@@ -86,6 +91,7 @@ services:
     environment:
       <<: *host-environment
       ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB:?set POSTGRES_DB in .env};Username=sands_api;Password=${API_DB_PASSWORD:?set API_DB_PASSWORD in .env};Maximum Pool Size=20;Timeout=5;Command Timeout=15"
+      ConnectionStrings__RevenantLedger: "Host=postgres;Port=5432;Database=${POSTGRES_DB:?set POSTGRES_DB in .env};Username=sands_api_ledger;Password=${API_LEDGER_DB_PASSWORD:?set API_LEDGER_DB_PASSWORD in .env};Maximum Pool Size=20;Timeout=5;Command Timeout=15"
       # Master secret for access tokens, guest cookies, CSRF and TOTP-at-rest keys. No default: Production refuses to
       # start without a strong, non-placeholder value (src/Marrow.Infrastructure/Identity/IdentityKeyMaterial.cs).
       Identity__MasterSecret: ${IDENTITY_MASTER_SECRET:?set IDENTITY_MASTER_SECRET in .env}
@@ -108,6 +114,7 @@ services:
     environment:
       <<: *host-environment
       ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB:?set POSTGRES_DB in .env};Username=sands_realtime;Password=${REALTIME_DB_PASSWORD:?set REALTIME_DB_PASSWORD in .env};Maximum Pool Size=20;Timeout=5;Command Timeout=15"
+      ConnectionStrings__RevenantLedger: "Host=postgres;Port=5432;Database=${POSTGRES_DB:?set POSTGRES_DB in .env};Username=sands_realtime_ledger;Password=${REALTIME_LEDGER_DB_PASSWORD:?set REALTIME_LEDGER_DB_PASSWORD in .env};Maximum Pool Size=10;Timeout=5;Command Timeout=15"
       # Same secret as the API: the hub validates staff access tokens and guest session cookies the API issued.
       Identity__MasterSecret: ${IDENTITY_MASTER_SECRET:?set IDENTITY_MASTER_SECRET in .env}
     depends_on: *host-depends-on
@@ -130,6 +137,10 @@ services:
     environment:
       <<: *host-environment
       ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB:?set POSTGRES_DB in .env};Username=sands_worker;Password=${WORKER_DB_PASSWORD:?set WORKER_DB_PASSWORD in .env};Maximum Pool Size=20;Timeout=5;Command Timeout=15"
+      ConnectionStrings__RevenantLedger: "Host=postgres;Port=5432;Database=${POSTGRES_DB:?set POSTGRES_DB in .env};Username=sands_worker_ledger;Password=${WORKER_LEDGER_DB_PASSWORD:?set WORKER_LEDGER_DB_PASSWORD in .env};Maximum Pool Size=20;Timeout=5;Command Timeout=15"
+      Revenant__Ledger__TenantId: ${REVENANT_TENANT_ID:-demo-bank}
+      Revenant__Relay__StreamKey: "revenant:events"
+      Revenant__ReadProjection__StreamKey: "revenant:events"
     depends_on: *host-depends-on
     ports:
       - "127.0.0.1:${WORKER_HOST_PORT:-8083}:8080"

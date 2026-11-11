@@ -126,7 +126,7 @@ public sealed class IdentityApiFactory : WebApplicationFactory<Program>
         }), origin);
 
     /// <summary>Creates a staff account through the real ASP.NET Core Identity UserManager (the same path the Development seeder uses).</summary>
-    public async Task<TestStaff> CreateStaffAsync(string role = IdentityRoles.Operator)
+    public async Task<TestStaff> CreateStaffAsync(string role = IdentityRoles.Operator, string? tenantId = null)
     {
         var name = $"{role}-{Guid.NewGuid():N}@test.sands.local";
         var password = "Aa1!" + Convert.ToHexString(RandomNumberGenerator.GetBytes(12));
@@ -140,6 +140,10 @@ public sealed class IdentityApiFactory : WebApplicationFactory<Program>
         }
 
         await users.AddToRoleAsync(user, role);
+        if (tenantId is not null && !await scope.ServiceProvider.GetRequiredService<StaffAuthService>().GrantTenantAsync(user.Id, tenantId, default))
+        {
+            throw new InvalidOperationException("Test tenant membership grant failed.");
+        }
         return new TestStaff(user.Id, name, password);
     }
 }

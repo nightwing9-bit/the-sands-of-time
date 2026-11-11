@@ -66,7 +66,8 @@ public sealed class IdentitySchemaTests(IdentityDatabase db)
         {
             Assert.Contains("runtime login sands_api: provisioned (marrow_identity_runtime)", output, StringComparison.Ordinal);
             Assert.Contains("runtime login sands_realtime: provisioned (marrow_identity_runtime)", output, StringComparison.Ordinal);
-            Assert.Contains("runtime login sands_worker: provisioned (no schema roles)", output, StringComparison.Ordinal);
+            // Spec 07 task 7.5 closed the Worker's mapping: V2 Timeline projection (and the future Replay mode) only.
+            Assert.Contains("runtime login sands_worker: provisioned (marrow_timeline_runtime revenant_replay_reader revenant_read_projector)", output, StringComparison.Ordinal);
             foreach (var password in db.RuntimePasswords)
             {
                 Assert.DoesNotContain(password, output, StringComparison.Ordinal);
@@ -86,7 +87,7 @@ public sealed class IdentitySchemaTests(IdentityDatabase db)
             "JOIN pg_roles g ON g.oid = m.roleid JOIN pg_roles u ON u.oid = m.member WHERE u.rolname = @n";
         Assert.Equal("marrow_identity_runtime", await db.ScalarAsync<string>(memberships, ("n", IdentityDatabase.ApiLogin)));
         Assert.Equal("marrow_identity_runtime", await db.ScalarAsync<string>(memberships, ("n", IdentityDatabase.RealtimeLogin)));
-        Assert.Equal("", await db.ScalarAsync<string>(memberships, ("n", IdentityDatabase.WorkerLogin)));
+        Assert.Equal("marrow_timeline_runtime,revenant_read_projector,revenant_replay_reader", await db.ScalarAsync<string>(memberships, ("n", IdentityDatabase.WorkerLogin)));
 
         await using var worker = NpgsqlDataSource.Create(db.WorkerConnectionString);
         await using (var ping = worker.CreateCommand("SELECT 1"))
@@ -96,7 +97,8 @@ public sealed class IdentitySchemaTests(IdentityDatabase db)
         foreach (var (connectionString, sql) in new[]
         {
             (db.WorkerConnectionString, "SELECT 1 FROM marrow_identity.guest_sessions"),
-            (db.WorkerConnectionString, "SELECT 1 FROM marrow_timeline.histories"),
+            (db.WorkerConnectionString, "DELETE FROM revenant.payment"),
+            (db.WorkerConnectionString, "UPDATE revenant.outbox SET status = 'pending'"),
             (db.WorkerConnectionString, "CREATE TABLE public.worker_probe (a int)"),
             (db.RealtimeConnectionString, "SELECT 1 FROM marrow_timeline.histories"),
             (db.RealtimeConnectionString, "DELETE FROM marrow_identity.guest_sessions"),

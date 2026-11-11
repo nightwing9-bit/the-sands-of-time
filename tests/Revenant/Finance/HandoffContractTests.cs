@@ -1,4 +1,5 @@
 using System.Reflection;
+using NetArchTest.Rules;
 using Revenant.Contracts;
 using Revenant.Finance;
 using Revenant.Timeline;
@@ -60,13 +61,29 @@ public sealed class HandoffContractTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void Domain_assembly_has_no_persistence_host_or_clock_dependencies()
+    public void Pure_finance_code_has_no_persistence_host_or_other_domain_dependencies()
     {
-        var names = typeof(FinanceReducer).Assembly.GetReferencedAssemblies().Select(a => a.Name ?? "").ToArray();
-        Assert.DoesNotContain(names, n => n.StartsWith("Npgsql", StringComparison.Ordinal)
-            || n.StartsWith("Marrow.Infrastructure", StringComparison.Ordinal)
-            || n.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal)
+        // Spec 07 task 7.2 introduced domain persistence (Revenant.Payments) and the API registration (Revenant.Api) into this
+        // assembly, so the no-database-driver assertion now covers exactly the pure finance code: the reducer, scenario and
+        // Timeline adapter namespaces (task 7.5 adds the V2 reducer/codecs there, the pure review rules in Revenant.Cases, and keeps
+        // the database-reading projector in Revenant.Projection out of it). The whole assembly still may not reference shared Infrastructure or the game domain.
+        var assembly = typeof(FinanceReducer).Assembly;
+        var names = assembly.GetReferencedAssemblies().Select(a => a.Name ?? "").ToArray();
+        Assert.DoesNotContain(names, n => n.StartsWith("Marrow.Infrastructure", StringComparison.Ordinal)
             || n.StartsWith("GhostLap", StringComparison.Ordinal));
+
+        var pure = Types.InAssembly(assembly).That()
+            .ResideInNamespaceStartingWith("Revenant.Finance").Or()
+            .ResideInNamespaceStartingWith("Revenant.Scenario").Or()
+            .ResideInNamespaceStartingWith("Revenant.Cases").Or()
+            .ResideInNamespaceStartingWith("Revenant.Timeline");
+        var forbidden = new[]
+        {
+            "Npgsql", "Microsoft.AspNetCore", "Microsoft.Extensions", "Marrow.Infrastructure", "GhostLap", "Revenant.Payments", "Revenant.Api", "Revenant.Projection",
+        };
+        var result = pure.ShouldNot().HaveDependencyOnAny(forbidden).GetResult();
+        Assert.True(result.IsSuccessful, "Pure finance types depend on persistence or host code: " + string.Join(", ", result.FailingTypeNames ?? []));
+        Assert.NotEmpty(pure.GetTypes());
     }
 
     [Fact]

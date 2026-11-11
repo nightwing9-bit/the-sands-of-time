@@ -1,11 +1,15 @@
 using Marrow.Infrastructure.Contracts;
 using Marrow.Infrastructure.Hosting;
 using Marrow.Infrastructure.Identity;
+using Marrow.Infrastructure.Messaging;
+using Revenant.Api;
 var builder = WebApplication.CreateBuilder(args);
 builder.AddMarrowHostDefaults();
 builder.Services.AddMarrowDependencies(builder.Configuration);
 builder.Services.AddMarrowIdentity(builder.Configuration, builder.Environment);
 builder.Services.AddMarrowContractMetadata();
+// Spec 07: LiveOps finance writer. Registered only when ConnectionStrings:RevenantLedger names a revenant_ledger_writer login.
+builder.Services.AddRevenantLedger(builder.Configuration, tx => new PostgresOutboxWriter(tx, new MessagingTables("revenant")));
 // The OpenAPI document is generated at build time for web/packages/contracts (scripts/contracts/generate.sh); it is not served.
 builder.Services.AddOpenApi(options => options.AddDocumentTransformer((document, _, _) =>
 {
@@ -20,6 +24,7 @@ app.MapGet("/", () => Results.Ok(new { service = "hosts-api", status = "bootstra
 app.MapMarrowHealth("hosts-api");
 app.MapMarrowIdentityEndpoints();
 app.MapMarrowContractMetadata();
+app.MapRevenantLedgerApi(IdentityPolicies.Staff);
 app.Run();
 /// <summary>Entry-point marker so integration tests can host the real composition with <c>WebApplicationFactory</c>.</summary>
 public partial class Program;

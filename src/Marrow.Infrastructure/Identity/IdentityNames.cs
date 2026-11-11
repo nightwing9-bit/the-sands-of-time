@@ -40,6 +40,12 @@ public static class IdentityClaimTypes
     public const string Kind = "marrow_kind";
     public const string Mfa = "marrow_mfa";
 
+    /// <summary>
+    /// The staff user's active tenant. Added only by the server after reading <c>staff_tenant_memberships</c> for the
+    /// request; any copy inside a token is stripped first, so a client can never choose its tenant.
+    /// </summary>
+    public const string Tenant = "marrow_tenant";
+
     public const string KindStaff = "staff";
     public const string KindGuest = "guest";
 }

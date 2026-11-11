@@ -6,10 +6,19 @@
     <AssemblyName>Revenant.Domain</AssemblyName>
     <RootNamespace>Revenant</RootNamespace>
   </PropertyGroup>
-
   <ItemGroup>
     <ProjectReference Include="..\Revenant.Contracts\Revenant.Contracts.csproj" />
     <ProjectReference Include="..\Marrow.Kernel\Marrow.Kernel.csproj" />
     <ProjectReference Include="..\Marrow.Timeline\Marrow.Timeline.csproj" />
+  </ItemGroup>
+  <!--
+    Spec 07 task 7.2: durable payment persistence and the Revenant API/LiveOps registration live in the Revenant.Payments and
+    Revenant.Api namespaces. The pure finance code (Revenant.Finance, Revenant.Scenario, Revenant.Timeline) still depends on
+    neither Npgsql nor ASP.NET; Revenant.Tests asserts that at the type level. The assembly never references Marrow.Infrastructure:
+    the host hands it the shared outbox writer as a delegate.
+  -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Npgsql" Version="10.0.3" />
   </ItemGroup>
 </Project>

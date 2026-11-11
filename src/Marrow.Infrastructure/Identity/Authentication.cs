@@ -133,7 +133,9 @@ internal sealed class StaffBearerConfiguration(IdentityKeyMaterial keys, IOption
             return;
         }
 
-        foreach (var claim in identity.FindAll(IdentityClaimTypes.Role).ToArray())
+        // Roles, tenant and MFA are server state: whatever the token carries is discarded and re-read from the database.
+        foreach (var claim in identity.Claims
+                     .Where(c => c.Type is IdentityClaimTypes.Role or IdentityClaimTypes.Tenant or IdentityClaimTypes.Mfa).ToArray())
         {
             identity.RemoveClaim(claim);
         }
@@ -141,6 +143,11 @@ internal sealed class StaffBearerConfiguration(IdentityKeyMaterial keys, IOption
         foreach (var role in state.Roles)
         {
             identity.AddClaim(new Claim(IdentityClaimTypes.Role, role));
+        }
+
+        if (state.TenantId is { } tenant)
+        {
+            identity.AddClaim(new Claim(IdentityClaimTypes.Tenant, tenant));
         }
 
         if (staff.IsMfaFresh(state.MfaVerifiedAt))

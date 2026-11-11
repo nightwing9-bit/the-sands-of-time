@@ -121,8 +121,14 @@ log "done: $applied applied, $skipped already applied"
 # they are never on a command line, never interpolated by the shell into SQL, and never printed.
 #   API_DB_PASSWORD      -> sands_api       member of marrow_identity_runtime
 #   REALTIME_DB_PASSWORD -> sands_realtime  member of marrow_identity_runtime (session revalidation, advisory lock)
-#   WORKER_DB_PASSWORD   -> sands_worker    no schema access yet (health checks only); domain specs grant more
-RUNTIME_ROLES="marrow_timeline_runtime marrow_identity_runtime"
+#   WORKER_DB_PASSWORD   -> sands_worker    marrow_timeline_runtime + revenant_replay_reader + revenant_read_projector (Spec 07
+#                                           7.5: V2 Timeline projection and the future Replay mode; reads live finance data, writes
+#                                           none. R07.09: the read projection writes only revenant.*_view and the inbox)
+# Spec 07 task 7.5 finance logins (dedicated pools, ConnectionStrings:RevenantLedger):
+#   API_LEDGER_DB_PASSWORD      -> sands_api_ledger      revenant_ledger_writer
+#   REALTIME_LEDGER_DB_PASSWORD -> sands_realtime_ledger revenant_replay_reader (hub snapshot reads only)
+#   WORKER_LEDGER_DB_PASSWORD   -> sands_worker_ledger   revenant_ledger_writer + revenant_outbox_relay (LiveOps)
+RUNTIME_ROLES="marrow_timeline_runtime marrow_identity_runtime revenant_ledger_writer revenant_replay_reader revenant_outbox_relay revenant_read_projector"
 provision_login() {
   login=$1 var=$2 members=$3
   eval "password=\${$var:-}"
@@ -162,4 +168,7 @@ SQL
 }
 provision_login sands_api API_DB_PASSWORD "marrow_identity_runtime"
 provision_login sands_realtime REALTIME_DB_PASSWORD "marrow_identity_runtime"
-provision_login sands_worker WORKER_DB_PASSWORD ""
+provision_login sands_worker WORKER_DB_PASSWORD "marrow_timeline_runtime revenant_replay_reader revenant_read_projector"
+provision_login sands_api_ledger API_LEDGER_DB_PASSWORD "revenant_ledger_writer"
+provision_login sands_realtime_ledger REALTIME_LEDGER_DB_PASSWORD "revenant_replay_reader"
+provision_login sands_worker_ledger WORKER_LEDGER_DB_PASSWORD "revenant_ledger_writer revenant_outbox_relay"

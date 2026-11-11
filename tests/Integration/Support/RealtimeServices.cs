@@ -138,7 +138,8 @@ public sealed class RealtimeHostFactory(
     IdentityDatabase database,
     string masterSecret,
     Dictionary<string, string?>? extraSettings = null,
-    bool registerDomainPolicies = true) : WebApplicationFactory<realtime::Program>
+    bool registerDomainPolicies = true,
+    bool registerProbes = true) : WebApplicationFactory<realtime::Program>
 {
     public const string AllowedExtraOrigin = "https://play.sands.test";
 
@@ -170,8 +171,11 @@ public sealed class RealtimeHostFactory(
             services.AddSingleton<ILoggerProvider>(Logs);
             services.AddSingleton(Domain);
             services.AddSingleton<ProbeStreams>();
-            services.AddMarrowRealtimeStream<ProbeRoomSource>();
-            services.AddMarrowRealtimeStream<ProbeHistorySource>();
+            if (registerProbes)
+            {
+                services.AddMarrowRealtimeStream<ProbeRoomSource>();
+                services.AddMarrowRealtimeStream<ProbeHistorySource>();
+            }
             if (registerDomainPolicies)
             {
                 services.AddMarrowMembership<ProbeMembershipLookup>();

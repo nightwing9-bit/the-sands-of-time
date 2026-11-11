@@ -5,6 +5,8 @@
     <ProjectReference Include="..\Marrow.Timeline\Marrow.Timeline.csproj" />
     <ProjectReference Include="..\Marrow.Infrastructure\Marrow.Infrastructure.csproj" />
     <ProjectReference Include="..\Revenant.Contracts\Revenant.Contracts.csproj" />
+    <!-- Spec 07: the production Revenant ledger API/LiveOps registration (composition only; no finance rule lives in the host). -->
+    <ProjectReference Include="..\Revenant\Revenant.csproj" />
     <ProjectReference Include="..\GhostLap.Contracts\GhostLap.Contracts.csproj" />
   </ItemGroup>
 

@@ -57,7 +57,7 @@ public sealed class TimelineSurfaceIsolationTests(IdentityDatabase db)
         using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "web", "packages", "contracts", "openapi", "hosts-api.json")));
         var paths = document.RootElement.GetProperty("paths").EnumerateObject().Select(p => p.Name).ToArray();
         Assert.NotEmpty(paths);
-        Assert.DoesNotContain(paths, p => p.StartsWith("/timeline", StringComparison.Ordinal) || p.StartsWith("/revenant", StringComparison.Ordinal) || p.StartsWith("/ghost-lap", StringComparison.Ordinal) || p.StartsWith("/__e2e", StringComparison.Ordinal));
+        Assert.DoesNotContain(paths, p => p.StartsWith("/timeline", StringComparison.Ordinal) || (p.StartsWith("/revenant", StringComparison.Ordinal) && !p.StartsWith("/revenant/ledger/", StringComparison.Ordinal)) || p.StartsWith("/ghost-lap", StringComparison.Ordinal) || p.StartsWith("/__e2e", StringComparison.Ordinal));
         foreach (var assembly in new[] { typeof(Program).Assembly, typeof(Marrow.Infrastructure.Timeline.TimelineServiceCollectionExtensions).Assembly, typeof(Marrow.Timeline.TimelineId).Assembly })
         {
             Assert.DoesNotContain(assembly.GetReferencedAssemblies(), a => a.Name is "E2E.Backend" || (a.Name?.EndsWith(".Tests", StringComparison.Ordinal) ?? false));

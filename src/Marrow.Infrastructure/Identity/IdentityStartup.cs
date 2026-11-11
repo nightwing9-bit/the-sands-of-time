@@ -33,13 +33,15 @@ internal sealed class IdentityStartup(
         var seed = options.Value.DevSeed;
         await using var scope = services.CreateAsyncScope();
         var users = scope.ServiceProvider.GetRequiredService<UserManager<StaffUser>>();
-        await SeedAsync(users, seed.OperatorUserName, seed.OperatorPassword, IdentityRoles.Operator);
-        await SeedAsync(users, seed.SupervisorUserName, seed.SupervisorPassword, IdentityRoles.Supervisor);
+        var staff = scope.ServiceProvider.GetRequiredService<StaffAuthService>();
+        await SeedAsync(users, staff, seed.OperatorUserName, seed.OperatorPassword, IdentityRoles.Operator, seed.TenantId, cancellationToken);
+        await SeedAsync(users, staff, seed.SupervisorUserName, seed.SupervisorPassword, IdentityRoles.Supervisor, seed.TenantId, cancellationToken);
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
-    private async Task SeedAsync(UserManager<StaffUser> users, string userName, string? password, string role)
+    private async Task SeedAsync(
+        UserManager<StaffUser> users, StaffAuthService staff, string userName, string? password, string role, string tenantId, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(password))
         {
@@ -47,8 +49,9 @@ internal sealed class IdentityStartup(
             return;
         }
 
-        if (await users.FindByNameAsync(userName) is not null)
+        if (await users.FindByNameAsync(userName) is { } existing)
         {
+            await staff.GrantTenantAsync(existing.Id, tenantId, ct);
             audit.DevSeed("exists", role);
             return;
         }
@@ -63,6 +66,7 @@ internal sealed class IdentityStartup(
         }
 
         await users.AddToRoleAsync(user, role);
+        await staff.GrantTenantAsync(user.Id, tenantId, ct);
         audit.DevSeed("created", role);
     }
 }

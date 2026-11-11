@@ -47,4 +47,7 @@ public sealed class DevSeedOptions
     public string? OperatorPassword { get; set; }
     public string SupervisorUserName { get; set; } = "supervisor@dev.sands.local";
     public string? SupervisorPassword { get; set; }
+
+    /// <summary>Tenant the seeded Development staff are made members of (tenant-bearing staff, Spec 07 task 7.4).</summary>
+    public string TenantId { get; set; } = "demo-bank";
 }

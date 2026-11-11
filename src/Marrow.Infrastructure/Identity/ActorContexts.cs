@@ -14,13 +14,16 @@ public sealed class ClaimsActorContext : IActorContext
 {
     private static readonly string[] None = [];
 
-    private ClaimsActorContext(string subjectId, PrincipalKind kind, IReadOnlyCollection<string> roles, IReadOnlyCollection<string> claims, bool authenticated)
+    private ClaimsActorContext(
+        string subjectId, PrincipalKind kind, IReadOnlyCollection<string> roles, IReadOnlyCollection<string> claims, bool authenticated,
+        string? tenantId = null)
     {
         SubjectId = subjectId;
         PrincipalKind = kind;
         Roles = roles;
         Claims = claims;
         IsAuthenticated = authenticated;
+        TenantId = tenantId;
     }
 
     /// <summary>
@@ -31,7 +34,12 @@ public sealed class ClaimsActorContext : IActorContext
 
     public string SubjectId { get; }
     public PrincipalKind PrincipalKind { get; }
-    public string? TenantId => null;
+    /// <summary>
+    /// Staff only: the tenant the server attached after reading the user's active membership for this request
+    /// (<see cref="IdentityClaimTypes.Tenant"/>). Null for guests, for staff without an active membership, and when the
+    /// principal's identities disagree about the tenant (fail closed).
+    /// </summary>
+    public string? TenantId { get; }
     public IReadOnlyCollection<string> Roles { get; }
     public IReadOnlyCollection<string> Claims { get; }
     public bool IsAuthenticated { get; }
@@ -48,6 +56,7 @@ public sealed class ClaimsActorContext : IActorContext
         string? subject = null;
         var roles = new HashSet<string>(StringComparer.Ordinal);
         var mfa = false;
+        var tenants = new HashSet<string>(StringComparer.Ordinal);
         foreach (var identity in identities)
         {
             var identityKind = identity.FindFirst(IdentityClaimTypes.Kind)?.Value;
@@ -67,13 +76,19 @@ public sealed class ClaimsActorContext : IActorContext
             }
 
             mfa |= identity.HasClaim(IdentityClaimTypes.Mfa, "true");
+            foreach (var tenant in identity.FindAll(IdentityClaimTypes.Tenant))
+            {
+                tenants.Add(tenant.Value);
+            }
         }
 
         switch (kind)
         {
             case IdentityClaimTypes.KindStaff when subject!.StartsWith("staff:", StringComparison.Ordinal):
                 roles.IntersectWith(IdentityRoles.StaffRoles);
-                return new ClaimsActorContext(subject, PrincipalKind.Staff, [.. roles.Order(StringComparer.Ordinal)], mfa ? ["mfa"] : None, true);
+                return new ClaimsActorContext(
+                    subject, PrincipalKind.Staff, [.. roles.Order(StringComparer.Ordinal)], mfa ? ["mfa"] : None, true,
+                    tenants.Count == 1 ? tenants.Single() : null);
             case IdentityClaimTypes.KindGuest when subject!.StartsWith("guest:", StringComparison.Ordinal):
                 return new ClaimsActorContext(subject, PrincipalKind.Guest, [IdentityRoles.Guest], None, true);
             default:

@@ -25,7 +25,12 @@ public sealed record StaffSessionTokens(
 public sealed record MfaEnrollment(string SharedKey, string OtpAuthUri);
 
 /// <summary>Server-side view of a staff session used to authorize every access token (revocation is immediate).</summary>
-public sealed record StaffSessionState(bool Active, string? InactiveReason, IReadOnlyList<string> Roles, DateTimeOffset? MfaVerifiedAt);
+/// <param name="TenantId">
+/// The user's one active tenant membership (<c>marrow_identity.staff_tenant_memberships</c>), read with the session on every
+/// check, or null when the user has none or it was revoked. Never taken from a token or a request.
+/// </param>
+public sealed record StaffSessionState(
+    bool Active, string? InactiveReason, IReadOnlyList<string> Roles, DateTimeOffset? MfaVerifiedAt, string? TenantId = null);
 
 /// <summary>
 /// Staff login, rotating refresh sessions, TOTP enrollment/step-up and server-side revocation. Passwords, lockout and
@@ -255,7 +260,8 @@ public sealed class StaffAuthService(
     {
         await using var command = dataSource.CreateCommand(
             "SELECT s.expires_at, s.revoked_at, s.mfa_verified_at, u.disabled_at, " +
-            "COALESCE((SELECT array_agg(role ORDER BY role) FROM marrow_identity.staff_user_roles r WHERE r.user_id = u.id), '{}') " +
+            "COALESCE((SELECT array_agg(role ORDER BY role) FROM marrow_identity.staff_user_roles r WHERE r.user_id = u.id), '{}'), " +
+            "(SELECT t.tenant_id FROM marrow_identity.staff_tenant_memberships t WHERE t.user_id = u.id AND t.revoked_at IS NULL) " +
             "FROM marrow_identity.staff_sessions s JOIN marrow_identity.staff_users u ON u.id = s.user_id WHERE s.id = @sid AND s.user_id = @uid");
         command.Parameters.AddWithValue("sid", sessionId);
         command.Parameters.AddWithValue("uid", userId);
@@ -283,8 +289,58 @@ public sealed class StaffAuthService(
             reason is null,
             reason,
             reader.GetFieldValue<string[]>(4),
-            reader.IsDBNull(2) ? null : Utc(reader.GetDateTime(2)));
+            reader.IsDBNull(2) ? null : Utc(reader.GetDateTime(2)),
+            reader.IsDBNull(5) ? null : reader.GetString(5));
     }
+
+    /// <summary>
+    /// Grants the user membership of <paramref name="tenantId"/> (server-side administration and seeding only; there is no
+    /// self-service path). Idempotent for the same active tenant. Returns false when the user is unknown/disabled, already
+    /// has another active tenant, or this tenant membership was revoked earlier (a revoked membership is never reactivated).
+    /// </summary>
+    public async Task<bool> GrantTenantAsync(Guid userId, string tenantId, CancellationToken ct)
+    {
+        if (!IsValidTenantId(tenantId) || await FindActiveAsync(userId) is null)
+        {
+            return false;
+        }
+
+        await using var command = dataSource.CreateCommand(
+            "INSERT INTO marrow_identity.staff_tenant_memberships (user_id, tenant_id) SELECT @uid, @tenant " +
+            "WHERE NOT EXISTS (SELECT 1 FROM marrow_identity.staff_tenant_memberships WHERE user_id = @uid AND revoked_at IS NULL AND tenant_id <> @tenant) " +
+            "ON CONFLICT DO NOTHING");
+        command.Parameters.AddWithValue("uid", userId);
+        command.Parameters.AddWithValue("tenant", tenantId);
+        try
+        {
+            await command.ExecuteNonQueryAsync(ct);
+        }
+        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            return false; // a concurrent grant of another tenant won
+        }
+
+        await using var check = dataSource.CreateCommand(
+            "SELECT 1 FROM marrow_identity.staff_tenant_memberships WHERE user_id = @uid AND tenant_id = @tenant AND revoked_at IS NULL");
+        check.Parameters.AddWithValue("uid", userId);
+        check.Parameters.AddWithValue("tenant", tenantId);
+        return await check.ExecuteScalarAsync(ct) is not null;
+    }
+
+    /// <summary>Revokes the user's active membership of <paramref name="tenantId"/>. Effective on the next request or hub check.</summary>
+    public async Task<bool> RevokeTenantAsync(Guid userId, string tenantId, CancellationToken ct)
+    {
+        await using var command = dataSource.CreateCommand(
+            "UPDATE marrow_identity.staff_tenant_memberships SET revoked_at = @now WHERE user_id = @uid AND tenant_id = @tenant AND revoked_at IS NULL");
+        command.Parameters.Add(new NpgsqlParameter("now", NpgsqlDbType.TimestampTz) { Value = time.GetUtcNow().UtcDateTime });
+        command.Parameters.AddWithValue("uid", userId);
+        command.Parameters.AddWithValue("tenant", tenantId);
+        return await command.ExecuteNonQueryAsync(ct) == 1;
+    }
+
+    public static bool IsValidTenantId(string? tenantId) =>
+        tenantId is { Length: >= 1 and <= 128 } && char.IsAsciiLetterOrDigit(tenantId[0])
+        && tenantId.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '.' or '-');
 
     public bool IsMfaFresh(DateTimeOffset? verifiedAt) =>
         verifiedAt is { } at && at + Options.MfaFreshness > time.GetUtcNow() && at <= time.GetUtcNow() + TimeSpan.FromSeconds(5);
