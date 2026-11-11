@@ -10,6 +10,14 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="FsCheck" Version="3.6.0" />
+    <!--
+      Spec 08 task 8.1: one pinned stable ML.NET family (core, FastTree, TimeSeries; TimeSeries brings Microsoft.ML.Mkl.Redist).
+      Test-only for now: the platform probe (tests/Revenant/Platform) is the only user. The Revenant domain assembly does not
+      reference ML.NET until the offline trainer (8.2) needs it; Ghost Lap and Marrow never do.
+    -->
+    <PackageReference Include="Microsoft.ML" Version="5.0.1" />
+    <PackageReference Include="Microsoft.ML.FastTree" Version="5.0.1" />
+    <PackageReference Include="Microsoft.ML.TimeSeries" Version="5.0.1" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="NetArchTest.Rules" Version="1.3.2" />
     <PackageReference Include="Testcontainers.PostgreSql" Version="4.16.0" />
