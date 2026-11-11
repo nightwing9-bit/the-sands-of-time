@@ -63,7 +63,7 @@ public sealed class LedgerProjector(NpgsqlDataSource reader, ITimelineEngine<Led
 
     public static string StepOperationKey(ScenarioRunId run, long position) => $"revenant-ledger-step/{run.Value:N}/{position}";
 
-    private sealed record RunRow(string TenantId, string Owner, long Seed, string ScenarioVersion, string ManifestHash, string FinanceVersion);
+    internal sealed record RunRow(string TenantId, string Owner, long Seed, string ScenarioVersion, string ManifestHash, string FinanceVersion);
 
     /// <summary>Runs of <paramref name="tenantId"/> recorded under the V2 finance version.</summary>
     public async Task<IReadOnlyList<ScenarioRunId>> ListRunsAsync(string tenantId, CancellationToken ct)
@@ -128,7 +128,7 @@ public sealed class LedgerProjector(NpgsqlDataSource reader, ITimelineEngine<Led
         {
             return TimelineFail<SourceVerification>(replay.Error);
         }
-        var live = await ReadLiveSnapshotAsync(source.TenantId, runId, ct);
+        var live = await ReadLiveSnapshotAsync(reader, source.TenantId, runId, ct);
         if (live.ClosedAt is null)
         {
             return Result<SourceVerification, ProjectionError>.Failure(new ProjectionError(ProjectionErrorCode.RunNotClosed,
@@ -161,7 +161,7 @@ public sealed class LedgerProjector(NpgsqlDataSource reader, ITimelineEngine<Led
 
     private async Task<Result<OpenedSource, ProjectionError>> OpenAsync(string tenantId, ScenarioRunId runId, CancellationToken ct)
     {
-        var row = await ReadRunAsync(runId, ct);
+        var row = await ReadRunAsync(reader, runId, ct);
         if (row is null || !string.Equals(row.TenantId, tenantId, StringComparison.Ordinal))
         {
             return Fail<OpenedSource>(ProjectionErrorCode.RunNotFound, "The run does not exist in this tenant.");
@@ -201,7 +201,7 @@ public sealed class LedgerProjector(NpgsqlDataSource reader, ITimelineEngine<Led
         {
             return TimelineFail<ProjectionStatus>(replay.Error);
         }
-        var (committed, facts) = await ReadFactsAsync(source.TenantId, source.RunId, current.FinalPosition, upTo, ct);
+        var (committed, facts) = await ReadFactsAsync(reader, source.TenantId, source.RunId, current.FinalPosition, upTo, ct);
         if (facts.Count > 0 && current.Status != HistoryStatus.Recording)
         {
             return Fail<ProjectionStatus>(ProjectionErrorCode.FactsAfterVerification,
@@ -235,7 +235,7 @@ public sealed class LedgerProjector(NpgsqlDataSource reader, ITimelineEngine<Led
             new ProjectionStatus(source.RunId, source.History, position, committed, current.Status, stateHash, facts.Count));
     }
 
-    private async Task<RunRow?> ReadRunAsync(ScenarioRunId runId, CancellationToken ct)
+    internal static async Task<RunRow?> ReadRunAsync(NpgsqlDataSource reader, ScenarioRunId runId, CancellationToken ct)
     {
         await using var cmd = reader.CreateCommand(
             "SELECT tenant_id, owner_subject_id, seed, scenario_version, manifest_hash, finance_version FROM revenant.scenario_run WHERE id = @id");
@@ -246,8 +246,8 @@ public sealed class LedgerProjector(NpgsqlDataSource reader, ITimelineEngine<Led
             : null;
     }
 
-    private async Task<(long Committed, List<FinanceFact> Facts)> ReadFactsAsync(
-        string tenantId, ScenarioRunId runId, long after, long? upTo, CancellationToken ct)
+    internal static async Task<(long Committed, List<FinanceFact> Facts)> ReadFactsAsync(
+        NpgsqlDataSource reader, string tenantId, ScenarioRunId runId, long after, long? upTo, CancellationToken ct)
     {
         await using var connection = await reader.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(IsolationLevel.RepeatableRead, ct);
@@ -295,7 +295,7 @@ public sealed class LedgerProjector(NpgsqlDataSource reader, ITimelineEngine<Led
 
     internal sealed record LiveSnapshot(long CommittedFacts, long? ClosedAt, Dictionary<string, (long Posted, long Reserved)> Accounts, Dictionary<string, LivePayment> Payments);
 
-    private async Task<LiveSnapshot> ReadLiveSnapshotAsync(string tenantId, ScenarioRunId runId, CancellationToken ct)
+    internal static async Task<LiveSnapshot> ReadLiveSnapshotAsync(NpgsqlDataSource reader, string tenantId, ScenarioRunId runId, CancellationToken ct)
     {
         await using var connection = await reader.OpenConnectionAsync(ct);
         // One snapshot for the cursor and every live table, so the comparison is against one committed point of the run.
@@ -403,7 +403,7 @@ public sealed class LedgerProjector(NpgsqlDataSource reader, ITimelineEngine<Led
         return mismatches;
     }
 
-    private static Task SetTenantAsync(NpgsqlConnection connection, NpgsqlTransaction tx, string tenantId, CancellationToken ct)
+    internal static Task SetTenantAsync(NpgsqlConnection connection, NpgsqlTransaction tx, string tenantId, CancellationToken ct)
     {
         var cmd = new NpgsqlCommand("SELECT set_config('revenant.tenant_id', @tenant, true)", connection, tx);
         cmd.Parameters.AddWithValue("tenant", tenantId);

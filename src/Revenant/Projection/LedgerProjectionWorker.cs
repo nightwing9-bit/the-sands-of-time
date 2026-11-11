@@ -18,7 +18,8 @@ public sealed class LedgerProjectionOptions
 /// facts). A failure for one run is logged and retried on the next pass; the projection is idempotent, so nothing is lost or doubled.
 /// </summary>
 public sealed class LedgerProjectionWorker(
-    LedgerProjector projector, RevenantLedgerOptions ledger, LedgerProjectionOptions options, ILogger<LedgerProjectionWorker> logger)
+    LedgerProjector projector, RevenantLedgerOptions ledger, LedgerProjectionOptions options, ILogger<LedgerProjectionWorker> logger,
+    ModelLedgerProjector? modelProjector = null)
     : BackgroundService
 {
     public long Appended => Interlocked.Read(ref _appended);
@@ -41,6 +42,21 @@ public sealed class LedgerProjectionWorker(
                     else if (result.Error.Code != ProjectionErrorCode.FactsAfterVerification)
                     {
                         logger.LogWarning("Revenant projection of run {RunId} failed: {Code}.", run, result.Error.Code);
+                    }
+                }
+                // Spec 08 task 8.3: model-aware (V3) runs, when the host registered their engine shape.
+                IReadOnlyList<Revenant.Contracts.ScenarioRunId> modelRuns =
+                    modelProjector is null ? [] : await modelProjector.ListRunsAsync(ledger.TenantId, stoppingToken);
+                foreach (var run in modelRuns)
+                {
+                    var result = await modelProjector!.CatchUpAsync(ledger.TenantId, run, stoppingToken);
+                    if (result.TryGetValue(out var status))
+                    {
+                        Interlocked.Add(ref _appended, status.Appended);
+                    }
+                    else if (result.Error.Code != ProjectionErrorCode.FactsAfterVerification)
+                    {
+                        logger.LogWarning("Revenant model-aware projection of run {RunId} failed: {Code}.", run, result.Error.Code);
                     }
                 }
             }

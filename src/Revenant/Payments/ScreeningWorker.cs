@@ -32,6 +32,7 @@ public sealed class ScreeningWorker(
     public long Screened => Interlocked.Read(ref _screened);
 
     private long _screened;
+    private bool _modelUnavailableLogged;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -42,6 +43,15 @@ public sealed class ScreeningWorker(
             int count;
             try
             {
+                var model = store.ModelAvailability();
+                if (model.IsFailure != _modelUnavailableLogged)
+                {
+                    _modelUnavailableLogged = model.IsFailure;
+                    if (model.IsFailure)
+                    {
+                        logger.LogWarning("Revenant risk model unavailable ({Code}): model-required runs stay Initiated; rules-only runs continue.", model.Error.Code);
+                    }
+                }
                 var outcomes = await store.ScreenBatchAsync(ledger.TenantId, batchSize, $"screening-{Guid.NewGuid():N}", stoppingToken);
                 count = outcomes.Count;
                 Interlocked.Add(ref _screened, count);
@@ -50,6 +60,17 @@ public sealed class ScreeningWorker(
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
                 return;
+            }
+            catch (RiskScreeningUnavailableException ex)
+            {
+                // Model-required screening failed closed (nothing committed for that payment); back off and retry, never fall back.
+                backoff = backoff == 0 ? 100 : Math.Min(backoff * 2, Math.Max(100, options.MaxBackoffMs));
+                logger.LogWarning("Revenant model-aware screening unavailable ({Code}); retrying in {BackoffMs} ms.", ex.Failure.Code, backoff);
+                if (!await DelayAsync(backoff, stoppingToken))
+                {
+                    return;
+                }
+                continue;
             }
             catch (Exception ex) when (ex is NpgsqlException or TimeoutException or InvalidOperationException { InnerException: NpgsqlException })
             {

@@ -24,6 +24,18 @@
         "chatSessionId": "sess_26c768a7-33a5-4440-87af-342ef843ffd7",
         "timestamp": 1794390370720
       }
+    ],
+    "**8.3 Model-aware finance version and atomic live screening**": [
+      {
+        "executionId": "519fce22-e408-4c71-9329-6e21e4d2166c",
+        "chatSessionId": "sess_43b60587-e670-4449-8354-4f78c418d6da",
+        "timestamp": 1794391488431
+      },
+      {
+        "executionId": "519fce22-e408-4c71-9329-6e21e4d2166c",
+        "chatSessionId": "sess_43b60587-e670-4449-8354-4f78c418d6da",
+        "timestamp": 1794393119164
+      }
     ]
   }
 }

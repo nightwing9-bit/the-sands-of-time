@@ -32,8 +32,12 @@ public sealed class RevenantLedgerService(
     public const string MfaClaim = "mfa";
 
     /// <summary>Opens a run in the actor's own tenant; a staff member without an active tenant membership cannot open one.</summary>
+    /// <param name="modelAware">
+    /// Spec 08 task 8.3: open a model-required run (<see cref="PaymentLedgerStore.ModelAwareFinanceVersion"/>, risk policy
+    /// <c>v7-base+ml-risk-v1</c>) instead of a rules-only V2 run. Chosen once, at opening; the HTTP route keeps opening V2 runs.
+    /// </param>
     public async Task<Result<RunReceipt, PaymentFailure>> OpenRunAsync(
-        IActorContext actor, long seed, Guid? requestedRunId, CancellationToken ct)
+        IActorContext actor, long seed, Guid? requestedRunId, CancellationToken ct, bool modelAware = false)
     {
         if (!actor.IsAuthenticated || actor.PrincipalKind != PrincipalKind.Staff || !RevenantStaffAuthorizer.HasStaffRole(actor)
             || actor.TenantId is not { Length: > 0 } tenant)
@@ -41,7 +45,8 @@ public sealed class RevenantLedgerService(
             return Forbidden<RunReceipt>();
         }
         var runId = new ScenarioRunId(requestedRunId is { } given && given != Guid.Empty ? given : Guid.NewGuid());
-        return await store.OpenRunAsync(tenant, actor.SubjectId, IsSupervisor(actor) ? "supervisor" : "operator", seed, runId, ct);
+        return await store.OpenRunAsync(tenant, actor.SubjectId, IsSupervisor(actor) ? "supervisor" : "operator", seed, runId, ct,
+            modelAware ? PaymentLedgerStore.ModelAwareFinanceVersion : PaymentLedgerStore.FinanceVersion);
     }
 
     public async Task<Result<RunView, PaymentFailure>> GetRunAsync(IActorContext actor, ScenarioRunId runId, CancellationToken ct)

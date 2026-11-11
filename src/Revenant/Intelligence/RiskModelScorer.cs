@@ -20,6 +20,12 @@ public enum RiskModelError
     ModelLoadFailed = 9,
     ScoreNotFinite = 10,
     ScoreOutOfRange = 11,
+
+    /// <summary>The artifact verified, but its identity is not the one a run's pinned risk policy names (task 8.3).</summary>
+    PinnedIdentityMismatch = 12,
+
+    /// <summary>The pre-screening facts cannot form a <c>risk-features-v1</c> vector (task 8.3); no screening is committed.</summary>
+    FeaturesIncompatible = 13,
 }
 
 /// <summary>A typed load or scoring failure. A caller must not screen on failure (R08.08).</summary>

@@ -8,6 +8,7 @@ using Npgsql;
 using NpgsqlTypes;
 using Revenant.Contracts;
 using Revenant.Finance;
+using Revenant.Intelligence;
 using Revenant.Scenario;
 
 namespace Revenant.Payments;
@@ -27,9 +28,16 @@ namespace Revenant.Payments;
 public sealed partial class PaymentLedgerStore(
     NpgsqlDataSource dataSource,
     Func<NpgsqlTransaction, IOutboxWriter> outboxFactory,
-    TimeProvider clock)
+    TimeProvider clock,
+    RiskModelProvider? riskModels = null)
 {
     public const string FinanceVersion = "revenant-finance-reducer/2";
+
+    /// <summary>
+    /// Spec 08 task 8.3: the model-required finance family (<see cref="Revenant.Timeline.ModelLedgerVersion.ReducerVersion"/>), chosen
+    /// explicitly when a run is opened and pinned to risk policy <see cref="RiskPolicyCatalog.V1Id"/>. Never switched after opening.
+    /// </summary>
+    public const string ModelAwareFinanceVersion = "revenant-finance-reducer/3";
     public const int MaxCommandIdLength = 128;
     public const int MaxReasonLength = 200;
     public const string EventPaymentInitiated = "revenant.payment.initiated";
@@ -46,12 +54,13 @@ public sealed partial class PaymentLedgerStore(
     /// the same owner and seed replay; another owner is <see cref="PaymentFailureCode.Forbidden"/>; another seed conflicts.
     /// </summary>
     public async Task<Result<RunReceipt, PaymentFailure>> OpenRunAsync(
-        string tenantId, string ownerSubjectId, string ownerRole, long seed, ScenarioRunId runId, CancellationToken ct)
+        string tenantId, string ownerSubjectId, string ownerRole, long seed, ScenarioRunId runId, CancellationToken ct,
+        string financeVersion = FinanceVersion)
     {
         if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(ownerSubjectId) || runId.IsEmpty
-            || ownerRole is not ("operator" or "supervisor"))
+            || ownerRole is not ("operator" or "supervisor") || financeVersion is not (FinanceVersion or ModelAwareFinanceVersion))
         {
-            return Fail<RunReceipt>(PaymentFailureCode.InvalidRequest, "Tenant, owner, role and run id are required.");
+            return Fail<RunReceipt>(PaymentFailureCode.InvalidRequest, "Tenant, owner, role, run id and a supported finance version are required.");
         }
         var created = FridayRingScenario.Create(seed, ScenarioSchemas.FridayRingVersion, runId);
         if (!created.TryGetValue(out var run))
@@ -71,7 +80,7 @@ public sealed partial class PaymentLedgerStore(
             RETURNING 1
             """, ct,
             ("id", runId.Value), ("tenant", tenantId), ("owner", ownerSubjectId), ("seed", seed),
-            ("version", run.Manifest.ScenarioVersion), ("hash", run.Manifest.ContentHash), ("finance", FinanceVersion));
+            ("version", run.Manifest.ScenarioVersion), ("hash", run.Manifest.ContentHash), ("finance", financeVersion));
 
         if (inserted is null)
         {
@@ -83,9 +92,9 @@ public sealed partial class PaymentLedgerStore(
             {
                 return Fail<RunReceipt>(PaymentFailureCode.Forbidden, "This run is not available to the caller.");
             }
-            return existing.Seed == seed
+            return existing.Seed == seed && string.Equals(existing.FinanceVersion, financeVersion, StringComparison.Ordinal)
                 ? Result<RunReceipt, PaymentFailure>.Success(new RunReceipt(existing, IsReplay: true))
-                : Fail<RunReceipt>(PaymentFailureCode.ConflictingDuplicate, "The run id is already used with another seed.");
+                : Fail<RunReceipt>(PaymentFailureCode.ConflictingDuplicate, "The run id is already used with another seed or finance version.");
         }
 
         await ExecAsync(connection, tx,

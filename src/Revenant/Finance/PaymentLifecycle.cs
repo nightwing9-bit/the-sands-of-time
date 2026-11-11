@@ -22,6 +22,12 @@ public enum PaymentReason : byte
     NewBeneficiaryAmountRule = 3,
     InsufficientAvailable = 4,
     UnsupportedCurrency = 5,
+
+    /// <summary>
+    /// Spec 08 task 8.3 (finance V3 only): a v7 base-clear payment held because its pinned learned score reached the pinned
+    /// threshold. Additive value; the V1 and V2 reducers never produce it, so no V1/V2 byte or hash changes (ADR-P1-20).
+    /// </summary>
+    MlRiskHold = 6,
 }
 
 /// <summary>

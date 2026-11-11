@@ -391,9 +391,10 @@ public sealed partial class PaymentLedgerStore
     /// </summary>
     private static async Task<long> AppendFactAsync(
         NpgsqlConnection connection, NpgsqlTransaction tx, string tenantId, Guid run, Guid paymentId, FinanceFactKind kind,
-        string schema, byte[] payload, string actor, string correlationId, long paymentVersion, CancellationToken ct)
+        string schema, byte[] payload, string actor, string correlationId, long paymentVersion, CancellationToken ct,
+        FactEvidenceRef? evidence = null)
     {
-        var sequence = await AppendFactCoreAsync(connection, tx, tenantId, run, paymentId, kind, schema, payload, ct);
+        var sequence = await AppendFactCoreAsync(connection, tx, tenantId, run, paymentId, kind, schema, payload, ct, evidence);
         // Task 7.5: every committed fact is also a link of the run's audit chain, in the same transaction.
         await AppendAuditAsync(connection, tx, tenantId, run, $"fact.{kind.ToString().ToLowerInvariant()}", actor, correlationId,
             $"fact:{sequence}", paymentVersion, FinanceFactCodec.PayloadHash(payload), ct);
@@ -402,18 +403,20 @@ public sealed partial class PaymentLedgerStore
 
     private static async Task<long> AppendFactCoreAsync(
         NpgsqlConnection connection, NpgsqlTransaction tx, string tenantId, Guid run, Guid paymentId, FinanceFactKind kind,
-        string schema, byte[] payload, CancellationToken ct)
+        string schema, byte[] payload, CancellationToken ct, FactEvidenceRef? evidence = null)
     {
         var sequence = await ScalarAsync<long?>(connection, tx,
             "UPDATE revenant.run_cursor SET last_fact_seq = last_fact_seq + 1 WHERE scenario_run_id = @run RETURNING last_fact_seq", ct,
             ("run", run)) ?? throw new InvalidOperationException("The run cursor is not visible in this tenant context.");
         await ExecAsync(connection, tx,
             """
-            INSERT INTO revenant.finance_fact (tenant_id, scenario_run_id, fact_seq, kind, schema_version, payment_id, canonical, canonical_sha256)
-            VALUES (@tenant, @run, @seq, @kind, @schema, @payment, @canonical, @sha)
+            INSERT INTO revenant.finance_fact
+              (tenant_id, scenario_run_id, fact_seq, kind, schema_version, payment_id, canonical, canonical_sha256, evidence_schema, evidence_sha256)
+            VALUES (@tenant, @run, @seq, @kind, @schema, @payment, @canonical, @sha, @eschema, @esha)
             """, ct,
             ("tenant", tenantId), ("run", run), ("seq", sequence), ("kind", kind.ToString()), ("schema", schema), ("payment", paymentId),
-            ("canonical", payload), ("sha", FinanceFactCodec.PayloadHash(payload)));
+            ("canonical", payload), ("sha", FinanceFactCodec.PayloadHash(payload)),
+            ("eschema", (object?)evidence?.Schema ?? DBNull.Value), ("esha", (object?)evidence?.Sha256 ?? DBNull.Value));
         return sequence;
     }
 

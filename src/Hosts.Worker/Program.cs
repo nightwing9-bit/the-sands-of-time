@@ -20,6 +20,8 @@ builder.Services
     .AddRevenantScreeningWorker(builder.Configuration)
     .AddRevenantSettlementWorker(builder.Configuration)
     .AddMarrowTimeline(FinanceLedgerTimelineVersions.All, FinanceLedgerTimelineVersions.CheckpointInterval)
+    // Spec 08 task 8.3: the model-aware (V3) shape on the same restricted login; its projection replays recorded evidence only.
+    .AddMarrowTimeline(ModelLedgerTimelineVersions.All, ModelLedgerTimelineVersions.CheckpointInterval)
     .AddRevenantLedgerProjection(builder.Configuration)
     .AddMarrowOutboxRelayService(builder.Configuration, "Revenant:Relay", "RevenantLedger", new MessagingTables("revenant"))
     // R07.09: the idempotent read projection of revenant:events, on the restricted ConnectionStrings:Postgres login

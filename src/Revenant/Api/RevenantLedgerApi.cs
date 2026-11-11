@@ -8,6 +8,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Revenant.Contracts;
+using Revenant.Intelligence;
 using Revenant.Payments;
 using Revenant.Projection;
 using Revenant.Timeline;
@@ -61,7 +62,12 @@ public static class RevenantLedgerRegistration
         }
         services.AddSingleton(new RevenantLedgerDataSource(dataSource));
         services.AddSingleton(options);
-        services.AddSingleton(sp => new PaymentLedgerStore(dataSource, outboxFactory, sp.GetService<TimeProvider>() ?? TimeProvider.System));
+        // Spec 08 task 8.3: the pinned-artifact loader for model-required runs (loads lazily, verifies before use, never trains).
+        var riskModels = new RiskModelOptions();
+        configuration.GetSection(RiskModelOptions.SectionName).Bind(riskModels);
+        services.AddSingleton(new RiskModelProvider(string.IsNullOrWhiteSpace(riskModels.ArtifactRoot) ? RiskModelOptions.DefaultArtifactRoot : riskModels.ArtifactRoot));
+        services.AddSingleton(sp => new PaymentLedgerStore(dataSource, outboxFactory, sp.GetService<TimeProvider>() ?? TimeProvider.System,
+            sp.GetRequiredService<RiskModelProvider>()));
         services.AddSingleton(new RevenantRunDirectory(dataSource));
         services.AddSingleton(sp => new RevenantStaffAuthorizer(
             sp.GetRequiredService<RevenantRunDirectory>(), sp.GetRequiredService<RevenantRunDirectory>()));
@@ -142,9 +148,21 @@ public static class RevenantLedgerRegistration
         services.AddSingleton(sp => new LedgerProjector(
             sp.GetRequiredService<NpgsqlDataSource>(),
             sp.GetRequiredService<ITimelineEngine<LedgerFinanceState, FinanceFact, LedgerFinanceContext>>()));
+        // Spec 08 task 8.3: model-aware (V3) runs are projected too when the host registered the V3 engine shape
+        // (AddMarrowTimeline(ModelLedgerTimelineVersions.All, ...)) before this call.
+        var modelAware = services.Any(d => d.ServiceType == typeof(ITimelineEngine<ModelLedgerState, FinanceFact, ModelLedgerContext>));
+        if (modelAware)
+        {
+            services.AddSingleton(sp => new ModelLedgerProjector(
+                sp.GetRequiredService<NpgsqlDataSource>(),
+                sp.GetRequiredService<ITimelineEngine<ModelLedgerState, FinanceFact, ModelLedgerContext>>()));
+        }
         if (runWorker)
         {
-            services.AddSingleton<LedgerProjectionWorker>();
+            services.AddSingleton(sp => new LedgerProjectionWorker(
+                sp.GetRequiredService<LedgerProjector>(), sp.GetRequiredService<RevenantLedgerOptions>(), sp.GetRequiredService<LedgerProjectionOptions>(),
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<LedgerProjectionWorker>>(),
+                modelAware ? sp.GetRequiredService<ModelLedgerProjector>() : null));
             services.AddHostedService(sp => sp.GetRequiredService<LedgerProjectionWorker>());
         }
         return services;
