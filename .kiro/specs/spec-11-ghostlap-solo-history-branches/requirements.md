@@ -18,7 +18,7 @@ Durable owner-verified originals and repeated challenge/fork attempts at any val
 **R11.02 — Persist honest success.** WHEN a save fails or retry duplicates, THE SYSTEM SHALL not report saved until commit; return same original for identical idempotency key and expose recoverable error.
 **R11.03 — History retrieval.** WHEN a remembered guest returns/reloads, THE SYSTEM SHALL list own originals, distinguish original/branch and retain source replayability under pinned code version.
 **R11.04 — Full challenge.** WHEN a user challenges an original, THE SYSTEM SHALL start at same tick0 seed/rules/spawn, living/ghost visually overlap at zero and ghost trace remains read-only.
-**R11.05 — Exact branch.** WHEN user chooses any T 0≤T<final tick, THE SYSTEM SHALL restore all authoritative source state (score, charge, Overlit, cooldowns, candles and RNG) and make independent branch suffix from T+1.
+**R11.05 — Exact branch.** WHEN user chooses any T 0≤T<final tick of a completed verified original, THE SYSTEM SHALL restore all authoritative source state (score, charge, Overlit, cooldowns, candles and RNG) and make independent branch suffix from T+1; a Recording history is ineligible and direct fork returns Conflict.
 **R11.06 — Terminal edge.** WHEN user inspects final tick, THE SYSTEM SHALL permit read-only seek but disable branch because no ticks remain.
 **R11.07 — Time aligned.** WHEN current and past progress, THE SYSTEM SHALL derive two score curves and signed delta only from source and current state at same tick.
 **R11.08 — Version safety.** WHEN a source uses unsupported rules/codec, THE SYSTEM SHALL return incompatibility and preserve original bytes instead of reinterpreting with new rules.

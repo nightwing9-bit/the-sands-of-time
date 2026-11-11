@@ -20,16 +20,16 @@
 
 - [ ] **12.3 Durable rating ledger**
   - **Precondition/input & inspect:** MatchFinalizedV1, Postgres rating tables, outbox/inbox. Completed prerequisite spec exit gate must already have evidence.
-  - **Produce/modify:** pairwise formula/algorithm version, unique per-match effects, sorted-set cache projection.
+  - **Produce/modify:** pairwise formula/algorithm version, unique per-match effects, sorted-set cache projection. The existing locked PostgreSQL transaction records actual application order/pre-update snapshots and monotonic per-player revisions with inbox, all participant effects and outbox atomically. Emit absolute rating+revision cache events and apply them atomically in Redis only without revision regression; no transport-order promise or chronological coordinator. Close Spec 12's messaging recovery/retention and Worker/Realtime runtime-grant handoffs in `docs/architecture/02-spec-map.md` using existing Marrow outbox/inbox/operational mechanisms: preserve pending/unread streams during trimming, bounded retention, poison/dead-letter requeue through deduplication, measured `appendfsync always` throughput and bounded operator recovery after Redis-volume loss.
   - **Forbidden changes:** rating from solo or counting duplicate delivery. Do not change frozen shared public contracts without ADR.
-  - **Verification:** 2/3/4/tie/forfeit and duplicate relay tests.
+  - **Verification:** 2/3/4/tie/forfeit and duplicate relay tests. Reverse two distinct updates plus duplicate delivery: cache converges to the latest authoritative PostgreSQL revision/value. Verify auditable pre-update snapshots/application order and atomic updates for every match participant, without demanding equal Elo across different legitimate transaction orders; actual Worker/Realtime runtime logins and recovery paths work with least-privilege grants.
   - **Done when:** one match yields one set of durable rating effects.
 
 - [ ] **12.4 Profile/standings/rematch integration**
   - **Precondition/input & inspect:** profile read API, spec-10 new match ID. Completed prerequisite spec exit gate must already have evidence.
-  - **Produce/modify:** eligible leaderboard, actor history, results and rematch endpoints.
+  - **Produce/modify:** eligible leaderboard, actor history, results and rematch endpoints. Rebuild Redis from authoritative PostgreSQL rating/revision snapshots using the same atomic nonregressing rule as live cache updates.
   - **Forbidden changes:** Redis as only authority or fake rematch UI. Do not change frozen shared public contracts without ADR.
-  - **Verification:** clear Redis/rebuild, cross-player result owner checks.
+  - **Verification:** clear Redis/rebuild, cross-player result owner checks; race an older rebuild snapshot with a newer live event and verify the highest PostgreSQL revision/value survives without regression.
   - **Done when:** rank standings recover with durable values.
 
 - [ ] **12.5 End-to-end privacy/social gate**

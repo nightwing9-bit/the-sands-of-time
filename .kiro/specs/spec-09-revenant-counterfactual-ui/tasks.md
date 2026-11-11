@@ -6,9 +6,9 @@
 
 - [ ] **9.1 Implement isolated branch job store/Worker**
   - **Precondition/input & inspect:** spec-02 Timeline, pure finance from 05, ledger from 07, ML from 08. Completed prerequisite spec exit gate must already have evidence.
-  - **Produce/modify:** two explicit process configurations of same Worker binary (`LiveOps`/`Replay`), restricted replay DB role, no live writers in replay DI, versioned async run lifecycle and result schema, pinned `analyst-continuation-v1`.
+  - **Produce/modify:** two explicit process configurations of same Worker binary (`LiveOps`/`Replay`), restricted replay DB role, no live writers in replay DI, versioned async run lifecycle and result schema, pinned `analyst-continuation-v1`. Register production Replay with the existing Timeline engine/domain stores, correct version resolvers and least-privilege grants. Consume 07/08's versioned ordered action/canonical-evidence stream; retain V1 support and inherited source/branch keys, with no context-only version switch.
   - **Forbidden changes:** injecting live ledger writer or copying v7 decisions as v8 inputs. Do not change frozen shared public contracts without ADR.
-  - **Verification:** direct SQL replay-role live-write **denial** and permitted **new Timeline child append plus** branch-result write in real Postgres (verified original source still immutable), DI graph, post-fork action/precondition fixture and source immutability tests.
+  - **Verification:** direct SQL replay-role live-write **denial** and permitted **new Timeline child append plus** branch-result write in real Postgres (verified original source still immutable), actual registered Replay DI graph, post-fork action/precondition fixture and source immutability tests; predictor-unavailable cold replay uses exact 08 evidence, and changed branch causal features cannot reuse source evidence by payment ID.
   - **Done when:** zero real ledger writes possible by design.
 
 - [ ] **9.2 Finalize metrics/curve alignment**
@@ -34,7 +34,7 @@
 
 - [ ] **9.5 B3 integrated security/performance gate**
   - **Precondition/input & inspect:** worker/ledger/model/tests, six-bank fixed scenario. Completed prerequisite spec exit gate must already have evidence.
-  - **Produce/modify:** authorized create-fresh-scenario-run operation and end-to-end proof with two run namespaces, actual speed/worker logs and deterministic cancellation.
+  - **Produce/modify:** authorized create-fresh-scenario-run operation and end-to-end proof with two run namespaces, actual speed/worker logs and deterministic cancellation. Exercise actual configured API/LiveOps/Replay product registrations and runtime logins rather than test bridges; retain this finance journey as Spec 13's C4 input.
   - **Forbidden changes:** unverified 100× marketing claim. Do not change frozen shared public contracts without ADR.
   - **Verification:** 2 staff four-eyes, corrupt model, concurrent replay, hash check, two equivalent equal-seed runs with distinct bank/account state and identical seeded opening balances, without deletion/key collision, DB denial and post-fork analyst-action case.
   - **Done when:** five-screen finance product works and is verifiable.

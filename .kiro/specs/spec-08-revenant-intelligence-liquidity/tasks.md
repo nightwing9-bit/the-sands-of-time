@@ -12,8 +12,8 @@
   - **Done when:** training lineage reproducible.
 
 - [ ] **8.2 Fraud classifier and actual risk integration**
-  - **Precondition/input & inspect:** ML.NET APIs via targeted Context7, policy v7/v8 adapters. Completed prerequisite spec exit gate must already have evidence.
-  - **Produce/modify:** trained versioned artifact, score evidence and held-out report.
+  - **Precondition/input & inspect:** ML.NET APIs via targeted Context7, policy v7/v8 adapters and Spec 07's additive version/evidence boundary; define the concrete canonical normalized evidence representation before classifier integration. Completed prerequisite spec exit gate must already have evidence.
+  - **Produce/modify:** trained versioned artifact, score evidence and held-out report. Consume 07's extensible boundary without modifying frozen V1 policy IDs/reducer behavior; explicitly evolve compatible versions if finalized evidence cannot fit a frozen representation.
   - **Forbidden changes:** claimed quality without test metrics or real-time training. Do not change frozen shared public contracts without ADR.
   - **Verification:** real evaluation script, score consistency across restart.
   - **Done when:** risk influences actual hold flow.
@@ -34,9 +34,9 @@
 
 - [ ] **8.5 Pin inference in Timeline**
   - **Precondition/input & inspect:** spec-02 manifest/version and 05 domain adapter. Completed prerequisite spec exit gate must already have evidence.
-  - **Produce/modify:** model/feature evidence recording, incompatible version handling, branch deterministic mode.
+  - **Produce/modify:** canonical feature-hash/model-checksum/normalization/runtime-pinned evidence with exact score representation under 07's version plan; execute inference outside the pure reducer, record evidence before dependent history inputs and verification, and derive branch evidence from its actual causal features. Cold replay uses recorded evidence without predictor execution; missing/incompatible evidence fails visibly.
   - **Forbidden changes:** mutable online predictor without version identity. Do not change frozen shared public contracts without ADR.
-  - **Verification:** original hash reproducibility; v7/v8 semantic branch test.
+  - **Verification:** predictor-unavailable cold replay yields identical state bytes/hashes; reject tampered/mismatched feature evidence; near-threshold decisions use the exact recorded normalized score. A v7/v8 semantic branch with changed causal features produces its own evidence rather than reusing by payment ID; no numerical tolerance substitutes for exact replay.
   - **Done when:** counterfactual engine can consume pinned model outputs.
 
 ## Spec exit verification (blocking)

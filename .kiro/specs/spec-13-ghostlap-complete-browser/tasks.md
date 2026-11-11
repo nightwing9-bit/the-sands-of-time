@@ -34,14 +34,14 @@
 
 - [ ] **13.5 Social/rank/spectate and audio UX**
   - **Precondition/input & inspect:** spec-12 rating/chat/share, event cue registry. Completed prerequisite spec exit gate must already have evidence.
-  - **Produce/modify:** invite/chat/emotes/watch/profile/rank/rematch, mute/reduced motion.
+  - **Produce/modify:** invite/chat/emotes/watch/profile/rank/rematch and mandatory semantic visual cues/reduced motion/accessibility. Phase 1 audio is optional polish: simple gesture-unlocked sounds and mute only if cheap and safe for core acceptance; no required sound engine, soundtrack, full audio routing or extensive settings UI. Omit nonfunctional volume controls when audio is absent; richer sound design is deferred to Phase 2.
   - **Forbidden changes:** sound as event source, public private histories. Do not change frozen shared public contracts without ADR.
-  - **Verification:** multi-context Playwright, share-token no-referrer/no-store/log checks and permission tests.
+  - **Verification:** multi-context Playwright, share-token no-referrer/no-store/log checks and permission tests. Core journeys work without audio or muted, with critical states visually legible and reduced-motion/accessibility intact; if optional audio exists, verify user-gesture startup and mute.
   - **Done when:** full social workflow connected.
 
 - [ ] **13.6 Browser/mobile/performance gate**
   - **Precondition/input & inspect:** existing `design-inputs/skills2 (1).md` on-demand, fixtures, browser capture script; server/replay authority is frozen. Completed prerequisite spec exit gate must already have evidence.
-  - **Produce/modify:** trace-backed device tests, manual human fairness records, asset manifest fallback.
+  - **Produce/modify:** trace-backed device tests, manual human fairness records, asset manifest fallback. Use actual configured API, Realtime and Worker product registrations/runtime grants, not only fixture hosts; retain a bounded CI command for domain integration/browser suites. Record C4's cross-app browser proof with Spec 09's finance journey and Ghost Lap journeys together; this consumes 09 evidence only at C4, without blocking earlier Ghost Lap UI tasks. The separately pending B2 joint gate remains **PENDING** until performed and is not satisfied by C4. Public HTTPS/judge access stays in its existing later deployment/submission gate.
   - **Forbidden changes:** claims of achieved tick/FPS without measurement. Do not change frozen shared public contracts without ADR.
   - **Verification:** real-time 90s run, mobile layout, source/branch E2E; no offline client-authoritative game or hardcoded demo numbers.
   - **Done when:** entire app usable without final commissioned art.

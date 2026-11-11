@@ -13,16 +13,16 @@
 
 - [ ] **11.2 Original save and history listing**
   - **Precondition/input & inspect:** guest actor, solo completion semantics, REST endpoints. Completed prerequisite spec exit gate must already have evidence.
-  - **Produce/modify:** idempotent verified-source-to-catalog transaction, original/attempt queries and pin metadata; retry links orphaned verified source by same operation key.
+  - **Produce/modify:** idempotent verified-source-to-catalog transaction, original/attempt queries and pin metadata; retry links orphaned verified source by same operation key. Own production solo/history endpoints, existing Timeline/domain-store and authoritative solo-loop composition, REST/OpenAPI/generated frontend contracts and API/authority runtime grants, including `ghostlap_runtime` and Timeline login mapping in migration-role management. Reuse `SoloOriginals`, `SoloBranches` and existing verified/branch metadata through catalog links; test-only bridge is reference only, never a production dependency, and solo recording does not require multiplayer rooms.
   - **Forbidden changes:** success before commit, new original from branch by default. Do not change frozen shared public contracts without ADR.
   - **Verification:** double save/retry/not-found, failed catalog commit, lost success response and owner-owned verified-but-unlisted source recovery; no false receipt tests.
   - **Done when:** owner sees reliable original list.
 
 - [ ] **11.3 Challenge/ghost + branch completion**
   - **Precondition/input & inspect:** Timeline engine, source codec, independent GameState instances. Completed prerequisite spec exit gate must already have evidence.
-  - **Produce/modify:** same seed/spawn, read-only trace, any-valid-T fork and child suffix persistence.
+  - **Produce/modify:** same seed/spawn, read-only trace, any-valid-T fork from a completed verified original and child suffix persistence. Own production branch endpoints/generated contracts and durable solo-loop restoration after restart from the last committed persisted state/tick; concurrent resumes yield one authoritative loop per attempt. Preserve an active attempt independently while navigating a selected original; label source/tick, disable fork without an eligible original, and never auto-complete partial histories or introduce nested forks.
   - **Forbidden changes:** ghost inserted into living entities or mutable source reuse. Do not change frozen shared public contracts without ADR.
-  - **Verification:** T=1140 charge/consumed same + siblings independent.
+  - **Verification:** T=1140 charge/consumed same + siblings independent. While a divergent attempt is Recording, choose a completed original and verify child parent identity, fork-state bytes and hash against that selected original; direct Recording-source fork returns Conflict.
   - **Done when:** repeated challenge/forks behave truly.
 
 - [ ] **11.4 Score alignment and viewer API**
@@ -36,7 +36,7 @@
   - **Precondition/input & inspect:** real Postgres history, guest privacy and rules migration. Completed prerequisite spec exit gate must already have evidence.
   - **Produce/modify:** incompatible notice, permission enforcement and checkpoint cadence measurement.
   - **Forbidden changes:** silent old-rules reinterpretation or unmeasured compression claim. Do not change frozen shared public contracts without ADR.
-  - **Verification:** two owners, version mismatch, storage size sampling and no alternate game codec; original and branch hash/score fixtures agree with Spec 06.
+  - **Verification:** two owners, version mismatch, storage size sampling and no alternate game codec; original and branch hash/score fixtures agree with Spec 06. Cold-restart actual product registrations, reopen a completed original and race resumes of a recording child at its last committed tick: one loop, durable identity preserved. Through real sessions/runtime logins prove Revenant and Ghost Lap policies coexist without registration overwrite, valid distinct-staff workflow access, cross-tenant denial, private guest histories, unknown domain/resource denial and revoked membership enforcement at API/relevant hub paths. Keep fixture assemblies and `/__e2e` routes absent from production; narrowly adapt old blanket route-isolation assertions to permit intended production domain routes/contracts.
   - **Done when:** history verified and denied readers blocked.
 
 ## Spec exit verification (blocking)
