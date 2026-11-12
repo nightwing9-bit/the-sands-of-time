@@ -11,6 +11,7 @@ internal static class BehavioralEpisodeScenario
 {
     internal const string Version = "revenant-behavioral-episodes/1";
     internal const string GeneratorVersion = "revenant-episode-generator/1";
+    internal const string GeneratorVersionV2 = "revenant-episode-generator/2";
     internal const int BankCount = 6;
     private const ulong PopulationStream = 0x52563401;
     private const string ManifestExtension = "revenant-behavioral-episode-manifest/1";
@@ -18,14 +19,14 @@ internal static class BehavioralEpisodeScenario
         ["PaymentIntent", "ReviewDecision", "ReturnInstruction", "Screening", "Settlement"];
 
     internal static ScenarioRun Create(ScenarioRunId runId, long seed, long originMs, long durationMs,
-        ImmutableArray<int> accountsPerBank)
+        ImmutableArray<int> accountsPerBank, string? generator = null)
     {
-        if (runId.IsEmpty || !ValidDimensions(originMs, durationMs, accountsPerBank))
+        if (runId.IsEmpty || !ValidDimensions(originMs, durationMs, accountsPerBank) || !ValidGenerator(generator))
         {
             throw new ArgumentException("Expected a run ID, aligned UTC episode and a valid population for all six banks.");
         }
 
-        var manifest = BuildManifest(seed, originMs, durationMs, accountsPerBank);
+        var manifest = BuildManifest(seed, originMs, durationMs, accountsPerBank, generator);
         return new(runId, manifest, Opening(manifest, runId), [], ScenarioManifestCodec.ComputeFactsHash(manifest, []));
     }
 
@@ -33,6 +34,7 @@ internal static class BehavioralEpisodeScenario
     {
         var m = run.Manifest;
         if (m.ScenarioVersion != Version || m.StartUtcMs != originMs || m.V4EpisodeDurationMs is not { } duration
+            || !ValidGenerator(m.V4EpisodeGenerator)
             || m.Banks.IsDefault || m.Accounts.IsDefault || m.Banks.Length != BankCount)
         {
             return false;
@@ -45,7 +47,7 @@ internal static class BehavioralEpisodeScenario
             return false;
         }
 
-        var expected = BuildManifest(m.Seed, originMs, duration, populations);
+        var expected = BuildManifest(m.Seed, originMs, duration, populations, m.V4EpisodeGenerator);
         var opening = Opening(expected, run.RunId);
         return m.ContentHash == expected.ContentHash
             && !m.FeatureNames.IsDefault && !m.LabelNames.IsDefault
@@ -56,7 +58,8 @@ internal static class BehavioralEpisodeScenario
 
     internal static byte[] EncodeManifest(ScenarioManifest manifest)
     {
-        if (manifest.ScenarioVersion != Version || manifest.V4EpisodeDurationMs is not { } duration)
+        if (manifest.ScenarioVersion != Version || manifest.V4EpisodeDurationMs is not { } duration
+            || !ValidGenerator(manifest.V4EpisodeGenerator))
         {
             throw new ArgumentException("Expected a behavioral episode manifest.", nameof(manifest));
         }
@@ -64,7 +67,8 @@ internal static class BehavioralEpisodeScenario
         // Reuse the existing manifest encoding; only V4 needs the duration and execution contract trailer.
         var policy = PolicyCatalog.RefOf(PolicyCatalog.V7);
         var w = new CanonicalWriter().WriteInt32(1).WriteString(ManifestExtension)
-            .WriteBytes(ScenarioManifestCodec.EncodeContent(manifest)).WriteString(GeneratorVersion).WriteInt64(duration)
+            .WriteBytes(ScenarioManifestCodec.EncodeContent(manifest))
+            .WriteString(manifest.V4EpisodeGenerator ?? GeneratorVersion).WriteInt64(duration)
             .WriteString(policy.PolicyId).WriteString(policy.ConfigHash).WriteString(policy.ModelArtifactHash)
             .WriteString(policy.FeatureSchemaHash).WriteString(Cases.ReviewPolicy.Version).WriteCount(Commands.Length);
         foreach (var command in Commands)
@@ -80,7 +84,10 @@ internal static class BehavioralEpisodeScenario
         && ObservedFinanceVersion.IsBoundary(durationMs)
         && !populations.IsDefault && populations.Length == BankCount && populations.All(n => n is >= 2 and <= 1_000);
 
-    private static ScenarioManifest BuildManifest(long seed, long origin, long duration, ImmutableArray<int> populations)
+    private static bool ValidGenerator(string? generator) => generator is null or GeneratorVersionV2;
+
+    private static ScenarioManifest BuildManifest(long seed, long origin, long duration, ImmutableArray<int> populations,
+        string? generator)
     {
         var random = SeededRandom.ForStream(seed, PopulationStream);
         var banks = ImmutableArray.CreateBuilder<BankDescriptor>(BankCount);
@@ -105,6 +112,7 @@ internal static class BehavioralEpisodeScenario
             [nameof(SyntheticTruth.Legitimate)], seed, origin, banks.MoveToImmutable(), accounts.MoveToImmutable(), "")
         {
             V4EpisodeDurationMs = duration,
+            V4EpisodeGenerator = generator,
         };
         return m with { ContentHash = ScenarioManifestCodec.Sha256Hex(EncodeManifest(m)) };
     }

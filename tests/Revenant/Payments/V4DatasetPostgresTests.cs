@@ -5,6 +5,7 @@ using Marrow.Timeline;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Revenant.Contracts;
+using Revenant.Finance;
 using Revenant.Observations;
 using Revenant.Payments;
 using Revenant.Synthetic;
@@ -21,6 +22,139 @@ public sealed class V4DatasetPostgresTests(LedgerDatabase db, ITestOutputHelper 
     private const string Tenant = PaymentKit.TenantA;
     private const string Owner = PaymentKit.Operator;
     private const string TestRevision = "0000000000000000000000000000000000000000";
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task V2_six_bank_smoke_verifies_real_opening_risk_export_and_reader()
+    {
+        using var time = new CancellationTokenSource(TimeSpan.FromMinutes(6));
+        var config = V4EpisodeConfig.RiskSmoke;
+        var directory = Directory.CreateTempSubdirectory("r5-smoke-");
+        try
+        {
+            var logins = await db.ProvisionDeployedLoginsAsync();
+            await using var host = Host(logins.Worker);
+            var (store, executor) = Executor(host);
+            var group = Assert.Single(config.Roots());
+            var (design, execution, projection) = await ExecuteRiskRoot(config, group, store, executor, time.Token);
+            V4DatasetManifest manifest;
+            using (var exporter = new V4DatasetExporter(config, TestRevision, directory.FullName, writeTables: true))
+            {
+                exporter.Add(design, execution, projection);
+                manifest = exporter.Complete();
+            }
+            var reader = new V4RiskDatasetReader(directory.FullName, manifest.Sha256);
+            var rows = reader.ReadSplit(group.Split);
+            Assert.Contains(rows, r => r.Truth.Malicious && r.Truth.Attack == EpisodeAttack.Ring);
+            Assert.Contains(rows, r => r.Truth.HardNegative);
+            Assert.Equal(576 * 6, projection.Banks.Count);
+            var damaged = Path.Combine(directory.FullName, "Train-risk-asof.bin");
+            using (var stream = File.Open(damaged, FileMode.Open, FileAccess.Write))
+                stream.WriteByte(255);
+            Assert.Throws<Marrow.Kernel.Canonical.CanonicalFormatException>(() => reader.ReadSplit(group.Split));
+            output.WriteLine($"V2 native smoke: {rows.Count} eligible rows, {manifest.Sha256}");
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "R5Cohort")]
+    public async Task Generate_native_R5_cohort()
+    {
+        if (Environment.GetEnvironmentVariable("R5_DATASET_MODE") != "qualification")
+            throw new InvalidOperationException("Select R5 qualification explicitly after the smoke.");
+        var revision = Environment.GetEnvironmentVariable("R5_CODE_REVISION") ?? throw new InvalidOperationException("Source revision required.");
+        var directory = Environment.GetEnvironmentVariable("R5_DATASET_OUTPUT") ?? throw new InvalidOperationException("Output directory required.");
+        var config = V4EpisodeConfig.RiskQualification;
+        using var time = new CancellationTokenSource(TimeSpan.FromMinutes(30));
+        var logins = await db.ProvisionDeployedLoginsAsync();
+        await using var host = Host(logins.Worker);
+        var (store, executor) = Executor(host);
+        V4DatasetManifest manifest;
+        using (var exporter = new V4DatasetExporter(config, revision, directory, writeTables: true))
+        {
+            foreach (var group in config.Roots())
+            {
+                var (design, executed, projected) = await ExecuteRiskRoot(config, group, store, executor, time.Token);
+                exporter.Add(design, executed, projected);
+                output.WriteLine($"{group.Split} {group.Ordinal}: {projected.Banks.Count / 6} seals; {projected.RiskAsOf.Count} screening rows");
+            }
+            manifest = exporter.Complete();
+        }
+        Assert.Equal(124_416, manifest.Splits.Sum(s => s.Tables.Single(t => t.Name == "bank").Rows));
+        var reader = new V4RiskDatasetReader(directory, manifest.Sha256);
+        var developmentEvidence = new List<object>();
+        foreach (var split in new[] { V4DatasetSplit.Train, V4DatasetSplit.Validation })
+        {
+            var rows = reader.ReadSplit(split);
+            output.WriteLine($"{split}: {rows.Count} eligible opportunities, {rows.Count(r => r.Truth.Malicious)} malicious; "
+                + $"{rows.Count(r => r.Screening == nameof(PaymentStatus.Held))} v7 holds");
+            developmentEvidence.Add(new
+            {
+                Split = split.ToString(),
+                Day = Distribution(rows, r => (r.At - r.OriginMs) / V4EpisodeConfig.WarmupMs),
+                Weekday = Distribution(rows, r => r.AsOf.UtcDayOfWeek),
+                Hour = Distribution(rows, r => r.AsOf.UtcMinuteOfDay / 60),
+                HistoryCoverage = Distribution(rows, r => string.Join(",", r.AsOf.Windows.Select(w => w.Coverage))),
+                AmountBand = Distribution(rows, r => r.AsOf.AmountMinor switch
+                {
+                    < 10_000 => "<100 USD", < 50_000 => "100–499 USD", < 100_000 => "500–999 USD",
+                    < 200_000 => "1,000–1,999 USD", _ => "2,000+ USD",
+                }),
+                ReportedNovelty = Distribution(rows, r => r.AsOf.ReportedNewBeneficiary),
+                Roots = Distribution(rows, r => r.Root),
+                Attack = Distribution(rows.Where(r => r.Truth.Malicious), r => r.Truth.Attack!.Value.ToString()),
+                Baselines = new[] { 2, 5, 10 }.Select(percent => new
+                {
+                    Percent = percent,
+                    V7 = Review(V4RiskReviewBudget.Evaluate(rows, percent, true, null)),
+                    Heuristic = Review(V4RiskReviewBudget.Evaluate(rows, percent, false, V4RiskReviewBudget.Heuristic)),
+                    V7PlusHeuristic = Review(V4RiskReviewBudget.Evaluate(rows, percent, true, V4RiskReviewBudget.Heuristic)),
+                }),
+            });
+        }
+        File.WriteAllBytes(Path.Combine(directory, "development-evidence.json"), JsonSerializer.SerializeToUtf8Bytes(
+            developmentEvidence, new JsonSerializerOptions { WriteIndented = true }));
+        output.WriteLine($"R5 qualification export manifest {manifest.Sha256}; risk schema {Revenant.Intelligence.RiskFeatureVectorV2.SchemaHash}");
+
+        static object Distribution<TKey>(IEnumerable<V4RiskResearchRow> rows, Func<V4RiskResearchRow, TKey> key) =>
+            rows.GroupBy(key).OrderBy(g => g.Key).Select(g => new
+            {
+                Key = g.Key, Malicious = g.Count(r => r.Truth.Malicious), Legitimate = g.Count(r => !r.Truth.Malicious),
+            }).ToArray();
+
+        static object Review(V4ReviewResult r) => new
+        {
+            r.Opportunities, r.Rejections, r.MandatoryHolds, r.Slots, r.Additional, r.Reviewed, r.Malicious, r.Legitimate,
+            r.HardNegatives, r.TotalMalicious, r.Overloaded, r.ReviewRate, r.Recall, r.Precision,
+        };
+    }
+
+    private static async Task<(V4EpisodeDesign Design, V4ExecutedEpisode Executed, V4ObservationProjector Projected)>
+        ExecuteRiskRoot(V4EpisodeConfig config, V4RootGroup group, V4SimulationStore store, V4EpisodeExecutor executor,
+            CancellationToken ct)
+    {
+        var design = V4EpisodePlanner.Plan(config, group, new(Guid.NewGuid()));
+        var execution = await executor.ExecuteAsync(Tenant, Owner, design.Financial, ct);
+        var projection = V4ObservationProjector.Project(execution.History, captureRisk: true);
+        var segment = Assert.Single(execution.History.Segments);
+        var firstEligible = projection.RiskAsOf.First(x => x.EffectiveTimeMs - design.Financial.Opening.Manifest.StartUtcMs
+            >= V4EpisodeConfig.WarmupMs);
+        var prefix = execution.History with
+        {
+            Segments = [segment with { Facts = segment.Facts.Take(checked((int)firstEligible.CutoffFactSeq)).ToArray(),
+                LastFact = firstEligible.CutoffFactSeq }],
+        };
+        var live = V4ObservationProjector.RiskAt(prefix, firstEligible.IntentId, firstEligible.EffectiveTimeMs);
+        Assert.Equal(firstEligible.CutoffPrefixDigest, live.CutoffPrefixDigest);
+        Assert.Equal(firstEligible.Vector.Encode(), live.Vector.Encode());
+        await store.MaterializeBanksAsync(Tenant, execution.History.ExecutionRunId, projection.Banks, ct);
+        await store.MaterializeAccountsAsync(Tenant, execution.History.ExecutionRunId, projection.Accounts, ct);
+        return (design, execution, projection);
+    }
 
     [Fact]
     [Trait("Category", "Integration")]

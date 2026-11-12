@@ -17,7 +17,7 @@ public sealed class BehavioralEpisodeScenarioTests
         BehavioralEpisodeScenario.Create(id, 411, Origin, duration, [2, 3, 4, 2, 3, 4]);
 
     internal static ObservedFinanceContext Pin(ScenarioRun run) =>
-        new(run.Manifest.ScenarioVersion, run.Manifest.ContentHash, Origin,
+        new(run.Manifest.ScenarioVersion, run.Manifest.ContentHash, run.Manifest.StartUtcMs,
             PolicyCatalog.RefOf(PolicyCatalog.V7), ReviewPolicy.Version, ObservedRiskMode.NotRequired, "", null, [], []);
 
     [Fact]

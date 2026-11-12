@@ -27,7 +27,9 @@ internal sealed partial class V4ObservationProjector
     private readonly List<V4BankObservation> bankRows = [];
     private Dictionary<string, ObservationBalance> openingBalances = null!;
 
-    internal static V4ObservationProjector Project(V4ProjectionHistory history)
+    private ObservedFinanceState prefix = null!;
+
+    internal static V4ObservationProjector Project(V4ProjectionHistory history, bool captureRisk = false)
     {
         var projector = new V4ObservationProjector();
         var state = history.Genesis;
@@ -60,6 +62,8 @@ internal sealed partial class V4ObservationProjector
             foreach (var stored in segment.Facts)
             {
                 var fact = stored.Input;
+                if (captureRisk && fact.Kind == ObservedFactKind.Screening)
+                    projector.riskRows.Add(projector.BuildRisk(state, PaymentId(fact), fact.EffectiveTimeMs));
                 var next = stored.Apply(state, segment.Context);
                 if (fact.Kind == ObservedFactKind.ObservationSeal)
                 {
@@ -83,6 +87,7 @@ internal sealed partial class V4ObservationProjector
                 throw new InvalidOperationException("Projection facts are incomplete at the requested position.");
             }
         }
+        projector.prefix = state;
         return projector;
     }
 
