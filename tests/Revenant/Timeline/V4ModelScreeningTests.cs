@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using Marrow.Kernel.Canonical;
 using Revenant.Cases;
 using Revenant.Contracts;
 using Revenant.Finance;
@@ -106,7 +107,11 @@ public sealed class V4ModelScreeningTests
 
         state = Seal(state, context);
         var codec = ObservedFinanceStateCodec.Instance;
-        var inherited = codec.Decode(codec.EncodeCanonical(state));
+        var checkpoint = codec.EncodeCanonical(state);
+        var trailer = new CanonicalWriter().WriteInt64(state.LastSealedBoundaryMs).WriteInt64(state.LastSealedBoundaryMs)
+            .WriteBytes(Convert.FromHexString(state.PrefixDigest)).ToArray();
+        Assert.Equal(trailer, checkpoint[^trailer.Length..]);
+        var inherited = codec.Decode(checkpoint);
         Assert.Equal(new V4ReviewCounts(20, 0, 1), inherited.ReviewCounts);
         var at = inherited.LastSealedBoundaryMs;
         var child = ObservedFinanceV4Tests.ChildContext(context);
