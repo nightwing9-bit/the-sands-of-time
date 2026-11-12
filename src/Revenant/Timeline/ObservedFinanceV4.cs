@@ -177,7 +177,7 @@ public static class ObservedFinanceReducer
                 {
                     return Fail(LedgerFinanceErrorCode.OutOfOrderFact, "V4 financial fact must wait for the intervening seal.");
                 }
-                if (input.Kind != ObservedFactKind.PaymentIntent || input.EvidenceSchema is not null)
+                if (context.RiskMode != ObservedRiskMode.NotRequired || input.EvidenceSchema is not null)
                 {
                     return Fail(LedgerFinanceErrorCode.IllegalStep, "Unsupported V4 financial transition.");
                 }
@@ -187,7 +187,7 @@ public static class ObservedFinanceReducer
                     return Result<ObservedFinanceState, LedgerFinanceError>.Failure(legacy.Error);
                 }
                 var result = FinanceLedgerReducer.Apply(ledger,
-                    new FinanceFact(FinanceFactKind.PaymentIntent, input.Sequence, input.PayloadSchema, input.Payload.ToArray(), null), pins);
+                    new FinanceFact((FinanceFactKind)input.Kind, input.Sequence, input.PayloadSchema, input.Payload.ToArray(), null), pins);
                 if (!result.TryGetValue(out ledger!))
                 {
                     return Result<ObservedFinanceState, LedgerFinanceError>.Failure(result.Error);

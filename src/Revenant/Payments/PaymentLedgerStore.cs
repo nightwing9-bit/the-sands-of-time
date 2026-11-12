@@ -1,3 +1,4 @@
+using Revenant.Timeline;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -98,12 +99,24 @@ public sealed partial class PaymentLedgerStore(
         }
 
         await ExecAsync(connection, tx,
-            "INSERT INTO revenant.scenario_run_staff (scenario_run_id, subject_id, role) VALUES (@run, @subject, @role)", ct,
-            ("run", runId.Value), ("subject", ownerSubjectId), ("role", ownerRole));
-        await ExecAsync(connection, tx,
             "INSERT INTO revenant.run_cursor (scenario_run_id, tenant_id) VALUES (@run, @tenant)", ct,
             ("run", runId.Value), ("tenant", tenantId));
 
+        _ = await InsertOpeningAccountsAsync(connection, tx, tenantId, ownerSubjectId, ownerRole, runId.Value, run, null, ct);
+
+        var view = await ReadRunAsync(connection, tx, runId, ct)
+            ?? throw new InvalidOperationException("The run row written in this transaction is not visible.");
+        await tx.CommitAsync(ct);
+        return Result<RunReceipt, PaymentFailure>.Success(new RunReceipt(view, IsReplay: false));
+    }
+
+    internal static async Task<Dictionary<string, Guid>> InsertOpeningAccountsAsync(
+        NpgsqlConnection connection, NpgsqlTransaction tx, string tenantId, string ownerSubjectId, string ownerRole,
+        Guid execution, ScenarioRun run, LedgerFinanceState? snapshot, CancellationToken ct)
+    {
+        await ExecAsync(connection, tx,
+            "INSERT INTO revenant.scenario_run_staff (scenario_run_id, subject_id, role) VALUES (@run, @subject, @role)", ct,
+            ("run", execution), ("subject", ownerSubjectId), ("role", ownerRole));
         var bankIds = new Dictionary<string, Guid>(StringComparer.Ordinal);
         foreach (var bank in run.Manifest.Banks)
         {
@@ -112,23 +125,20 @@ public sealed partial class PaymentLedgerStore(
                 INSERT INTO revenant.bank (tenant_id, scenario_run_id, local_bank_id, name)
                 VALUES (@tenant, @run, @bank, @name) RETURNING id
                 """, ct,
-                ("tenant", tenantId), ("run", runId.Value), ("bank", bank.BankId), ("name", bank.Name));
+                ("tenant", tenantId), ("run", execution), ("bank", bank.BankId), ("name", bank.Name));
         }
+        var accountIds = new Dictionary<string, Guid>(StringComparer.Ordinal);
         foreach (var account in run.Manifest.Accounts)
         {
-            await ExecAsync(connection, tx,
+            accountIds[account.AccountId] = await ScalarAsync<Guid>(connection, tx,
                 """
                 INSERT INTO revenant.account (tenant_id, scenario_run_id, bank_id, local_account_id, currency, opening_balance_minor)
-                VALUES (@tenant, @run, @bank, @account, @currency, @opening)
+                VALUES (@tenant, @run, @bank, @account, @currency, @opening) RETURNING id
                 """, ct,
-                ("tenant", tenantId), ("run", runId.Value), ("bank", bankIds[account.BankId]), ("account", account.AccountId),
-                ("currency", account.OpeningBalance.Currency), ("opening", account.OpeningBalance.MinorUnits));
+                ("tenant", tenantId), ("run", execution), ("bank", bankIds[account.BankId]), ("account", account.AccountId),
+                ("currency", account.OpeningBalance.Currency), ("opening", snapshot?.Accounts[account.AccountId].PostedMinor ?? account.OpeningBalance.MinorUnits));
         }
-
-        var view = await ReadRunAsync(connection, tx, runId, ct)
-            ?? throw new InvalidOperationException("The run row written in this transaction is not visible.");
-        await tx.CommitAsync(ct);
-        return Result<RunReceipt, PaymentFailure>.Success(new RunReceipt(view, IsReplay: false));
+        return accountIds;
     }
 
     public async Task<RunView?> GetRunAsync(string tenantId, ScenarioRunId runId, CancellationToken ct)
@@ -161,20 +171,36 @@ public sealed partial class PaymentLedgerStore(
         {
             return Fail<IntakeReceipt>(PaymentFailureCode.InvalidRequest, "Tenant, actor and a correlation id of 1-200 characters are required.");
         }
-        var canonical = PaymentIntentCodec.Instance.EncodeCanonical(intent);
-        var hash = SHA256.HashData(canonical);
-        var commandKey = $"intake:{intent.IntentId}";
-        var run = intent.RunId.Value;
-
         await using var connection = await dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
         await SetTenantAsync(connection, tx, tenantId, ct);
+        var result = await SubmitIntentCoreAsync(connection, tx, tenantId, actor, intent, correlationId, ct);
+        if (result.IsSuccess)
+        {
+            await tx.CommitAsync(ct);
+        }
+        return result;
+    }
+
+    private async Task<Result<IntakeReceipt, PaymentFailure>> SubmitIntentCoreAsync(
+        NpgsqlConnection connection, NpgsqlTransaction tx, string tenantId, string actor, PaymentIntent intent,
+        string correlationId, CancellationToken ct, V4FinanceDispatch? dispatch = null)
+    {
+        var canonical = PaymentIntentCodec.Instance.EncodeCanonical(intent);
+        var hash = SHA256.HashData(canonical);
+        var commandKey = $"intake:{intent.IntentId}";
+        var run = dispatch?.Execution.Value ?? intent.RunId.Value;
 
         // Serializes intake into this run: the lock is held to commit, so fact order is commit order.
         var cursor = await ReadCursorForUpdateAsync(connection, tx, run, ct);
         if (cursor is null)
         {
             return Fail<IntakeReceipt>(PaymentFailureCode.RunNotFound, "The run does not exist.");
+        }
+
+        if ((cursor.FinanceVersion == ObservedFinanceVersion.ReducerVersion) != (dispatch is not null))
+        {
+            return Fail<IntakeReceipt>(PaymentFailureCode.InvalidRequest, "V4 intake requires its scheduler transaction.");
         }
 
         var recorded = await ReadCommandAsync(connection, tx, run, commandKey, ct);
@@ -241,21 +267,31 @@ public sealed partial class PaymentLedgerStore(
             """, ct,
             ("tenant", tenantId), ("run", run), ("payment", paymentId), ("key", commandKey), ("actor", actor));
 
-        var factSequence = await ScalarAsync<long>(connection, tx,
-            """
-            UPDATE revenant.run_cursor
-               SET last_fact_seq = last_fact_seq + 1, last_intent_sequence = @sequence, last_event_time_ms = @time
-             WHERE scenario_run_id = @run
-            RETURNING last_fact_seq
-            """, ct, ("run", run), ("sequence", intent.Sequence), ("time", intent.EventTimeUtcMs));
+        long factSequence;
+        if (dispatch is not null)
+        {
+            factSequence = await AppendV4FactAsync(connection, tx, tenantId, paymentId, FinanceFactKind.PaymentIntent,
+                ScenarioSchemas.InputSchemaVersion, canonical, dispatch, intent.Sequence, ct);
+        }
+        else
+        {
+            factSequence = await ScalarAsync<long>(connection, tx,
+                """
+                UPDATE revenant.run_cursor
+                   SET last_fact_seq = last_fact_seq + 1, last_intent_sequence = @sequence, last_event_time_ms = @time
+                 WHERE scenario_run_id = @run
+                RETURNING last_fact_seq
+                """, ct, ("run", run), ("sequence", intent.Sequence), ("time", intent.EventTimeUtcMs));
 
-        await ExecAsync(connection, tx,
-            """
-            INSERT INTO revenant.finance_fact (tenant_id, scenario_run_id, fact_seq, kind, schema_version, payment_id, canonical, canonical_sha256)
-            VALUES (@tenant, @run, @seq, 'PaymentIntent', @schema, @payment, @canonical, @sha)
-            """, ct,
-            ("tenant", tenantId), ("run", run), ("seq", factSequence), ("schema", ScenarioSchemas.InputSchemaVersion),
-            ("payment", paymentId), ("canonical", canonical), ("sha", hash));
+            await ExecAsync(connection, tx,
+                """
+                INSERT INTO revenant.finance_fact (tenant_id, scenario_run_id, fact_seq, kind, schema_version, payment_id, canonical, canonical_sha256)
+                VALUES (@tenant, @run, @seq, 'PaymentIntent', @schema, @payment, @canonical, @sha)
+                """, ct,
+                ("tenant", tenantId), ("run", run), ("seq", factSequence), ("schema", ScenarioSchemas.InputSchemaVersion),
+                ("payment", paymentId), ("canonical", canonical), ("sha", hash));
+
+        }
 
         await InsertCommandAsync(connection, tx, tenantId, run, commandKey, "Intake", paymentId, hash, "Accepted",
             PaymentStatus.Initiated, 1, null, actor, ct);
@@ -264,9 +300,8 @@ public sealed partial class PaymentLedgerStore(
         await outboxFactory(tx).EnqueueAsync(
             PaymentEvent(EventPaymentInitiated, run, paymentId, intent.IntentId, null, PaymentStatus.Initiated, 1, factSequence, correlationId), ct);
 
-        await tx.CommitAsync(ct);
         var view = new PaymentView(
-            paymentId, intent.RunId, intent.IntentId, PaymentStatus.Initiated, 1, intent.Amount.Currency, intent.Amount.MinorUnits,
+            paymentId, new(run), intent.IntentId, PaymentStatus.Initiated, 1, intent.Amount.Currency, intent.Amount.MinorUnits,
             [new PaymentTrailEntry(1, null, PaymentStatus.Initiated, null, actor)]);
         return Result<IntakeReceipt, PaymentFailure>.Success(new IntakeReceipt(view, IsReplay: false, factSequence));
     }
@@ -318,6 +353,11 @@ public sealed partial class PaymentLedgerStore(
         await using var connection = await dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
         await SetTenantAsync(connection, tx, tenantId, ct);
+        if (await IsV4RunAsync(connection, tx, command.RunId.Value, ct))
+        {
+            return Fail<TransitionReceipt>(PaymentFailureCode.InvalidRequest, "V4 requires its scheduler transaction.");
+        }
+
 
         var locked = await ReadPaymentForUpdateAsync(connection, tx, run, command.IntentId, ct);
         if (locked is null)

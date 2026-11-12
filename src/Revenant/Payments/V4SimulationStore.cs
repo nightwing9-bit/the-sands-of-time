@@ -8,7 +8,7 @@ namespace Revenant.Payments;
 /// <summary>R2's internal dispatcher and journal. A handler can classify only a bounded, no-ledger-effect R2 test operation.
 /// The handler is supplied by the test assembly. The production composition has no V4 handler or public V4 opener.</summary>
 internal sealed partial class V4SimulationStore(NpgsqlDataSource source,
-    Func<V4ScheduledCommand, CancellationToken, Task<V4CommandOutcome?>>? testHandler = null)
+    Func<V4ScheduledCommand, CancellationToken, Task<V4CommandOutcome?>>? testHandler = null, PaymentLedgerStore? ledger = null)
 {
     private const string CommandColumns = """
         command_seq, command_key, command_class, command_kind, payload_schema, canonical_payload, payload_sha256,
@@ -21,7 +21,7 @@ internal sealed partial class V4SimulationStore(NpgsqlDataSource source,
         OpenRunAsync(tenant, owner, run, context, null, ct);
 
     internal async Task OpenRunAsync(string tenant, string owner, ScenarioRun run, ObservedFinanceContext context,
-        V4ExecutionBinding? binding, CancellationToken ct)
+        V4ExecutionBinding? binding, CancellationToken ct, ObservedFinanceState? opening = null)
     {
         var initial = ObservedFinanceReducer.Initial(run, context);
         if (initial.IsFailure)
@@ -34,32 +34,49 @@ internal sealed partial class V4SimulationStore(NpgsqlDataSource source,
         var id = binding?.ExecutionRunId.Value ?? run.RunId.Value;
         var start = binding?.Fork?.BoundaryMs ?? context.OriginMs;
         var position = binding?.Fork?.FactSequence ?? 0;
+        V4ExecutionBinding? existing = null;
         if (binding is not null)
         {
-            await ExecuteAsync(tx, "SELECT pg_advisory_xact_lock(hashtextextended(@id, 0))", ct, ("id", id.ToString("D")));
-            var existing = await ReadBindingAsync(tx, tenant, binding.ExecutionRunId, ct);
-            if (existing is not null)
+            await LockOpeningAsync(tx, id, ct);
+            existing = await ReadBindingAsync(tx, tenant, binding.ExecutionRunId, ct);
+            if (existing == binding)
             {
-                if (existing != binding)
-                {
-                    throw new InvalidOperationException("V4 execution already has a different binding.");
-                }
                 return;
             }
+            if (existing is not null && (existing.TimelineId != default || existing != binding with { TimelineId = default }))
+            {
+                throw new InvalidOperationException("V4 execution already has a different binding.");
+            }
+        }
+
+        if (existing is null)
+        {
+            await InsertScenarioAsync(tx, tenant, owner, run, context, id, ct);
+            if (binding is not null)
+            {
+                await InsertBindingAsync(tx, tenant, binding, ct);
+            }
+        }
+        else
+        {
+            await ExecuteAsync(tx, """
+                UPDATE revenant.v4_branch_execution SET timeline_id = @timeline, readiness_status = @status
+                WHERE execution_run_id = @run AND tenant_id = @tenant
+                """, ct, ("timeline", binding!.TimelineId.Value), ("status", ledger is null ? "SealOnly" : "Ready"), ("run", id), ("tenant", tenant));
         }
         await ExecuteAsync(tx, """
-            INSERT INTO revenant.scenario_run (id, tenant_id, owner_subject_id, seed, scenario_version, manifest_hash, finance_version)
-            VALUES (@run, @tenant, @owner, @seed, @scenario, @manifest, @family)
-            """, ct, ("run", id), ("tenant", tenant), ("owner", owner), ("seed", run.Manifest.Seed),
-            ("scenario", context.ScenarioVersion), ("manifest", context.ManifestSha256), ("family", ObservedFinanceVersion.ReducerVersion));
+            INSERT INTO revenant.run_cursor (scenario_run_id, tenant_id, last_event_time_ms, last_fact_seq, last_intent_sequence)
+            VALUES (@run, @tenant, @start, @seq, @intent)
+            """, ct, ("run", id), ("tenant", tenant), ("start", start), ("seq", position),
+            ("intent", opening?.Ledger.LastIntentSequence ?? 0));
+        byte[]? openingBytes = null;
         if (binding is not null)
         {
-            await InsertBindingAsync(tx, tenant, binding, ct);
+            var checkpoint = opening ?? (binding.Fork is null ? initial.Value
+                : throw new InvalidOperationException("A V4 child needs the verified opening checkpoint."));
+            await PaymentLedgerStore.MaterializeV4OpeningAsync(connection, tx, tenant, owner, run, binding, checkpoint, ct);
+            openingBytes = ObservedFinanceStateCodec.Instance.EncodeCanonical(checkpoint);
         }
-        await ExecuteAsync(tx, """
-            INSERT INTO revenant.run_cursor (scenario_run_id, tenant_id, last_event_time_ms, last_fact_seq)
-            VALUES (@run, @tenant, @start, @seq)
-            """, ct, ("run", id), ("tenant", tenant), ("start", start), ("seq", position));
         await ExecuteAsync(tx, """
             INSERT INTO revenant.v4_scheduler_run (run_id, tenant_id, origin_ms, watermark_exclusive_ms, clock_ms, next_command_seq,
                status, scheduler_contract_id, command_completion_digest, canonical_context)
@@ -67,6 +84,12 @@ internal sealed partial class V4SimulationStore(NpgsqlDataSource source,
             """, ct, ("run", id), ("tenant", tenant), ("origin", context.OriginMs), ("start", start), ("contract", ObservedFinanceVersion.SchedulerContract),
             ("digest", Convert.FromHexString(V4SimulationScheduler.InitialCommandDigest(new(id)))),
             ("context", ObservedFinanceContextCodec.Instance.EncodeCanonical(context)));
+        if (openingBytes is not null)
+        {
+            await ExecuteAsync(tx, """
+                INSERT INTO revenant.v4_finance_opening (run_id, tenant_id, canonical_state) VALUES (@run, @tenant, @state)
+                """, ct, ("run", id), ("tenant", tenant), ("state", openingBytes));
+        }
         await tx.CommitAsync(ct);
     }
 
@@ -157,7 +180,9 @@ internal sealed partial class V4SimulationStore(NpgsqlDataSource source,
                 return new(V4StepKind.WorkDue, command);
             }
 
-            var outcome = testHandler is null ? null : await testHandler(command, ct);
+            var outcome = ledger is not null
+                ? await DispatchFinanceAsync(tx, tenant, run, command, ct)
+                : testHandler is null ? null : await testHandler(command, ct);
             if (outcome is null)
             {
                 return new(V4StepKind.UnsupportedHandler, command);
@@ -227,8 +252,8 @@ internal sealed partial class V4SimulationStore(NpgsqlDataSource source,
     {
         var initial = ObservedFinanceReducer.Initial(run, context);
         var state = initial.TryGetValue(out var opened) ? opened : throw new ObservedFinanceTransitionException(initial.Error);
-        var history = await ReadSealHistoryAsync(tenant, run.RunId, run.RunId, ct);
-        foreach (var seal in history.Seals)
+        var history = await ReadFinanceHistoryAsync(tenant, run.RunId, run.RunId, ct);
+        foreach (var seal in history.Facts)
         {
             state = seal.Apply(state, context);
         }

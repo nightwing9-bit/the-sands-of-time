@@ -159,6 +159,18 @@ public sealed class LedgerDatabase : IAsyncLifetime
         }.ConnectionString);
     }
 
+    internal async Task<string> MigrateToR2Async()
+    {
+        const string directory = "/tmp/pre-r3-migrations";
+        var copy = await _container.ExecAsync(["sh", "-ec",
+            $"cp -R /sands/db/migrations {directory} && rm {directory}/revenant/0010_v4_branch_execution.sql"]);
+        if (copy.ExitCode != 0)
+        {
+            throw new InvalidOperationException(copy.Stderr);
+        }
+        return await MigrateV4UpgradeDatabaseAsync(directory);
+    }
+
     internal async Task<string> MigrateV4UpgradeDatabaseAsync(string migrations = "/sands/db/migrations")
     {
         var result = await _container.ExecAsync([

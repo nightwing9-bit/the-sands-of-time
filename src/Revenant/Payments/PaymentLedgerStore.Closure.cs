@@ -33,6 +33,11 @@ public sealed partial class PaymentLedgerStore
         await using var connection = await dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
         await SetTenantAsync(connection, tx, tenantId, ct);
+        if (await IsV4RunAsync(connection, tx, runId.Value, ct))
+        {
+            return Fail<RunClosure>(PaymentFailureCode.InvalidRequest, "V4 requires its scheduler transaction.");
+        }
+
 
         // The lock every fact append needs: in-flight actions finish first, later ones see the closed cursor.
         if (await ReadCursorForUpdateAsync(connection, tx, runId.Value, ct) is null)

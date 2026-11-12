@@ -34,10 +34,18 @@ internal sealed class V4BranchExecution(V4SimulationStore store,
     {
         var binding = await store.ReadBindingAsync(tenant, execution, ct);
         await store.CloseBoundSealHistoryAsync(tenant, execution, ct);
-        var history = await store.ReadSealHistoryAsync(tenant, execution, binding.LineageRunId, ct);
+        var history = await store.ReadFinanceHistoryAsync(tenant, execution, binding.LineageRunId, ct);
         var context = await store.ReadPinnedContextAsync(tenant, execution, ct);
         _ = await ReconcileAsync(binding, context, history, ct);
         return Require(await engine.CompleteAsync(binding.TimelineId, history.LastFact, ct));
+    }
+
+    internal async Task<ObservedFinanceState> SynchronizeAsync(string tenant, ScenarioRunId execution, CancellationToken ct)
+    {
+        var binding = await store.ReadBindingAsync(tenant, execution, ct);
+        var history = await store.ReadFinanceHistoryAsync(tenant, execution, binding.LineageRunId, ct);
+        var context = await store.ReadPinnedContextAsync(tenant, execution, ct);
+        return await ReconcileAsync(binding, context, history, ct);
     }
 
     internal async Task<V4ExecutionBinding> ForkAsync(string tenant, string owner, ScenarioRun run, ScenarioRunId sourceExecution,
@@ -53,8 +61,8 @@ internal sealed class V4BranchExecution(V4SimulationStore store,
 
         var sourceContext = await store.ReadPinnedContextAsync(tenant, sourceExecution, ct);
         ValidateChildContext(sourceContext, childContext);
-        var history = await store.ReadSealHistoryAsync(tenant, sourceExecution, source.LineageRunId, ct);
-        var seal = history.Seals.SingleOrDefault(f => f.Input.EffectiveTimeMs == boundary)
+        var history = await store.ReadFinanceHistoryAsync(tenant, sourceExecution, source.LineageRunId, ct);
+        var seal = history.Facts.SingleOrDefault(f => f.Input.Kind == ObservedFactKind.ObservationSeal && f.Input.EffectiveTimeMs == boundary)
             ?? throw new InvalidOperationException("The source has no committed seal at the requested boundary.");
         var final = Require(await engine.ReplayAsync(source.TimelineId, ct));
         if (!history.IsClosed || final.Status != HistoryStatus.Verified || final.FinalPosition != history.LastFact)
@@ -77,6 +85,12 @@ internal sealed class V4BranchExecution(V4SimulationStore store,
             throw new InvalidOperationException("The requested V4 fork does not match the verified seal.");
         }
 
+        var fork = new V4ForkOrigin(sourceExecution, source.TimelineId, position, boundary, checkpoint.StateHash,
+            checkpoint.State.PrefixDigest, operationKey);
+        var request = new V4ExecutionBinding(childExecution, source.LineageRunId, default, ContextHash(childContext), fork);
+        await store.ReserveForkAsync(tenant, owner, run, childContext, request, ct);
+
+
         var childTimeline = Require(await engine.ForkAsync(source.TimelineId, position, operationKey, childContext, ct));
         var inherited = Require(await engine.RestoreAsync(childTimeline, position, ct));
         if (childTimeline == source.TimelineId || checkpoint.StateHash != inherited.StateHash
@@ -85,10 +99,8 @@ internal sealed class V4BranchExecution(V4SimulationStore store,
             throw new InvalidOperationException("Marrow changed the canonical V4 checkpoint at the fork.");
         }
 
-        var fork = new V4ForkOrigin(sourceExecution, source.TimelineId, position, boundary, checkpoint.StateHash,
-            checkpoint.State.PrefixDigest, operationKey);
-        var binding = new V4ExecutionBinding(childExecution, source.LineageRunId, childTimeline, ContextHash(childContext), fork);
-        await store.OpenRunAsync(tenant, owner, run, childContext, binding, ct);
+        var binding = request with { TimelineId = childTimeline };
+        await store.OpenRunAsync(tenant, owner, run, childContext, binding, ct, inherited.State);
         return binding;
     }
 
@@ -108,7 +120,7 @@ internal sealed class V4BranchExecution(V4SimulationStore store,
     }
 
     private async Task<ObservedFinanceState> ReconcileAsync(V4ExecutionBinding binding, ObservedFinanceContext context,
-        V4SealHistory history, CancellationToken ct)
+        V4FinanceHistory history, CancellationToken ct)
     {
         var start = Require(await engine.RestoreAsync(binding.TimelineId, binding.Fork?.FactSequence ?? 0, ct));
         var state = start.State;
@@ -117,7 +129,7 @@ internal sealed class V4BranchExecution(V4SimulationStore store,
         {
             throw new InvalidOperationException("The V4 binding disagrees with the pinned Timeline origin.");
         }
-        foreach (var seal in history.Seals)
+        foreach (var seal in history.Facts)
         {
             state = seal.Apply(state, context);
             var input = seal.OrderedInput;
@@ -128,6 +140,11 @@ internal sealed class V4BranchExecution(V4SimulationStore store,
         if (state.LastFact != history.LastFact)
         {
             throw new InvalidOperationException("V4 SQL facts disagree with the run cursor.");
+        }
+        var restored = Require(await engine.RestoreAsync(binding.TimelineId, state.LastFact, ct));
+        if (!SameBytes(state, restored.State))
+        {
+            throw new InvalidOperationException("The V4 SQL fold disagrees with the restored Timeline.");
         }
         return state;
     }

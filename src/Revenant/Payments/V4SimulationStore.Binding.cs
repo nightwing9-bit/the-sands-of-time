@@ -1,6 +1,7 @@
 using Marrow.Timeline;
 using Npgsql;
 using Revenant.Contracts;
+using Revenant.Scenario;
 using Revenant.Timeline;
 
 namespace Revenant.Payments;
@@ -11,7 +12,7 @@ internal sealed record V4ForkOrigin(ScenarioRunId SourceExecutionRunId, Timeline
 internal sealed record V4ExecutionBinding(ScenarioRunId ExecutionRunId, ScenarioRunId LineageRunId, TimelineId TimelineId,
     string ContextHash, V4ForkOrigin? Fork = null);
 
-internal sealed record V4StoredSeal(ObservedFinanceInput Input, string PrefixDigest)
+internal sealed record V4StoredFact(ObservedFinanceInput Input, string PrefixDigest)
 {
     internal OrderedInput<ObservedFinanceInput> OrderedInput =>
         new(FinanceLedgerTransition.InputId(Input.RunId, Input.Sequence), 0, Input);
@@ -25,11 +26,47 @@ internal sealed record V4StoredSeal(ObservedFinanceInput Input, string PrefixDig
     }
 }
 
-internal sealed record V4SealHistory(long LastFact, bool IsClosed, IReadOnlyList<V4StoredSeal> Seals);
+internal sealed record V4FinanceHistory(long LastFact, bool IsClosed, IReadOnlyList<V4StoredFact> Facts);
 
 internal sealed partial class V4SimulationStore
 {
-    private static Task InsertBindingAsync(NpgsqlTransaction tx, string tenant, V4ExecutionBinding binding, CancellationToken ct)
+    internal async Task ReserveForkAsync(string tenant, string owner, ScenarioRun run, ObservedFinanceContext context,
+        V4ExecutionBinding request, CancellationToken ct)
+    {
+        if (request.Fork is null || request.TimelineId != default)
+        {
+            throw new ArgumentException("A V4 reservation requires a fork origin and no child Timeline.", nameof(request));
+        }
+        var id = request.ExecutionRunId.Value;
+        await using var connection = await source.OpenConnectionAsync(ct);
+        await using var tx = await BeginAsync(connection, tenant, ct);
+        await LockOpeningAsync(tx, id, ct);
+        var existing = await ReadBindingAsync(tx, tenant, request.ExecutionRunId, ct);
+        if (existing is not null)
+        {
+            if (existing with { TimelineId = default } != request)
+            {
+                throw new InvalidOperationException("The V4 execution already has a different fork request.");
+            }
+            return;
+        }
+        await InsertScenarioAsync(tx, tenant, owner, run, context, id, ct);
+        await InsertBindingAsync(tx, tenant, request, ct);
+        await tx.CommitAsync(ct);
+    }
+
+    private static Task LockOpeningAsync(NpgsqlTransaction tx, Guid id, CancellationToken ct) =>
+        ExecuteAsync(tx, "SELECT pg_advisory_xact_lock(hashtextextended(@id, 0))", ct, ("id", id.ToString("D")));
+
+    private static Task InsertScenarioAsync(NpgsqlTransaction tx, string tenant, string owner, ScenarioRun run,
+        ObservedFinanceContext context, Guid id, CancellationToken ct) =>
+        ExecuteAsync(tx, """
+            INSERT INTO revenant.scenario_run (id, tenant_id, owner_subject_id, seed, scenario_version, manifest_hash, finance_version)
+            VALUES (@run, @tenant, @owner, @seed, @scenario, @manifest, @family)
+            """, ct, ("run", id), ("tenant", tenant), ("owner", owner), ("seed", run.Manifest.Seed),
+            ("scenario", context.ScenarioVersion), ("manifest", context.ManifestSha256), ("family", ObservedFinanceVersion.ReducerVersion));
+
+    private Task InsertBindingAsync(NpgsqlTransaction tx, string tenant, V4ExecutionBinding binding, CancellationToken ct)
     {
         var fork = binding.Fork;
         return ExecuteAsync(tx, """
@@ -37,11 +74,12 @@ internal sealed partial class V4SimulationStore
               (tenant_id, execution_run_id, lineage_run_id, timeline_id, child_context_hash, readiness_status,
                source_execution_run_id, source_timeline_id, fork_fact_seq, fork_boundary_ms, fork_state_hash,
                fork_prefix_digest, fork_operation_key)
-            VALUES (@tenant, @run, @lineage, @timeline, @context, 'SealOnly',
+            VALUES (@tenant, @run, @lineage, CAST(NULLIF(@timeline, '') AS uuid), @context, @status,
                     CAST(NULLIF(@source, '') AS uuid), CAST(NULLIF(@parent, '') AS uuid), @position, @boundary,
                     decode(NULLIF(@state, ''), 'hex'), decode(NULLIF(@prefix, ''), 'hex'), NULLIF(@operation, ''))
             """, ct, ("tenant", tenant), ("run", binding.ExecutionRunId.Value), ("lineage", binding.LineageRunId.Value),
-            ("timeline", binding.TimelineId.Value), ("context", Convert.FromHexString(binding.ContextHash)),
+            ("timeline", binding.TimelineId == default ? "" : binding.TimelineId.Value.ToString("D")),
+            ("status", binding.TimelineId == default ? "Pending" : ledger is null ? "SealOnly" : "Ready"), ("context", Convert.FromHexString(binding.ContextHash)),
             ("source", fork?.SourceExecutionRunId.Value.ToString("D") ?? ""),
             ("parent", fork?.SourceTimelineId.Value.ToString("D") ?? ""),
             ("position", (object?)fork?.FactSequence ?? DBNull.Value), ("boundary", (object?)fork?.BoundaryMs ?? DBNull.Value),
@@ -53,8 +91,9 @@ internal sealed partial class V4SimulationStore
     {
         await using var connection = await source.OpenConnectionAsync(ct);
         await using var tx = await BeginAsync(connection, tenant, ct);
-        return await ReadBindingAsync(tx, tenant, execution, ct)
-            ?? throw new V4ScheduleException(V4ScheduleError.RunNotFound);
+        var binding = await ReadBindingAsync(tx, tenant, execution, ct);
+        return binding is not null && binding.TimelineId != default
+            ? binding : throw new V4ScheduleException(V4ScheduleError.RunNotFound);
     }
 
     private static async Task<V4ExecutionBinding?> ReadBindingAsync(NpgsqlTransaction tx, string tenant,
@@ -73,7 +112,7 @@ internal sealed partial class V4SimulationStore
         string Hash(int column) => Convert.ToHexStringLower(reader.GetFieldValue<byte[]>(column));
         var fork = reader.IsDBNull(3) ? null : new V4ForkOrigin(new(reader.GetGuid(3)), new(reader.GetGuid(4)),
             reader.GetInt64(5), reader.GetInt64(6), Hash(7), Hash(8), reader.GetString(9));
-        return new(execution, new(reader.GetGuid(0)), new(reader.GetGuid(1)), Hash(2), fork);
+        return new(execution, new(reader.GetGuid(0)), reader.IsDBNull(1) ? default : new(reader.GetGuid(1)), Hash(2), fork);
     }
 
     internal async Task CloseBoundSealHistoryAsync(string tenant, ScenarioRunId execution, CancellationToken ct)
@@ -94,7 +133,7 @@ internal sealed partial class V4SimulationStore
         await tx.CommitAsync(ct);
     }
 
-    internal async Task<V4SealHistory> ReadSealHistoryAsync(string tenant, ScenarioRunId execution, ScenarioRunId lineage,
+    internal async Task<V4FinanceHistory> ReadFinanceHistoryAsync(string tenant, ScenarioRunId execution, ScenarioRunId lineage,
         CancellationToken ct)
     {
         await using var connection = await source.OpenConnectionAsync(ct);
@@ -116,16 +155,31 @@ internal sealed partial class V4SimulationStore
             closed = !row.IsDBNull(1);
         }
 
+        return new(last, closed, await ReadFactsAsync(tx, tenant, execution, lineage, ct));
+    }
+
+    private static async Task<List<V4StoredFact>> ReadFactsAsync(NpgsqlTransaction tx, string tenant, ScenarioRunId execution,
+        ScenarioRunId lineage, CancellationToken ct)
+    {
         await using var facts = Sql(tx, """
-            SELECT fact_seq, effective_time_ms, canonical, canonical_sha256, v4_prefix_digest
+            SELECT fact_seq, effective_time_ms, canonical, canonical_sha256, v4_prefix_digest, kind, schema_version
               FROM revenant.finance_fact WHERE scenario_run_id = @run AND tenant_id = @tenant ORDER BY fact_seq
             """, ("run", execution.Value), ("tenant", tenant));
         await using var reader = await facts.ExecuteReaderAsync(ct);
-        var seals = new List<V4StoredSeal>();
+        var rows = new List<V4StoredFact>();
         while (await reader.ReadAsync(ct))
         {
-            seals.Add(new(DecodeSealRow(lineage, reader), Convert.ToHexStringLower(reader.GetFieldValue<byte[]>(4))));
+            var kind = Enum.Parse<ObservedFactKind>(reader.GetString(5));
+            var bytes = reader.GetFieldValue<byte[]>(2);
+            if (!System.Security.Cryptography.SHA256.HashData(bytes).AsSpan().SequenceEqual(reader.GetFieldValue<byte[]>(3)))
+            {
+                throw new InvalidOperationException("V4 canonical fact payload digest mismatch.");
+            }
+            var input = new ObservedFinanceInput(lineage, reader.GetInt64(0), reader.GetInt64(1), kind,
+                reader.GetString(6), [.. bytes]);
+            ObservedFinanceInputCodec.Validate(input);
+            rows.Add(new(input, Convert.ToHexStringLower(reader.GetFieldValue<byte[]>(4))));
         }
-        return new(last, closed, seals);
+        return rows;
     }
 }

@@ -1,3 +1,4 @@
+using Npgsql;
 using Marrow.Kernel.Results;
 using Revenant.Contracts;
 using Revenant.Finance;
@@ -174,6 +175,16 @@ public sealed partial class PaymentLedgerStore
             reason = ModelLedgerReducer.EffectiveReason(reason, evidence.FinalDecision);
         }
 
+        var outcome = await ApplyScreeningAsync(connection, tx, tenantId, run, intentId, payment, reason, available, evidence,
+            correlationId, ct);
+        await tx.CommitAsync(ct);
+        return (outcome, null);
+    }
+
+    private async Task<ScreeningOutcome> ApplyScreeningAsync(NpgsqlConnection connection, NpgsqlTransaction tx,
+        string tenantId, Guid run, string intentId, LockedPayment payment, PaymentReason reason, long? available,
+        InferenceEvidenceV1? evidence, string correlationId, CancellationToken ct, V4FinanceDispatch? dispatch = null)
+    {
         var outbox = outboxFactory(tx);
         var key = $"screening:{payment.Id:N}";
         var version = checked(payment.Version + 1);
@@ -214,7 +225,7 @@ public sealed partial class PaymentLedgerStore
         if (evidence is null)
         {
             fact = await AppendFactAsync(connection, tx, tenantId, run, payment.Id, FinanceFactKind.Screening, PaymentStepCodec.ScreeningSchema,
-                PaymentStepCodec.Encode(intentId), ScreeningActor, correlationId, version, ct);
+                PaymentStepCodec.Encode(intentId), ScreeningActor, correlationId, version, ct, dispatch: dispatch);
         }
         else
         {
@@ -227,8 +238,7 @@ public sealed partial class PaymentLedgerStore
                 throw new InvalidOperationException($"Screening fact {fact} is not the evidence position {evidence.ScreeningFactSeq}.");
             }
         }
-        await tx.CommitAsync(ct);
-        return (new ScreeningOutcome(new ScenarioRunId(run), intentId, payment.Id, status, version, holdReason, fact, evidence), null);
+        return new ScreeningOutcome(new ScenarioRunId(run), intentId, payment.Id, status, version, holdReason, fact, evidence);
     }
 
     /// <summary>

@@ -109,8 +109,8 @@ public sealed class ObservedFinanceV4Tests
             (state.LastEffectiveTimeMs, state.LastFact, seal.EffectiveTimeMs, seal.Sequence, after.LastEffectiveTimeMs, after.LastFact));
         Assert.Equal(4, after.Ledger.Payments[run.Intents[1].IntentId].IntentFact);
         Assert.Equal(5, Apply(after, Payment(run.Intents[2], 5, Nine), context).LastFact);
-        Assert.Equal(LedgerFinanceErrorCode.IllegalStep, ObservedFinanceReducer.Apply(after,
-            new(RunId, 5, Nine, ObservedFactKind.Screening, PaymentStepCodec.ScreeningSchema, [.. PaymentStepCodec.Encode(run.Intents[1].IntentId)]), context).Error.Code);
+        Assert.Equal(5, Apply(after,
+            new(RunId, 5, Nine, ObservedFactKind.Screening, PaymentStepCodec.ScreeningSchema, [.. PaymentStepCodec.Encode(run.Intents[1].IntentId)]), context).LastFact);
     }
 
     [Fact]
@@ -143,6 +143,19 @@ public sealed class ObservedFinanceV4Tests
         Assert.NotEqual(source.BasePolicy, child.BasePolicy);
         Assert.Equal(ObservedFinanceStateCodec.Instance.EncodeCanonical(opening),
             ObservedFinanceStateCodec.Instance.EncodeCanonical(ObservedFinanceReducer.Initial(run, child).Value));
+
+        var beforeFork = Apply(opening, Seal(opening), source);
+        var fork = Apply(beforeFork, Seal(beforeFork), source);
+        var first = Payment(run.Intents[0], fork.LastFact + 1, Nine);
+        var second = Payment(run.Intents[1], first.Sequence + 1, Nine);
+        Assert.Equal(LedgerFinanceErrorCode.OutOfOrderFact,
+            ObservedFinanceReducer.Apply(beforeFork, first with { Sequence = beforeFork.LastFact + 1 }, child).Error.Code);
+        var afterFirst = Apply(fork, first, child);
+        var afterSecond = Apply(afterFirst, second, child);
+        Assert.Equal((Nine, fork.LastFact + 2), (afterSecond.LastEffectiveTimeMs, afterSecond.LastFact));
+        Assert.Equal(ObservedFinanceReducer.AppendDigest(ObservedFinanceReducer.AppendDigest(fork.PrefixDigest, first), second),
+            afterSecond.PrefixDigest);
+        Assert.Equal(Nine + 300_000, Seal(afterSecond).EffectiveTimeMs);
 
         var changedOrigin = new ObservedFinanceContext(source.ScenarioVersion, source.ManifestSha256, source.OriginMs + 300_000,
             child.BasePolicy, source.ReviewPolicy, source.RiskMode, source.RiskFeatureSchema, null, [], []);
