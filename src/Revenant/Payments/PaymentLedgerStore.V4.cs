@@ -40,6 +40,10 @@ public sealed partial class PaymentLedgerStore
             {
                 return Rejected("wrong-lineage-or-effective-time");
             }
+            if (dispatch.Prior.Ledger.Payments.ContainsKey(intent.IntentId))
+            {
+                return Rejected("intent-already-recorded");
+            }
             var intake = await SubmitIntentCoreAsync(connection, tx, tenant, ScreeningActor, intent, request.Key, ct, dispatch);
             return intake.TryGetValue(out var result) && !result.IsReplay
                 ? Done(nameof(PaymentStatus.Initiated), result.FactSequence)

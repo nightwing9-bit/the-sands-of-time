@@ -86,6 +86,15 @@ public sealed class V4BranchExecutionPostgresTests(LedgerDatabase db, ITestOutpu
             reservedTimeline = new(await PaymentKit.Scalar<Guid>(db.Owner, """
                 SELECT timeline_id FROM marrow_timeline.histories WHERE parent_timeline_id = @parent AND operation_key = @key
                 """, ("parent", source.TimelineId.Value), ("key", key)));
+            var pendingContext = await PaymentKit.Scalar<string>(db.Owner, """
+                SELECT encode(child_context_hash, 'hex') FROM revenant.v4_branch_execution WHERE execution_run_id = @run
+                """, ("run", childId.Value));
+            var forged = new V4ExecutionBinding(childId, sourceId, new(Guid.NewGuid()), pendingContext,
+                new(sourceId, source.TimelineId, atNine.Sequence, Nine, checkpoint.StateHash, checkpoint.State.PrefixDigest, key));
+            var rejected = await Assert.ThrowsAsync<PostgresException>(() =>
+                store.OpenRunAsync(Tenant, Owner, run, childContext, forged, Ct, checkpoint.State));
+            Assert.Equal("RV011", rejected.SqlState);
+            Assert.Contains("Marrow origin", rejected.MessageText);
             var wrongChild = await Assert.ThrowsAsync<PostgresException>(() =>
                 execution.ForkAsync(Tenant, Owner, run, sourceId, new(Guid.NewGuid()), Nine, key, childContext, Ct));
             Assert.Equal(PostgresErrorCodes.UniqueViolation, wrongChild.SqlState);
@@ -132,13 +141,10 @@ public sealed class V4BranchExecutionPostgresTests(LedgerDatabase db, ITestOutpu
             Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, denied.SqlState);
         }
 
-        await AssertBindingRejectedAsync(child with { ExecutionRunId = new(Guid.NewGuid()) }, PaymentKit.TenantB);
-        await AssertBindingRejectedAsync(child with { ExecutionRunId = new(Guid.NewGuid()), TimelineId = new(Guid.NewGuid()) }, Tenant);
-        await AssertBindingRejectedAsync(child with { ExecutionRunId = new(Guid.NewGuid()), LineageRunId = new(Guid.NewGuid()) }, Tenant);
-        await AssertBindingRejectedAsync(child with { ExecutionRunId = new(Guid.NewGuid()),
-            Fork = child.Fork with { StateHash = ObservedFinanceV4Tests.EmptyDigest } }, Tenant);
-        await AssertBindingRejectedAsync(child with { ExecutionRunId = new(Guid.NewGuid()),
-            Fork = child.Fork with { PrefixDigest = ObservedFinanceV4Tests.EmptyDigest } }, Tenant);
+        await AssertBindingRejectedAsync(child, PaymentKit.TenantB);
+        await AssertBindingRejectedAsync(child with { LineageRunId = new(Guid.NewGuid()) }, Tenant);
+        await AssertBindingRejectedAsync(child with { Fork = child.Fork with { StateHash = ObservedFinanceV4Tests.EmptyDigest } }, Tenant);
+        await AssertBindingRejectedAsync(child with { Fork = child.Fork with { PrefixDigest = ObservedFinanceV4Tests.EmptyDigest } }, Tenant);
 
         var blocked = await Assert.ThrowsAsync<PostgresException>(() => store.AdmitAsync(Tenant, childId,
             new("phase-one-blocked", V4CommandClass.Exogenous, "PaymentIntent", "test-command/1", [1], Nine, Nine), Ct));
@@ -180,7 +186,8 @@ public sealed class V4BranchExecutionPostgresTests(LedgerDatabase db, ITestOutpu
 
         async Task AssertBindingRejectedAsync(V4ExecutionBinding candidate, string tenant)
         {
-            var error = await Assert.ThrowsAsync<PostgresException>(() => store.OpenRunAsync(tenant, Owner, run, childContext, candidate, Ct));
+            var request = candidate with { TimelineId = default, ExecutionRunId = new(Guid.NewGuid()) };
+            var error = await Assert.ThrowsAsync<PostgresException>(() => store.ReserveForkAsync(tenant, Owner, run, childContext, request, Ct));
             Assert.Equal("RV011", error.SqlState);
         }
     }
@@ -211,8 +218,12 @@ public sealed class V4BranchExecutionPostgresTests(LedgerDatabase db, ITestOutpu
         await RunAsync(sourceId, Opportunity("settle-opening", FinanceFactKind.Settlement, alreadySettled));
         await RunAsync(sourceId, Intake(inherited));
         await RunAsync(sourceId, Opportunity("hold-before-fork", FinanceFactKind.Screening, inherited));
-        var forkSeal = (await store.SealAsync(Tenant, sourceId, Nine, Ct)).Seal!;
+        _ = await store.AdmitAsync(Tenant, sourceId, Intake(comparison), Ct);
+        var next = await store.AdvanceOneStepAsync(Tenant, sourceId, Ct);
+        Assert.Equal(V4StepKind.Sealed, next.Kind);
+        var forkSeal = Assert.IsType<ObservedFinanceInput>(next.Seal);
         Assert.Equal(Nine, forkSeal.EffectiveTimeMs);
+        Assert.Null(await ledger.GetPaymentAsync(Tenant, sourceId, comparison.IntentId, Ct));
         var sourceAtFork = await execution.SynchronizeAsync(Tenant, sourceId, Ct);
         Assert.Equal(forkSeal.Sequence, sourceAtFork.LastFact);
 
@@ -231,8 +242,10 @@ public sealed class V4BranchExecutionPostgresTests(LedgerDatabase db, ITestOutpu
         await RunAsync(sourceId, Intake(compensating));
         await RunAsync(sourceId, Opportunity("screen-return", FinanceFactKind.Screening, compensating));
         await RunAsync(sourceId, Opportunity("settle-return", FinanceFactKind.Settlement, compensating));
-        await RunAsync(sourceId, Human("return-posting", FinanceFactKind.ReturnInstruction, compensating.IntentId, Owner, 4,
-            CaseAction.Assign, Nine + 1));
+        var returnRequest = Human("return-posting", FinanceFactKind.ReturnInstruction, compensating.IntentId, Owner, 4,
+            CaseAction.Assign, Nine + 1);
+        await RunAsync(sourceId, returnRequest);
+        Assert.Equal(V4CommandStatus.Completed, (await store.AdmitAsync(Tenant, sourceId, returnRequest, Ct)).Status);
         Assert.Equal(PaymentStatus.Returned, (await ledger.GetPaymentAsync(Tenant, sourceId, compensating.IntentId, Ct))!.Status);
         Assert.Equal(4, await PaymentKit.Count(db.Owner, "ledger_group", sourceId.Value));
         Assert.Equal((posted.Posted, 0L), await BalanceAsync(sourceId, comparison.SourceAccountId));
@@ -260,6 +273,15 @@ public sealed class V4BranchExecutionPostgresTests(LedgerDatabase db, ITestOutpu
 
         // The intake's own outbox failure rolls back the payment, fact and command outcome.
         var intake = Intake(comparison);
+        var otherTenant = await Assert.ThrowsAsync<V4ScheduleException>(() => store.AdmitAsync(PaymentKit.TenantB, childId, intake, Ct));
+        Assert.Equal(V4ScheduleError.RunNotFound, otherTenant.Error);
+        await using (var replay = await db.Replay.OpenConnectionAsync(Ct))
+        await using (var tx = await LedgerSql.BeginTenantAsync(replay, Tenant))
+        {
+            var denied = await Assert.ThrowsAsync<PostgresException>(() => LedgerSql.ExecAsync(replay,
+                "DELETE FROM revenant.v4_finance_opening WHERE run_id = @run", ("run", childId.Value)));
+            Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, denied.SqlState);
+        }
         _ = await store.AdmitAsync(Tenant, childId, intake, Ct);
         var failing = new V4SimulationStore(db.Writer, ledger: PaymentKit.Store(db.Writer,
             _ => throw new InvalidOperationException("injected outbox failure")));
@@ -268,10 +290,13 @@ public sealed class V4BranchExecutionPostgresTests(LedgerDatabase db, ITestOutpu
         Assert.Equal(0, await PaymentKit.Count(db.Owner, "finance_fact", childId.Value));
         Assert.Equal(V4CommandStatus.Pending, (await store.AdmitAsync(Tenant, childId, intake, Ct)).Status);
 
-        _ = await store.AdmitAsync(Tenant, childId, Opportunity("screen-comparison", FinanceFactKind.Screening, comparison), Ct);
+        _ = await store.AdmitAsync(Tenant, childId, intake with { Key = "duplicate-comparison-intent" }, Ct);
         var competing = new V4SimulationStore(db.Writer, ledger: PaymentKit.Store(db.Writer));
         var steps = await Task.WhenAll(store.AdvanceOneStepAsync(Tenant, childId, Ct), competing.AdvanceOneStepAsync(Tenant, childId, Ct));
-        Assert.All(steps, step => Assert.Equal(V4CommandStatus.Completed, step.Command!.Status));
+        Assert.Single(steps, step => step.Command!.Status == V4CommandStatus.Completed);
+        Assert.Single(steps, step => step.Command!.OutcomeCode == "intent-already-recorded");
+        Assert.Equal(1, await PaymentKit.Count(db.Owner, "finance_fact", childId.Value));
+        await RunAsync(childId, Opportunity("screen-comparison", FinanceFactKind.Screening, comparison));
         Assert.Equal(2, await PaymentKit.Count(db.Owner, "finance_fact", childId.Value));
         Assert.Equal(V4CommandStatus.Completed, (await store.AdmitAsync(Tenant, childId, intake, Ct)).Status);
         var childSql = await store.ReadFinanceHistoryAsync(Tenant, childId, sourceId, Ct);
@@ -294,6 +319,10 @@ public sealed class V4BranchExecutionPostgresTests(LedgerDatabase db, ITestOutpu
         Assert.Equal(1, await PaymentKit.Count(db.Owner, "ledger_group", childId.Value));
         Assert.Equal(0, await PaymentKit.Count(db.Owner, "ledger_entry", childId.Value));
         Assert.Equal(sourceAtFork.LastFact, (await engine.ReplayAsync(child.TimelineId, Ct)).Value.FinalPosition);
+        var firstFact = childSql.Facts[0];
+        var input = firstFact.OrderedInput;
+        _ = (await engine.AppendAsync(child.TimelineId, forkSeal.Sequence, new(firstFact.Input.Sequence, [input]), input.InputId, Ct)).Value;
+        // A restart after that committed append has only the SQL journal and deterministic append key.
         var reconciled = await execution.SynchronizeAsync(Tenant, childId, Ct);
         Assert.Equal(expectedDigest, reconciled.PrefixDigest);
         Assert.Equal(reconciled.PrefixDigest, (await execution.SynchronizeAsync(Tenant, childId, Ct)).PrefixDigest);
@@ -356,6 +385,18 @@ public sealed class V4BranchExecutionPostgresTests(LedgerDatabase db, ITestOutpu
         var sourceAfter = await SourceFingerprintAsync(sourceId);
         Assert.Equal(sourceBefore, sourceAfter);
         output.WriteLine($"Source SQL {sourceBefore} -> {sourceAfter}; Marrow {sourceFinal.FinalStateHash} -> {coldSource.FinalStateHash}");
+        output.WriteLine($"Source record {sourceFinal.LastRecordHash} -> {coldSource.LastRecordHash}; child final state {coldChild.FinalStateHash}");
+        var openingPayer = sourceAtFork.Ledger.Accounts[comparison.SourceAccountId];
+        var openingPayee = sourceAtFork.Ledger.Accounts[comparison.DestAccountId];
+        output.WriteLine($"Fork opening payer ({openingPayer.PostedMinor}, {openingPayer.ReservedMinor}, {openingPayer.AvailableMinor}); payee ({openingPayee.PostedMinor}, {openingPayee.ReservedMinor}, {openingPayee.AvailableMinor})");
+        output.WriteLine($"Concurrent holds: {competingAmount} each, {heldSteps[0].Command!.OutcomeCode} then {heldSteps[1].Command!.OutcomeCode}");
+        foreach (var physical in new[] { sourceId, childId })
+        {
+            var facts = await store.ReadFinanceHistoryAsync(Tenant, physical, sourceId, Ct);
+            var journal = await store.ReadJournalAsync(Tenant, physical, Ct);
+            output.WriteLine($"{physical.Value:D} facts: {string.Join(", ", facts.Facts.Select(f => $"{f.Input.Sequence}/{f.Input.Kind}/{f.Input.EffectiveTimeMs}"))}");
+            output.WriteLine($"{physical.Value:D} commands: {string.Join(", ", journal.Select(c => $"{c.Sequence}/{c.Request.Key}/{c.Status}/{c.OutcomeCode}"))}");
+        }
         output.WriteLine($"Lineage {sourceId.Value:D}, source Timeline {source.TimelineId.Value:D}, child execution {childId.Value:D}, child Timeline {child.TimelineId.Value:D}");
         output.WriteLine($"Fork {forkSeal.Sequence} at {Nine}: {childAtFork.StateHash}, prefix {sourceAtFork.PrefixDigest}");
         output.WriteLine($"{comparison.IntentId} amount {amount}: v7 Settled payer {posted} payee {postedDest}; v8 Held payer {held} payee {heldDest}");
@@ -451,7 +492,12 @@ public sealed class V4BranchExecutionPostgresTests(LedgerDatabase db, ITestOutpu
           (SELECT jsonb_agg(c ORDER BY id) FROM revenant.review_case c WHERE scenario_run_id = @run),
           (SELECT jsonb_agg(g ORDER BY id) FROM revenant.ledger_group g WHERE scenario_run_id = @run),
           (SELECT jsonb_agg(e ORDER BY id) FROM revenant.ledger_entry e WHERE scenario_run_id = @run),
-          (SELECT jsonb_agg(q ORDER BY command_seq) FROM revenant.v4_scheduled_command q WHERE run_id = @run)
+          (SELECT jsonb_agg(q ORDER BY command_seq) FROM revenant.v4_scheduled_command q WHERE run_id = @run),
+          (SELECT jsonb_agg(a ORDER BY seq) FROM revenant.audit_event a WHERE scenario_run_id = @run),
+          (SELECT jsonb_agg(t ORDER BY payment_id, version) FROM revenant.payment_transition t WHERE scenario_run_id = @run),
+          (SELECT jsonb_agg(a ORDER BY case_id, approval_order) FROM revenant.case_approval a WHERE scenario_run_id = @run),
+          (SELECT jsonb_agg(o ORDER BY seq) FROM revenant.outbox o WHERE CASE WHEN pg_input_is_valid(payload, 'jsonb')
+              THEN payload::jsonb ->> 'runId' = CAST(@run AS text) ELSE false END)
         )::text, 'UTF8')), 'hex')
         """, ("run", id.Value));
 

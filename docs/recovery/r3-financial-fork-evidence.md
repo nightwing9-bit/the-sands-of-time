@@ -13,3 +13,10 @@ The identity test covers a source that seals through 09:05, a real fork at the 0
 ### First native run
 
 [Draft PR #3](https://github.com/nightwing9-bit/the-sands-of-time/pull/3) tested head `cd2e9df096b89945e5b690bdb3adcbac8077c309` at merge SHA `3e9c3dfde758d381c8ced37c1346b2fcf572d661` on Linux x86_64. All 84 Revenant PostgreSQL cases passed, including `Verified_source_forks_byte_identically_and_the_child_appends_only_its_suffix`, the five R2 scheduler cases and the required R1 model cases. The whole workflow failed because the new binding foreign key crossed module schemas. The identity integration suite enforces zero such foreign keys. Commit `af683010a8c43d2756f1b76bb35ade030c5cf0f3` removed the cross-schema foreign key and retained the Marrow origin trigger. [First native run](https://github.com/nightwing9-bit/the-sands-of-time/actions/runs/43171771552) · [Revenant TRX](https://github.com/nightwing9-bit/the-sands-of-time/actions/runs/43171771552/artifacts/13922582148).
+
+
+### Corrected identity run
+
+All seven jobs passed for head `af683010a8c43d2756f1b76bb35ade030c5cf0f3` at merge SHA `1d5e1eb9fd49e21dfc3721492e3f5f4f854ef06c` on Linux x86_64. The native job executed 107 Integration, 61 Marrow PostgreSQL and 84 Revenant PostgreSQL cases. The identity fixture executed once. The migration applied on fresh and upgrade paths. The R1 model tests and all five R2 V4 scheduler cases passed. [Corrected native run](https://github.com/nightwing9-bit/the-sands-of-time/actions/runs/43172167357) · [Revenant TRX](https://github.com/nightwing9-bit/the-sands-of-time/actions/runs/43172167357/artifacts/13922567807).
+
+The source Timeline was `01a1ce91-2ba6-7f77-b875-942c6b7e646a` and the child was `01a1ce91-2c55-74ff-b7ef-7ec87b956c2c`. The source verified at sequence 3, and the child inherited sequence 2 at 09:00 before appending its own seal at sequence 3. The shared state hash was `adcbfd70dcfc3f84c1e9a1b3bc177dbb2a17ec5ab6b63d21cafc3d54603ed304`. The shared post-seal digest was `fb46f298ff54fb959b01c6391fd7ee14bc9941e1de8cbf16fe58295732727c75`.
