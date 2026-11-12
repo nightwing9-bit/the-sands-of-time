@@ -13,3 +13,13 @@ The scheduler locks its run first, selects the due head, and the ledger then tak
 `V4BranchExecution.SynchronizeAsync` folds the durable SQL fact journal from the verified Timeline origin and appends with deterministic operation keys. It verifies stored prefix digests, prior receipts and the resulting Timeline bytes. The SQL transaction and Marrow append are separate. A SQL commit can therefore leave the Timeline behind until synchronization runs. Closure freezes SQL, then synchronizes and verifies Marrow. Forking requires a closed source and a verified Timeline through the final SQL cursor. The fork uses the verified checkpoint at the requested earlier seal.
 
 For R4, the existing internal entry points are `V4BranchExecution.OpenSourceAsync`, `ForkAsync`, `SynchronizeAsync`, `CompleteAsync`, and `V4SimulationStore.AdmitAsync`, `AdvanceOneStepAsync`, `SealAsync` and `ReadJournalAsync`. Use a store composed with `PaymentLedgerStore` for finance. Exogenous intake carries the existing canonical PaymentIntent with the lineage UUID and due time. Derived screening and settlement opportunities carry the logical intent ID. The trusted caller supplies verified human requests, and dispatch rechecks the branch's staff scope, case version and review rules. Derived outcomes are evaluated from the branch's state. The tested branch continuation admits the same intake independently and re-evaluates conditional human requests. Model-required finance remains outside R3.
+
+R4 can read the sealed canonical state through the existing Marrow `RestoreAsync` after synchronization. The state exposes the last sealed boundary, fact sequence, prefix digest, and logical posted and reserved balances. A caller can correlate it with the physical execution through the binding. No dataset or new inference path is required to read those observations.
+
+| Command | Class | Payload |
+| --- | --- | --- |
+| `PaymentIntent` | `Exogenous` | Existing canonical PaymentIntent schema, with inherited lineage and event time equal to due time |
+| `Screening`, `Settlement` | `DerivedOpportunity` | `v4-payment-opportunity/1`, format Int32 1 followed by the logical intent ID |
+| `ReviewDecision`, `ReturnInstruction` | `ConditionalHumanRequest` | `v4-human-request/1`, format Int32 1 followed by intent ID, verified actor ID, expected version, MFA boolean and action byte. Review uses the case version and approves or rejects. Return uses the payment version. |
+
+The demonstration supports v7 source to v8 child and rules-only operation. The adapter currently folds its committed prefix when dispatching and synchronizing. It is an internal integration surface. Public APIs and general automatic continuation remain outside this checkpoint.
