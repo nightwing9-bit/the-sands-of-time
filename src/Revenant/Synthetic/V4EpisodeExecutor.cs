@@ -18,7 +18,8 @@ internal sealed record V4DispatchBand(int Band, int Commands, TimeSpan DispatchT
 internal sealed record V4EpisodeTiming(TimeSpan Total, TimeSpan Replay, ImmutableArray<V4DispatchBand> Bands);
 internal sealed record V4ExecutedEpisode(V4ProjectionHistory History, ImmutableArray<V4AttemptOutcome> Outcomes, V4EpisodeTiming Timing);
 
-internal sealed class V4EpisodeExecutor(V4SimulationStore store, V4BranchExecution branch, PaymentLedgerStore ledger)
+internal sealed class V4EpisodeExecutor(V4SimulationStore store, V4BranchExecution branch, PaymentLedgerStore ledger,
+    Func<V4ScheduledCommand, long, CancellationToken, Task<V4Step?>>? dispatchOverride = null)
 {
     internal async Task<V4ExecutedEpisode> ExecuteAsync(string tenant, string owner, V4EpisodePlan plan, CancellationToken ct, ObservedRiskMode riskMode = ObservedRiskMode.NotRequired)
     {
@@ -105,11 +106,12 @@ internal sealed class V4EpisodeExecutor(V4SimulationStore store, V4BranchExecuti
 
         async Task<V4ScheduledCommand> Dispatch(V4CommandRequest request)
         {
-            _ = await store.AdmitAsync(tenant, id, request, ct);
+            var admitted = await store.AdmitAsync(tenant, id, request, ct);
             while (true)
             {
                 var start = Stopwatch.GetTimestamp();
-                var step = await store.AdvanceOneStepAsync(tenant, id, ct);
+                var dispatched = dispatchOverride is null ? null : await dispatchOverride(admitted, factCount, ct);
+                var step = dispatched ?? await store.AdvanceOneStepAsync(tenant, id, ct);
                 if (step.Kind == V4StepKind.Sealed)
                 {
                     AcceptSeal(step);

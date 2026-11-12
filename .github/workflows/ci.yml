@@ -247,8 +247,13 @@ jobs:
           name: integration-test-results
           path: TestResults/integration
           retention-days: 7
+      - name: Publish the Worker for V4 financial dispatch
+        if: ${{ !cancelled() && steps.integration-build.outcome == 'success' }}
+        run: dotnet publish src/Hosts.Worker/Hosts.Worker.csproj --configuration Release --no-build --output "$RUNNER_TEMP/revenant-r6-worker"
       - name: Revenant real-PostgreSQL tests
         id: revenant-integration
+        env:
+          REVENANT_R6_WORKER_DLL: ${{ runner.temp }}/revenant-r6-worker/Hosts.Worker.dll
         if: ${{ !cancelled() && steps.integration-build.outcome == 'success' }}
         timeout-minutes: 15
         run: >-
@@ -303,6 +308,7 @@ jobs:
               ("V4DatasetPostgresTests", "Generated_smoke_reproduces_semantic_exports_under_different_execution_ids"): 1,
               ("V4DatasetPostgresTests", "V2_six_bank_smoke_verifies_real_opening_risk_export_and_reader"): 1,
               ("V4DatasetPostgresTests", "Published_R5_score_admits_a_real_V4_reservation_and_replays_cold"): 1,
+              ("V4DatasetPostgresTests", "Published_Worker_dispatches_and_synchronizes_a_model_admitted_hold"): 1,
           }
           for test, minimum in required.items():
               observed = len(passed[test])

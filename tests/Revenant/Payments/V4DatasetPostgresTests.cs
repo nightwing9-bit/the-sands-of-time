@@ -1,9 +1,14 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Marrow.Infrastructure.Timeline;
+using Marrow.Infrastructure.Messaging;
+using Marrow.Kernel.Canonical;
+using Marrow.Kernel.Messaging;
 using Marrow.Timeline;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using Revenant.Api;
 using Revenant.Contracts;
 using Revenant.Finance;
 using Revenant.Intelligence;
@@ -23,6 +28,138 @@ public sealed class V4DatasetPostgresTests(LedgerDatabase db, ITestOutputHelper 
     private const string Tenant = PaymentKit.TenantA;
     private const string Owner = PaymentKit.Operator;
     private const string TestRevision = "0000000000000000000000000000000000000000";
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task Published_Worker_dispatches_and_synchronizes_a_model_admitted_hold()
+    {
+        Assert.True(OperatingSystem.IsLinux() && RuntimeInformation.ProcessArchitecture == Architecture.X64);
+        var published = Environment.GetEnvironmentVariable("REVENANT_R6_WORKER_DLL");
+        Assert.True(File.Exists(published), "CI must publish the Linux AMD64 Worker before running this case.");
+        using var time = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+        var ct = time.Token;
+        var logins = await db.ProvisionDeployedLoginsAsync();
+        await using var writer = NpgsqlDataSource.Create(logins.WorkerLedger);
+        await using var host = Host(logins.Worker);
+        var engine = host.GetRequiredService<ITimelineEngine<ObservedFinanceState, ObservedFinanceInput, ObservedFinanceContext>>();
+        var ledger = PaymentKit.Store(writer);
+        var model = new Lazy<Marrow.Kernel.Results.Result<BehavioralRiskScorerV2, BehavioralRiskFailureV2>>(() =>
+            BehavioralRiskScorerV2.Load(Path.Combine(AppContext.BaseDirectory, "Intelligence", "Artifacts",
+                BehavioralRiskScorerV2.ArtifactDirectory), BehavioralRiskScorerV2.FeatureSchema, BehavioralRiskScorerV2.PublishedPin));
+        var store = new V4SimulationStore(writer, ledger: ledger, model: model);
+        var branch = new V4BranchExecution(store, engine);
+        var id = new ScenarioRunId(Guid.NewGuid());
+        const long workerScreeningSequence = 532; // First checkpoint's deterministic /2 challenge root 1.
+        V4ModelScreeningEvidence? workerEvidence = null;
+        var executor = new V4EpisodeExecutor(store, branch, ledger, async (command, prior, token) =>
+        {
+            if (prior != workerScreeningSequence - 1 || command.Request.Kind != nameof(ObservedFactKind.Screening))
+                return null;
+
+            Assert.Null(workerEvidence);
+            var payload = new CanonicalReader(command.Request.CanonicalPayload.AsSpan());
+            Assert.Equal(1, payload.ReadInt32());
+            var intentId = payload.ReadString();
+            payload.EnsureEnd();
+            var pending = await ledger.GetPaymentAsync(Tenant, id, intentId, token);
+            Assert.NotNull(pending);
+            Assert.Equal(PaymentStatus.Initiated, pending.Status);
+
+            var unavailable = new V4SimulationStore(writer, ledger: ledger);
+            var blocked = await unavailable.AdvanceOneStepAsync(Tenant, id, token);
+            Assert.Equal(V4StepKind.Blocked, blocked.Kind);
+            Assert.Equal("model-configuration-not-registered", blocked.Command?.OutcomeCode);
+            var before = await store.ReadFinanceHistoryAsync(Tenant, id, id, token);
+            Assert.Equal(prior, before.LastFact);
+            var boundary = before.Facts.Last(f => f.Input.Kind == ObservedFactKind.ObservationSeal).Input.EffectiveTimeMs;
+            var nextSeal = ObservedFinanceVersion.NextBoundary(boundary);
+            Assert.Equal(V4StepKind.Blocked, (await store.SealAsync(Tenant, id, nextSeal, token)).Kind);
+            await store.RetryAsync(Tenant, id, command.Request.Key, token);
+
+            var failing = new V4SimulationStore(writer, ledger: PaymentKit.Store(writer, tx => new CaseFailingOutbox(
+                new PostgresOutboxWriter(tx, new MessagingTables("revenant")))), model: model);
+            var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => failing.AdvanceOneStepAsync(Tenant, id, token));
+            Assert.Equal("injected case outbox failure", failure.Message);
+            Assert.Equal(prior, (await store.ReadFinanceHistoryAsync(Tenant, id, id, token)).LastFact);
+            Assert.Equal(V4CommandStatus.Pending, (await store.AdmitAsync(Tenant, id, command.Request, token)).Status);
+            Assert.Equal(PaymentStatus.Initiated, (await ledger.GetPaymentAsync(Tenant, id, intentId, token))?.Status);
+            Assert.Null(await ledger.GetCaseAsync(Tenant, id, intentId, token));
+            Assert.Equal(0, await PaymentKit.Scalar<long>(db.Owner,
+                "SELECT count(*) FROM revenant.hold WHERE scenario_run_id = @run AND payment_id = @payment",
+                ("run", id.Value), ("payment", pending.PaymentId)));
+
+            var receipt = await RunWorker(1, token);
+            Assert.Equal(1, receipt.Steps);
+            Assert.Equal(workerScreeningSequence, receipt.LastFact);
+            Assert.Null(receipt.BlockedCode);
+            var binding = await store.ReadBindingAsync(Tenant, id, token);
+            var history = await store.ReadFinanceHistoryAsync(Tenant, id, binding.LineageRunId, token);
+            var fact = history.Facts[^1];
+            Assert.Equal(receipt.PrefixDigest, fact.PrefixDigest);
+            var evidence = V4ModelScreeningEvidence.Decode(fact.Input);
+            workerEvidence = evidence;
+            Assert.True(evidence.AboveThreshold && evidence.Admitted && evidence.OpensCase);
+            var posted = (await engine.RestoreAsync(binding.TimelineId, receipt.LastFact, token)).Value.State;
+            var payment = posted.Ledger.Payments[evidence.IntentId];
+            Assert.Equal(PaymentStatus.Held, payment.Status);
+            Assert.Equal(payment.Intent.Amount.MinorUnits, payment.ReservedMinor);
+            var physical = await ledger.GetPaymentAsync(Tenant, id, evidence.IntentId, token);
+            Assert.NotNull(physical);
+            Assert.Equal(PaymentStatus.Held, physical.Status);
+            Assert.Equal(1, await PaymentKit.Scalar<long>(db.Owner, """
+                SELECT count(*) FROM revenant.hold h JOIN revenant.review_case c ON c.payment_id = h.payment_id
+                WHERE h.scenario_run_id = @run AND h.payment_id = @payment AND h.status = 'Active' AND c.status = 'Open'
+                """, ("run", id.Value), ("payment", physical.PaymentId)));
+
+            var retry = await RunWorker(0, token);
+            Assert.Equal(receipt with { Steps = 0 }, retry);
+            var completed = await store.AdmitAsync(Tenant, id, command.Request, token);
+            Assert.Equal(V4CommandStatus.Completed, completed.Status);
+            Assert.Equal(nameof(PaymentStatus.Held), completed.OutcomeCode);
+            var attemptedSettlement = command.Request with
+            {
+                Key = command.Request.Key + ":unauthorized-settlement", Kind = nameof(ObservedFactKind.Settlement),
+            };
+            _ = await store.AdmitAsync(Tenant, id, attemptedSettlement, token);
+            var denied = await store.AdvanceOneStepAsync(Tenant, id, token);
+            Assert.Equal(V4CommandStatus.Cancelled, denied.Command?.Status);
+            Assert.Equal("payment-not-applicable", denied.Command?.OutcomeCode);
+            Assert.Equal(workerScreeningSequence, (await store.ReadFinanceHistoryAsync(Tenant, id, id, token)).LastFact);
+            output.WriteLine($"Published Worker Linux AMD64: fact={receipt.LastFact} prefix={receipt.PrefixDigest} "
+                + $"vector={evidence.VectorDigest} ppm={evidence.Ppm} reserved={payment.ReservedMinor}");
+            return new(V4StepKind.ProcessedCommand, completed);
+        });
+        var config = V4EpisodeConfig.RiskRingChallenge;
+        var design = V4EpisodePlanner.Plan(config, config.Roots().Single(x => x.Ordinal == 1), id);
+        _ = await executor.ExecuteAsync(Tenant, Owner, design.Financial, ct, ObservedRiskMode.ModelRequired);
+        Assert.NotNull(workerEvidence);
+
+        async Task<RevenantV4DispatchReceipt> RunWorker(int steps, CancellationToken token)
+        {
+            var start = new ProcessStartInfo("dotnet") { RedirectStandardOutput = true, RedirectStandardError = true };
+            foreach (var arg in new[] { published!, "--v4-dispatch", id.Value.ToString("D"), steps.ToString(System.Globalization.CultureInfo.InvariantCulture) })
+                start.ArgumentList.Add(arg);
+            start.Environment["ConnectionStrings__Postgres"] = logins.Worker;
+            start.Environment["ConnectionStrings__RevenantLedger"] = logins.WorkerLedger;
+            start.Environment["ConnectionStrings__Redis"] = "localhost:6379";
+            start.Environment["Revenant__Ledger__TenantId"] = Tenant;
+            using var process = Process.Start(start) ?? throw new InvalidOperationException("Could not start the published Worker.");
+            var stdout = process.StandardOutput.ReadToEndAsync(token);
+            var stderr = process.StandardError.ReadToEndAsync(token);
+            try
+            {
+                await process.WaitForExitAsync(token);
+                var text = await stdout;
+                Assert.True(process.ExitCode == 0, $"{text} {await stderr}");
+                return JsonSerializer.Deserialize<RevenantV4DispatchReceipt>(text.Split('\n', StringSplitOptions.RemoveEmptyEntries)[^1])
+                    ?? throw new InvalidOperationException("Published Worker returned no V4 receipt.");
+            }
+            finally
+            {
+                if (!process.HasExited) process.Kill(entireProcessTree: true);
+            }
+        }
+    }
 
     [Fact]
     [Trait("Category", "Integration")]
@@ -381,6 +518,14 @@ public sealed class V4DatasetPostgresTests(LedgerDatabase db, ITestOutputHelper 
             PeakWorkingSetBytes = process.PeakWorkingSet64, RootsEvidence = reports,
         }, new JsonSerializerOptions { WriteIndented = true }));
         output.WriteLine($"{mode}: {manifest.Roots.Count} roots; {totalBanks / 6} seals; {totalBanks} bank records; manifest {manifest.Sha256}; {timer.Elapsed.TotalSeconds:F3}s");
+    }
+
+    private sealed class CaseFailingOutbox(IOutboxWriter writer) : IOutboxWriter
+    {
+        public Task EnqueueAsync(OutboxMessage message, CancellationToken ct) =>
+            message.EventType == PaymentLedgerStore.EventCaseOpened
+                ? throw new InvalidOperationException("injected case outbox failure")
+                : writer.EnqueueAsync(message, ct);
     }
 
     private (V4SimulationStore Store, V4EpisodeExecutor Executor) Executor(ServiceProvider host)
