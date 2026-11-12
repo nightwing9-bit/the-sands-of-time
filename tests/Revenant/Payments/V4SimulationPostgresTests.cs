@@ -300,7 +300,8 @@ public sealed class V4SimulationPostgresTests(LedgerDatabase db)
         }
         var output = await db.MigrateV4UpgradeDatabaseAsync();
         Assert.Contains("module revenant: applying 0009_v4_causal_scheduler", output);
-        Assert.Contains("1 applied", output);
+        Assert.Contains("module revenant: applying 0010_v4_branch_execution", output);
+        Assert.Contains("done: 2 applied", output);
         foreach (var snapshot in historical)
         {
             Assert.Equal(snapshot.Fingerprint, await LegacyFingerprintAsync(upgraded, snapshot.Id));

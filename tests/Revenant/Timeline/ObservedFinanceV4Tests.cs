@@ -3,6 +3,7 @@ using Marrow.Kernel.Canonical;
 using Revenant.Cases;
 using Revenant.Contracts;
 using Revenant.Finance;
+using Revenant.Payments;
 using Revenant.Scenario;
 using Revenant.Timeline;
 using Xunit;
@@ -132,6 +133,26 @@ public sealed class ObservedFinanceV4Tests
         Assert.All(state.Ledger.Accounts.Values, a => Assert.Equal(0, a.ReservedMinor));
         Assert.Equal(ObservedFinanceStateCodec.Instance.EncodeCanonical(state), ObservedFinanceStateCodec.Instance.EncodeCanonical(replay));
     }
+
+    [Fact]
+    public void Fork_context_preserves_opening_and_uses_the_catalog_v8_pin()
+    {
+        var (run, source, opening) = Start();
+        var child = ChildContext(source);
+        V4BranchExecution.ValidateChildContext(source, child);
+        Assert.NotEqual(source.BasePolicy, child.BasePolicy);
+        Assert.Equal(ObservedFinanceStateCodec.Instance.EncodeCanonical(opening),
+            ObservedFinanceStateCodec.Instance.EncodeCanonical(ObservedFinanceReducer.Initial(run, child).Value));
+
+        var changedOrigin = new ObservedFinanceContext(source.ScenarioVersion, source.ManifestSha256, source.OriginMs + 300_000,
+            child.BasePolicy, source.ReviewPolicy, source.RiskMode, source.RiskFeatureSchema, null, [], []);
+        Assert.Throws<InvalidOperationException>(() => V4BranchExecution.ValidateChildContext(source, changedOrigin));
+        Assert.Throws<InvalidOperationException>(() => V4BranchExecution.ValidateChildContext(source, source));
+    }
+
+    internal static ObservedFinanceContext ChildContext(ObservedFinanceContext source) =>
+        new(source.ScenarioVersion, source.ManifestSha256, source.OriginMs, PolicyCatalog.RefOf(PolicyCatalog.V8),
+            source.ReviewPolicy, source.RiskMode, source.RiskFeatureSchema, source.RiskModel, source.AnomalyModels, source.LiquidityModels);
 
     internal static (ScenarioRun Run, ObservedFinanceContext Context, ObservedFinanceState State) Start(ScenarioRunId? id = null, long origin = Origin)
     {

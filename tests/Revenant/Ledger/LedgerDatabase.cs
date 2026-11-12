@@ -144,7 +144,7 @@ public sealed class LedgerDatabase : IAsyncLifetime
             await create.ExecuteNonQueryAsync();
         }
         var copy = await _container.ExecAsync(["sh", "-ec",
-            "cp -R /sands/db/migrations /tmp/pre-v4-migrations && rm /tmp/pre-v4-migrations/revenant/0009_v4_causal_scheduler.sql"]);
+            "cp -R /sands/db/migrations /tmp/pre-v4-migrations && rm /tmp/pre-v4-migrations/revenant/0009_v4_causal_scheduler.sql /tmp/pre-v4-migrations/revenant/0010_v4_branch_execution.sql"]);
         if (copy.ExitCode != 0)
         {
             throw new InvalidOperationException(copy.Stderr);

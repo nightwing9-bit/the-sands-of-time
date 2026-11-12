@@ -7,7 +7,7 @@ namespace Revenant.Payments;
 
 /// <summary>R2's internal dispatcher and journal. A handler can classify only a bounded, no-ledger-effect R2 test operation.
 /// The handler is supplied by the test assembly. The production composition has no V4 handler or public V4 opener.</summary>
-internal sealed class V4SimulationStore(NpgsqlDataSource source,
+internal sealed partial class V4SimulationStore(NpgsqlDataSource source,
     Func<V4ScheduledCommand, CancellationToken, Task<V4CommandOutcome?>>? testHandler = null)
 {
     private const string CommandColumns = """
@@ -17,7 +17,11 @@ internal sealed class V4SimulationStore(NpgsqlDataSource source,
 
     private sealed record SchedulerRow(long Watermark, long Clock, long NextCommand, string Status, string CommandDigest);
 
-    internal async Task OpenTestRunAsync(string tenant, string owner, ScenarioRun run, ObservedFinanceContext context, CancellationToken ct)
+    internal Task OpenTestRunAsync(string tenant, string owner, ScenarioRun run, ObservedFinanceContext context, CancellationToken ct) =>
+        OpenRunAsync(tenant, owner, run, context, null, ct);
+
+    internal async Task OpenRunAsync(string tenant, string owner, ScenarioRun run, ObservedFinanceContext context,
+        V4ExecutionBinding? binding, CancellationToken ct)
     {
         var initial = ObservedFinanceReducer.Initial(run, context);
         if (initial.IsFailure)
@@ -27,21 +31,41 @@ internal sealed class V4SimulationStore(NpgsqlDataSource source,
 
         await using var connection = await source.OpenConnectionAsync(ct);
         await using var tx = await BeginAsync(connection, tenant, ct);
-        var id = run.RunId.Value;
+        var id = binding?.ExecutionRunId.Value ?? run.RunId.Value;
+        var start = binding?.Fork?.BoundaryMs ?? context.OriginMs;
+        var position = binding?.Fork?.FactSequence ?? 0;
+        if (binding is not null)
+        {
+            await ExecuteAsync(tx, "SELECT pg_advisory_xact_lock(hashtextextended(@id, 0))", ct, ("id", id.ToString("D")));
+            var existing = await ReadBindingAsync(tx, tenant, binding.ExecutionRunId, ct);
+            if (existing is not null)
+            {
+                if (existing != binding)
+                {
+                    throw new InvalidOperationException("V4 execution already has a different binding.");
+                }
+                return;
+            }
+        }
         await ExecuteAsync(tx, """
             INSERT INTO revenant.scenario_run (id, tenant_id, owner_subject_id, seed, scenario_version, manifest_hash, finance_version)
             VALUES (@run, @tenant, @owner, @seed, @scenario, @manifest, @family)
             """, ct, ("run", id), ("tenant", tenant), ("owner", owner), ("seed", run.Manifest.Seed),
             ("scenario", context.ScenarioVersion), ("manifest", context.ManifestSha256), ("family", ObservedFinanceVersion.ReducerVersion));
+        if (binding is not null)
+        {
+            await InsertBindingAsync(tx, tenant, binding, ct);
+        }
         await ExecuteAsync(tx, """
-            INSERT INTO revenant.run_cursor (scenario_run_id, tenant_id, last_event_time_ms) VALUES (@run, @tenant, @origin)
-            """, ct, ("run", id), ("tenant", tenant), ("origin", context.OriginMs));
+            INSERT INTO revenant.run_cursor (scenario_run_id, tenant_id, last_event_time_ms, last_fact_seq)
+            VALUES (@run, @tenant, @start, @seq)
+            """, ct, ("run", id), ("tenant", tenant), ("start", start), ("seq", position));
         await ExecuteAsync(tx, """
             INSERT INTO revenant.v4_scheduler_run (run_id, tenant_id, origin_ms, watermark_exclusive_ms, clock_ms, next_command_seq,
                status, scheduler_contract_id, command_completion_digest, canonical_context)
-            VALUES (@run, @tenant, @origin, @origin, @origin, 1, 'Open', @contract, @digest, @context)
-            """, ct, ("run", id), ("tenant", tenant), ("origin", context.OriginMs), ("contract", ObservedFinanceVersion.SchedulerContract),
-            ("digest", Convert.FromHexString(V4SimulationScheduler.InitialCommandDigest(run.RunId))),
+            VALUES (@run, @tenant, @origin, @start, @start, 1, 'Open', @contract, @digest, @context)
+            """, ct, ("run", id), ("tenant", tenant), ("origin", context.OriginMs), ("start", start), ("contract", ObservedFinanceVersion.SchedulerContract),
+            ("digest", Convert.FromHexString(V4SimulationScheduler.InitialCommandDigest(new(id)))),
             ("context", ObservedFinanceContextCodec.Instance.EncodeCanonical(context)));
         await tx.CommitAsync(ct);
     }
@@ -201,26 +225,16 @@ internal sealed class V4SimulationStore(NpgsqlDataSource source,
 
     internal async Task<ObservedFinanceState> RebuildAsync(string tenant, ScenarioRun run, ObservedFinanceContext context, CancellationToken ct)
     {
-        await using var connection = await source.OpenConnectionAsync(ct);
-        await using var tx = await connection.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead, ct);
-        await SetTenantAsync(tx, tenant, ct);
         var initial = ObservedFinanceReducer.Initial(run, context);
         var state = initial.TryGetValue(out var opened) ? opened : throw new ObservedFinanceTransitionException(initial.Error);
-
-        await using var facts = Sql(tx, """
-            SELECT fact_seq, effective_time_ms, canonical, canonical_sha256, v4_prefix_digest
-              FROM revenant.finance_fact WHERE scenario_run_id = @run ORDER BY fact_seq
-            """, ("run", run.RunId.Value));
-        await using var reader = await facts.ExecuteReaderAsync(ct);
-        while (await reader.ReadAsync(ct))
+        var history = await ReadSealHistoryAsync(tenant, run.RunId, run.RunId, ct);
+        foreach (var seal in history.Seals)
         {
-            var input = DecodeSealRow(run.RunId, reader);
-            state = ObservedFinanceTransition.Instance.Apply(state, input.Sequence,
-                [new(FinanceLedgerTransition.InputId(run.RunId, input.Sequence), 0, input)], context);
-            if (state.PrefixDigest != Convert.ToHexStringLower(reader.GetFieldValue<byte[]>(4)))
-            {
-                throw new InvalidOperationException("V4 replay disagrees with the stored finance prefix.");
-            }
+            state = seal.Apply(state, context);
+        }
+        if (state.LastFact != history.LastFact)
+        {
+            throw new InvalidOperationException("V4 SQL facts disagree with the run cursor.");
         }
         return state;
     }
@@ -230,10 +244,13 @@ internal sealed class V4SimulationStore(NpgsqlDataSource source,
     {
         long last;
         string prefix;
+        ScenarioRunId lineage;
         await using (var query = Sql(tx, """
-            SELECT c.last_fact_seq, c.last_event_time_ms, c.closed_fact_seq, f.v4_prefix_digest
+            SELECT c.last_fact_seq, c.last_event_time_ms, c.closed_fact_seq,
+                   coalesce(f.v4_prefix_digest, b.fork_prefix_digest), coalesce(b.lineage_run_id, c.scenario_run_id)
               FROM revenant.run_cursor c LEFT JOIN revenant.finance_fact f
                 ON f.scenario_run_id = c.scenario_run_id AND f.fact_seq = c.last_fact_seq
+              LEFT JOIN revenant.v4_branch_execution b ON b.execution_run_id = c.scenario_run_id AND b.tenant_id = c.tenant_id
              WHERE c.scenario_run_id = @run AND c.tenant_id = @tenant FOR UPDATE OF c
             """, ("run", run.Value), ("tenant", tenant)))
         await using (var reader = await query.ExecuteReaderAsync(ct))
@@ -243,14 +260,15 @@ internal sealed class V4SimulationStore(NpgsqlDataSource source,
                 throw new InvalidOperationException("V4 finance cursor cannot certify this boundary.");
             }
             last = reader.GetInt64(0);
-            prefix = last == 0 ? ObservedFinanceReducer.InitialDigest(run) : Convert.ToHexStringLower(reader.GetFieldValue<byte[]>(3));
+            lineage = new(reader.GetGuid(4));
+            prefix = last == 0 ? ObservedFinanceReducer.InitialDigest(lineage) : Convert.ToHexStringLower(reader.GetFieldValue<byte[]>(3));
         }
 
         if (last == long.MaxValue)
         {
             throw new V4ScheduleException(V4ScheduleError.SequenceOrTimeOverflow);
         }
-        var input = ObservedFinanceInput.Seal(new(run, boundary, row.Watermark, last, prefix, row.CommandDigest));
+        var input = ObservedFinanceInput.Seal(new(lineage, boundary, row.Watermark, last, prefix, row.CommandDigest));
         var bytes = input.Payload.ToArray();
         await ExecuteAsync(tx, """
             UPDATE revenant.run_cursor SET last_fact_seq = @seq, last_event_time_ms = @time WHERE scenario_run_id = @run
@@ -270,11 +288,13 @@ internal sealed class V4SimulationStore(NpgsqlDataSource source,
     private static async Task<ObservedFinanceInput?> ReadSealAsync(NpgsqlTransaction tx, ScenarioRunId run, long boundary, CancellationToken ct)
     {
         await using var cmd = Sql(tx, """
-            SELECT fact_seq, effective_time_ms, canonical, canonical_sha256 FROM revenant.finance_fact
-            WHERE scenario_run_id = @run AND kind = 'ObservationSeal' AND effective_time_ms = @boundary
+            SELECT f.fact_seq, f.effective_time_ms, f.canonical, f.canonical_sha256, coalesce(b.lineage_run_id, f.scenario_run_id)
+            FROM revenant.finance_fact f LEFT JOIN revenant.v4_branch_execution b
+              ON b.execution_run_id = f.scenario_run_id AND b.tenant_id = f.tenant_id
+            WHERE f.scenario_run_id = @run AND f.kind = 'ObservationSeal' AND f.effective_time_ms = @boundary
             """, ("run", run.Value), ("boundary", boundary));
         await using var reader = await cmd.ExecuteReaderAsync(ct);
-        return await reader.ReadAsync(ct) ? DecodeSealRow(run, reader) : null;
+        return await reader.ReadAsync(ct) ? DecodeSealRow(new(reader.GetGuid(4)), reader) : null;
     }
 
     private static ObservedFinanceInput DecodeSealRow(ScenarioRunId run, NpgsqlDataReader reader)
@@ -327,9 +347,21 @@ internal sealed class V4SimulationStore(NpgsqlDataSource source,
 
     private static async Task<SchedulerRow> LockRunAsync(NpgsqlTransaction tx, string tenant, ScenarioRunId run, CancellationToken ct)
     {
+        await using (var runLock = Sql(tx, """
+            SELECT run_id FROM revenant.v4_scheduler_run WHERE run_id = @run AND tenant_id = @tenant FOR UPDATE
+            """, ("run", run.Value), ("tenant", tenant)))
+        {
+            if (await runLock.ExecuteScalarAsync(ct) is null)
+            {
+                throw new V4ScheduleException(V4ScheduleError.RunNotFound);
+            }
+        }
         await using var cmd = Sql(tx, """
-            SELECT watermark_exclusive_ms, clock_ms, next_command_seq, status, command_completion_digest
-            FROM revenant.v4_scheduler_run WHERE run_id = @run AND tenant_id = @tenant FOR UPDATE
+            SELECT s.watermark_exclusive_ms, s.clock_ms, s.next_command_seq,
+                   CASE WHEN c.closed_fact_seq IS NULL THEN s.status ELSE 'Closed' END, s.command_completion_digest
+            FROM revenant.v4_scheduler_run s
+            JOIN revenant.run_cursor c ON c.scenario_run_id = s.run_id AND c.tenant_id = s.tenant_id
+            WHERE s.run_id = @run AND s.tenant_id = @tenant
             """, ("run", run.Value), ("tenant", tenant));
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         return await reader.ReadAsync(ct)
