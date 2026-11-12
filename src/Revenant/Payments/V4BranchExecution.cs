@@ -8,7 +8,7 @@ using Revenant.Timeline;
 namespace Revenant.Payments;
 
 /// <summary>Registers the V4 Timeline and its PostgreSQL execution. The identity checkpoint supports seals.</summary>
-internal sealed class V4BranchExecution(V4SimulationStore store,
+internal sealed partial class V4BranchExecution(V4SimulationStore store,
     ITimelineEngine<ObservedFinanceState, ObservedFinanceInput, ObservedFinanceContext> engine)
 {
     internal static string FamilyRulesHash { get; } = ObservedFinanceEncoding.Hash(new CanonicalWriter()

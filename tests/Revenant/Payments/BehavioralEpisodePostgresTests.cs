@@ -6,6 +6,7 @@ using Npgsql;
 using Revenant.Cases;
 using Revenant.Contracts;
 using Revenant.Finance;
+using Revenant.Observations;
 using Revenant.Payments;
 using Revenant.Scenario;
 using Revenant.Tests.Ledger;
@@ -68,6 +69,10 @@ public sealed class BehavioralEpisodePostgresTests(LedgerDatabase db, ITestOutpu
         Assert.Equal(4, seal.Sequence);
         Assert.Equal(origin, ObservationSealCodec.Decode(seal.Payload.AsSpan()).IntervalStartMs);
         Assert.Null(await ledger.GetPaymentAsync(tenant, id, held.IntentId, ct));
+        var streaming = V4ObservationProjector.Project(await execution.ReadProjectionHistoryAsync(tenant, id, ct));
+        Assert.Equal(6, streaming.Banks.Count);
+        Assert.Null(await store.ReadBankAsync(tenant, id, transfer.SourceBankId, firstBoundary, ct));
+        await store.MaterializeBanksAsync(tenant, id, streaming.Banks, ct);
         await Execute(Intake(held), nameof(PaymentStatus.Initiated));
         await Execute(Opportunity(held, "Screening"), nameof(PaymentStatus.Held));
         var payer = expected[held.SourceAccountId];
@@ -114,7 +119,33 @@ public sealed class BehavioralEpisodePostgresTests(LedgerDatabase db, ITestOutpu
         Assert.Equal(until, replay.FinalState.LastSealedBoundaryMs);
         Assert.Equal(run.Manifest.Accounts.Sum(a => a.OpeningBalance.MinorUnits), replay.FinalState.Ledger.TotalPostedMinor);
         Assert.All(replay.FinalState.Ledger.Payments.Values, p => Assert.Equal(SyntheticTruth.Legitimate, p.Intent.Truth));
+        var history = await execution.ReadProjectionHistoryAsync(tenant, id, ct);
+        var offline = V4ObservationProjector.Project(history);
+        Assert.Equal(144, offline.Banks.Count);
+        Assert.All(offline.Banks.GroupBy(row => row.Seal.BoundaryMs), bucket =>
+        {
+            Assert.Equal(6, bucket.Count());
+            Assert.Equal(0, bucket.Sum(row => row.NetSettled));
+            Assert.Equal(0, bucket.Sum(row => row.ReturnedIn - row.ReturnedOut));
+        });
+        Assert.Equal(streaming.Banks.Select(row => row.Digest), offline.Banks.Take(6).Select(row => row.Digest));
+        var firstBank = offline.Banks[0];
+        var secondBank = offline.Banks[6];
+        Assert.Equal((1L, 0L, transfer.Amount.MinorUnits, 0L),
+            (firstBank.Cleared, firstBank.Held, firstBank.SettledOut, firstBank.Balance.Reserved));
+        Assert.Equal((1L, 1L, sameBank.Amount.MinorUnits, sameBank.Amount.MinorUnits, transfer.Amount.MinorUnits, held.Amount.MinorUnits),
+            (secondBank.Held, secondBank.Rejected, secondBank.SettledOut, secondBank.SettledIn, secondBank.ReturnedIn, secondBank.Reserved));
+        Assert.Equal(history.Segments[0].Facts[3].PrefixDigest, firstBank.Seal.PrefixDigest);
+        await store.MaterializeBanksAsync(tenant, id, offline.Banks, ct);
+        await new V4SimulationStore(db.Writer).MaterializeBanksAsync(tenant, id, offline.Banks, ct);
+        Assert.Equal(144, await PaymentKit.Count(db.Owner, "v4_bank_observation", id.Value, "execution_run_id"));
+        var readOnly = new V4SimulationStore(db.Replay);
+        Assert.Equal(firstBank, await readOnly.ReadBankAsync(tenant, id, firstBank.BankId, firstBoundary, ct));
+        Assert.Null(await readOnly.ReadBankAsync(PaymentKit.TenantB, id, firstBank.BankId, firstBoundary, ct));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => store.MaterializeBanksAsync(tenant, id, [firstBank with { Intents = 2 }], ct));
+        Assert.Equal(firstBank, await readOnly.ReadBankAsync(tenant, id, firstBank.BankId, firstBoundary, ct));
         output.WriteLine($"Manifest {context.ManifestSha256}; 6 banks; 18 accounts; 2h; 4 intakes; 4 screenings; 2 settlements; 1 hold; 1 rejection; 1 return; 24 seals; final prefix {replay.FinalState.PrefixDigest}");
+        output.WriteLine($"144 bank observations; first {firstBank.Digest}; last {offline.Banks[^1].Digest}");
 
         PaymentIntent Intent(string key, long seq, long at, AccountDescriptor source, AccountDescriptor dest, long minor, bool sanctionsHit = false) =>
             new(id, key, seq, at, source.BankId, source.AccountId, dest.BankId, dest.AccountId, Money.Usd(minor),
