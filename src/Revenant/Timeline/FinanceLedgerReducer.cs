@@ -73,7 +73,7 @@ public sealed record LedgerFinanceState(
 /// manifest, the reducer version, the screening policy and the review policy version. Stored durably with the history, so a cold
 /// replay never uses a "current" default.
 /// </summary>
-public sealed record LedgerFinanceContext
+public sealed partial record LedgerFinanceContext
 {
     private LedgerFinanceContext(string scenarioVersion, string manifestHash, string reducerVersion, PolicyRef policyRef, PolicyConfig policy, string reviewPolicyVersion)
     {

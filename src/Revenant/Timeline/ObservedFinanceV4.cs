@@ -80,7 +80,9 @@ public sealed record ObservedFinanceContext
     public ImmutableArray<ObservedModelPin> LiquidityModels { get; }
 
     internal Result<LedgerFinanceContext, LedgerFinanceError> LegacyContext() =>
-        LedgerFinanceContext.FromPins(ScenarioVersion, ManifestSha256, FinanceLedgerVersion.ReducerVersion, BasePolicy, ReviewPolicy);
+        ScenarioVersion == BehavioralEpisodeScenario.Version
+            ? LedgerFinanceContext.FromBehavioralEpisodePins(this)
+            : LedgerFinanceContext.FromPins(ScenarioVersion, ManifestSha256, FinanceLedgerVersion.ReducerVersion, BasePolicy, ReviewPolicy);
 
     private static ImmutableArray<ObservedModelPin> SortModels(ImmutableArray<ObservedModelPin> models)
     {
@@ -127,7 +129,9 @@ public static class ObservedFinanceReducer
     {
         var pins = context.LegacyContext();
         if (!pins.TryGetValue(out var legacy) || run.RunId.IsEmpty || run.InitialState.RunId != run.RunId
-            || !ScenarioManifestCodec.HasValidContentHash(run.Manifest))
+            || !(context.ScenarioVersion == BehavioralEpisodeScenario.Version
+                ? BehavioralEpisodeScenario.MatchesOpening(run, context.OriginMs)
+                : ScenarioManifestCodec.HasValidContentHash(run.Manifest)))
         {
             return Fail(LedgerFinanceErrorCode.VersionMismatch, "V4 ledger initialization requires a supported, verified manifest.");
         }
