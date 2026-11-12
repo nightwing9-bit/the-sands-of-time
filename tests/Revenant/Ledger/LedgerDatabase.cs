@@ -134,6 +134,40 @@ public sealed class LedgerDatabase : IAsyncLifetime
             Login("sands_realtime_ledger", realtimeLedger), output);
     }
 
+    internal const string V4UpgradeDatabase = "revenant_v4_upgrade";
+
+    /// <summary>Prepare an independent database at the original migration boundary inside the isolated fixture container.</summary>
+    internal async Task<NpgsqlDataSource> CreatePreV4DatabaseAsync()
+    {
+        await using (var create = Owner.CreateCommand($"CREATE DATABASE {V4UpgradeDatabase}"))
+        {
+            await create.ExecuteNonQueryAsync();
+        }
+        var copy = await _container.ExecAsync(["sh", "-ec",
+            "cp -R /sands/db/migrations /tmp/pre-v4-migrations && rm /tmp/pre-v4-migrations/revenant/0009_v4_causal_scheduler.sql"]);
+        if (copy.ExitCode != 0)
+        {
+            throw new InvalidOperationException(copy.Stderr);
+        }
+
+        await MigrateV4UpgradeDatabaseAsync("/tmp/pre-v4-migrations");
+        return NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder(_container.GetConnectionString())
+        {
+            Database = V4UpgradeDatabase,
+            Username = WriterUser,
+            Password = WriterPassword,
+        }.ConnectionString);
+    }
+
+    internal async Task<string> MigrateV4UpgradeDatabaseAsync(string migrations = "/sands/db/migrations")
+    {
+        var result = await _container.ExecAsync([
+            "env", "PGHOST=localhost", "PGPORT=5432", "PGUSER=postgres", "PGPASSWORD=postgres", $"PGDATABASE={V4UpgradeDatabase}",
+            $"MIGRATIONS_DIR={migrations}", "MIGRATE_CONNECT_ATTEMPTS=5", "sh", "/sands/db/migrate.sh"]);
+        var output = result.Stdout + result.Stderr;
+        return result.ExitCode == 0 ? output : throw new InvalidOperationException(output);
+    }
+
     /// <summary>Re-run the migration executor (idempotence check).</summary>
     public async Task<(long ExitCode, string Output)> MigrateAgainAsync()
     {
