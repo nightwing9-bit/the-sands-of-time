@@ -10,7 +10,7 @@ using Revenant.Observations;
 using Revenant.Payments;
 using Revenant.Scenario;
 using Revenant.Tests.Ledger;
-using Revenant.Tests.Scenario;
+using Revenant.Tests.Timeline;
 using Revenant.Timeline;
 using Xunit;
 using Xunit.Abstractions;
@@ -144,17 +144,61 @@ public sealed class BehavioralEpisodePostgresTests(LedgerDatabase db, ITestOutpu
         Assert.Null(await readOnly.ReadBankAsync(PaymentKit.TenantB, id, firstBank.BankId, firstBoundary, ct));
         await Assert.ThrowsAsync<InvalidOperationException>(() => store.MaterializeBanksAsync(tenant, id, [firstBank with { Intents = 2 }], ct));
         Assert.Equal(firstBank, await readOnly.ReadBankAsync(tenant, id, firstBank.BankId, firstBoundary, ct));
+        Assert.Equal(5, offline.Accounts.Count);
+        Assert.Equal(4, offline.FraudAsOf.Count);
+        var beforeHold = offline.FraudAsOf.Single(row => row.IntentId == held.IntentId);
+        Assert.Equal(5, beforeHold.CutoffFactSeq);
+        Assert.Equal(0, beforeHold.Inputs.SourceBalance.Reserved);
+        Assert.Equal(firstBoundary, beforeHold.LastSealBoundaryMs);
+        Assert.Equal(1, beforeHold.Inputs.Windows[0].OutgoingCount);
+        Assert.Equal(0, beforeHold.Inputs.Windows[0].HeldCount);
+        Assert.Equal(streaming.Accounts.Select(row => row.Digest), offline.Accounts.Take(streaming.Accounts.Count).Select(row => row.Digest));
+        Assert.Equal(streaming.FraudAsOf[0].Encode(), offline.FraudAsOf[0].Encode());
+        await store.MaterializeAccountsAsync(tenant, id, offline.Accounts, ct);
+        await new V4SimulationStore(db.Writer).MaterializeAccountsAsync(tenant, id, offline.Accounts, ct);
+        Assert.Equal(5, await PaymentKit.Count(db.Owner, "v4_account_activity_observation", id.Value, "execution_run_id"));
+        var activity = offline.Accounts[0];
+        var materializedActivity = await readOnly.ReadAccountActivityAsync(tenant, id, activity.AccountId, firstBoundary, ct);
+        Assert.Equal(activity.Encode(), materializedActivity!.Encode());
+        Assert.Null(await readOnly.ReadAccountActivityAsync(PaymentKit.TenantB, id, activity.AccountId, firstBoundary, ct));
+
+        // Fork after the first seal, while the parent has a later return, hold and settlement.
+        var child = new ScenarioRunId(Guid.Parse("00000000-0000-0000-0000-000000040003"));
+        _ = await execution.ForkAsync(tenant, owner, run, id, child, firstBoundary, "r4-projection-child",
+            ObservedFinanceV4Tests.ChildContext(context), ct);
+        var childPayment = Intent("child-only", 2, firstBoundary, accounts[0], accounts[5], 42_001);
+        foreach (var (request, outcome) in new[]
+        {
+            (Intake(childPayment), nameof(PaymentStatus.Initiated)),
+            (Opportunity(childPayment, "Screening"), nameof(PaymentStatus.Cleared)),
+            (Opportunity(childPayment, "Settlement"), nameof(PaymentStatus.Settled)),
+        })
+        {
+            await Execute(request, outcome, child);
+        }
+        Assert.Equal(V4StepKind.Sealed, (await store.SealAsync(tenant, child, firstBoundary + 300_000, ct)).Kind);
+        var childRows = V4ObservationProjector.Project(await execution.ReadProjectionHistoryAsync(tenant, child, ct));
+        Assert.Equal(12, childRows.Banks.Count);
+        Assert.Equal(firstBank with { Seal = firstBank.Seal with { ExecutionRunId = child } }, childRows.Banks[0]);
+        Assert.Equal((offline.FraudAsOf[0] with { ExecutionRunId = child }).Encode(), childRows.FraudAsOf[0].Encode());
+        Assert.Equal(childPayment.Amount.MinorUnits, childRows.Banks[6].SettledOut);
+        Assert.Equal(0, childRows.Banks[6].ReturnedIn);
+        Assert.Equal(0, childRows.Banks[6].Held);
+        Assert.Equal(firstBank, await readOnly.ReadBankAsync(tenant, id, firstBank.BankId, firstBoundary, ct));
+        await store.MaterializeBanksAsync(tenant, child, childRows.Banks, ct);
+        Assert.Equal(child, (await readOnly.ReadBankAsync(tenant, child, firstBank.BankId, firstBoundary, ct))!.Seal.ExecutionRunId);
         output.WriteLine($"Manifest {context.ManifestSha256}; 6 banks; 18 accounts; 2h; 4 intakes; 4 screenings; 2 settlements; 1 hold; 1 rejection; 1 return; 24 seals; final prefix {replay.FinalState.PrefixDigest}");
         output.WriteLine($"144 bank observations; first {firstBank.Digest}; last {offline.Banks[^1].Digest}");
+        output.WriteLine($"5 sparse account rows; 4 as-of rows; child prefix preserved under physical owner {child.Value:D}");
 
         PaymentIntent Intent(string key, long seq, long at, AccountDescriptor source, AccountDescriptor dest, long minor, bool sanctionsHit = false) =>
             new(id, key, seq, at, source.BankId, source.AccountId, dest.BankId, dest.AccountId, Money.Usd(minor),
                 SyntheticTruth.Legitimate, new(true, sanctionsHit));
 
-        async Task Execute(V4CommandRequest request, string outcome)
+        async Task Execute(V4CommandRequest request, string outcome, ScenarioRunId? physical = null)
         {
-            _ = await store.AdmitAsync(tenant, id, request, ct);
-            var step = await store.AdvanceOneStepAsync(tenant, id, ct);
+            _ = await store.AdmitAsync(tenant, physical ?? id, request, ct);
+            var step = await store.AdvanceOneStepAsync(tenant, physical ?? id, ct);
             Assert.Equal(V4StepKind.ProcessedCommand, step.Kind);
             Assert.Equal(V4CommandStatus.Completed, step.Command!.Status);
             Assert.Equal(request.Key, step.Command.Request.Key);

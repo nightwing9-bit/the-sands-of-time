@@ -41,6 +41,37 @@ internal sealed partial class V4SimulationStore
         return row;
     }
 
+    internal async Task MaterializeAccountsAsync(string tenant, ScenarioRunId execution, IReadOnlyList<V4AccountObservation> rows,
+        CancellationToken ct)
+    {
+        await using var connection = await source.OpenConnectionAsync(ct);
+        await using var tx = await BeginAsync(connection, tenant, ct);
+        await WriteProjectionsAsync(tx, tenant, execution, "v4_account_activity_observation", "account_id", V4AccountObservation.Schema,
+            rows.Select(row => new ProjectionRow(row.Seal, row.AccountId, row.Encode())).ToArray(), ct);
+        await tx.CommitAsync(ct);
+    }
+
+    internal async Task<V4AccountObservation?> ReadAccountActivityAsync(string tenant, ScenarioRunId execution, string account,
+        long boundary, CancellationToken ct)
+    {
+        await using var connection = await source.OpenConnectionAsync(ct);
+        await using var tx = await BeginAsync(connection, tenant, ct);
+        await using var query = Sql(tx, """
+            SELECT canonical, projection_digest, seal_fact_seq, sealed_prefix_digest
+            FROM revenant.v4_account_activity_observation
+            WHERE tenant_id = @tenant AND execution_run_id = @run AND account_id = @account AND boundary_ms = @boundary AND schema_id = @schema
+            """, ("tenant", tenant), ("run", execution.Value), ("account", account), ("boundary", boundary), ("schema", V4AccountObservation.Schema));
+        await using var reader = await query.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct)) return null;
+        var row = V4AccountObservation.Decode(reader.GetFieldValue<byte[]>(0), Convert.ToHexStringLower(reader.GetFieldValue<byte[]>(1)));
+        if (row.Seal.ExecutionRunId != execution || row.AccountId != account || row.Seal.BoundaryMs != boundary
+            || row.Seal.FactSequence != reader.GetInt64(2) || row.Seal.PrefixDigest != Convert.ToHexStringLower(reader.GetFieldValue<byte[]>(3)))
+        {
+            throw new InvalidOperationException("Account activity metadata differs from its canonical record.");
+        }
+        return row;
+    }
+
     // Both identifiers are module-owned constants, never request values.
     private static async Task WriteProjectionsAsync(NpgsqlTransaction tx, string tenant, ScenarioRunId execution,
         string table, string key, string schema, ProjectionRow[] rows, CancellationToken ct)

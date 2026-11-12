@@ -121,6 +121,14 @@ internal static class ObservationEncoding
         }
     }
 
+    internal static void WriteOptional(CanonicalWriter w, long? value)
+    {
+        w.WriteBoolean(value.HasValue);
+        if (value is { } present) w.WriteInt64(present);
+    }
+
+    internal static long? ReadOptional(ref CanonicalReader r) => r.ReadBoolean() ? r.ReadInt64() : null;
+
     internal static string Hash(ReadOnlySpan<byte> bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
 
     internal static void RequireDigest(ReadOnlySpan<byte> bytes, string digest)
