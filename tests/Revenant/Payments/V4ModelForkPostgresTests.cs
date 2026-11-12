@@ -175,6 +175,9 @@ public sealed class V4ModelForkPostgresTests(LedgerDatabase db, ITestOutputHelpe
             "reject", Owner, inheritedCase.Version, CaseAction.Reject))).Status);
         Assert.Equal(PaymentStatus.Rejected, (await ledger.GetPaymentAsync(Tenant, childId, hold.IntentId, ct))!.Status);
         Assert.Equal(PaymentStatus.Held, (await ledger.GetPaymentAsync(Tenant, sourceId, hold.IntentId, ct))!.Status);
+        var childPayment = (await ledger.GetPaymentAsync(Tenant, childId, continued.IntentId, ct))!;
+        if (childPayment.Status == PaymentStatus.Cleared)
+            Assert.Equal(nameof(PaymentStatus.Settled), (await Dispatch(Opportunity(continued.IntentId, at, ObservedFactKind.Settlement))).OutcomeCode);
         var next = ObservedFinanceVersion.NextBoundary(at - at % ObservedFinanceVersion.BucketMs);
         Assert.Equal(V4StepKind.Sealed, (await store.SealAsync(Tenant, childId, next, ct)).Kind);
         var childFinal = await execution.CompleteAsync(Tenant, childId, ct);
@@ -319,6 +322,9 @@ public sealed class V4ModelForkPostgresTests(LedgerDatabase db, ITestOutputHelpe
         Assert.Null(await ledger.GetCaseAsync(Tenant, id, second.IntentId, ct));
         Assert.Equal(V4CommandStatus.Completed, (await store.AdmitAsync(Tenant, id, firstRequest, ct)).Status);
         Assert.Equal(historyAfter.LastFact, (await store.ReadFinanceHistoryAsync(Tenant, id, id, ct)).LastFact);
+        _ = await store.AdmitAsync(Tenant, id, Opportunity(second.IntentId, at, ObservedFactKind.Settlement), ct);
+        var settled = await store.AdvanceOneStepAsync(Tenant, id, ct);
+        Assert.Equal(nameof(PaymentStatus.Settled), settled.Command?.OutcomeCode);
         Assert.Equal(V4StepKind.Sealed, (await store.SealAsync(Tenant, id, ObservedFinanceVersion.NextBoundary(boundary), ct)).Kind);
         Assert.Equal(HistoryStatus.Verified, (await branch.CompleteAsync(Tenant, id, ct)).Status);
         output.WriteLine($"eligible=28/29 slots=1 ppms={firstEvidence.Ppm}/{secondEvidence.Ppm} "
