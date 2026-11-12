@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using Npgsql;
 using Revenant.Contracts;
@@ -150,6 +151,7 @@ internal sealed partial class V4SimulationStore(NpgsqlDataSource source,
 
     private async Task<V4Step> AdvanceAsync(string tenant, ScenarioRunId run, long? requestedBoundary, CancellationToken ct)
     {
+        var started = Stopwatch.GetTimestamp();
         await using var connection = await source.OpenConnectionAsync(ct);
         await using var tx = await BeginAsync(connection, tenant, ct);
         var row = await LockRunAsync(tx, tenant, run, ct);
@@ -200,6 +202,8 @@ internal sealed partial class V4SimulationStore(NpgsqlDataSource source,
                 """, ct, ("status", outcome.Status.ToString()), ("effective", effective.HasValue ? effective.Value : DBNull.Value),
                 ("code", outcome.Code), ("hash", Convert.FromHexString(outcomeHash)), ("run", run.Value), ("seq", command.Sequence));
             await tx.CommitAsync(ct);
+            if (ledger is not null)
+                V4FinanceMetrics.Dispatch.Record(Stopwatch.GetElapsedTime(started).TotalMilliseconds);
             return new(outcome.Status == V4CommandStatus.RetryableBlocked ? V4StepKind.Blocked : V4StepKind.ProcessedCommand,
                 command with { Status = outcome.Status, EffectiveTimeMs = effective, OutcomeCode = outcome.Code, OutcomeSha256 = outcomeHash });
         }

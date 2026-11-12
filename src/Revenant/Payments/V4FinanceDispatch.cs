@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Npgsql;
 using Revenant.Contracts;
 using Revenant.Observations;
@@ -99,7 +100,9 @@ internal sealed partial class V4SimulationStore
             if (risk.CutoffFactSeq != state.LastFact || risk.CutoffPrefixDigest != state.PrefixDigest)
                 throw new InvalidOperationException("V4 model features disagree with the transaction prefix.");
             var bytes = risk.Vector.Encode();
+            var scoreStarted = Stopwatch.GetTimestamp();
             var score = scorer.Score(bytes);
+            V4FinanceMetrics.Scoring.Record(Stopwatch.GetElapsedTime(scoreStarted).TotalMilliseconds);
             if (!score.TryGetValue(out var result))
                 return new(null, $"model-inference-{score.Error.Code}");
             if (result.FeatureDigest != risk.Vector.Digest)

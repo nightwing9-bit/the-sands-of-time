@@ -46,7 +46,7 @@ jobs:
 
       # Remaining cheap unit tests. Integration and E2E tests must carry these traits to stay out of the fast job.
       - name: Cheap unit tests
-        run: dotnet test TheSandsOfTime.slnx --configuration Release --no-build --filter "Category!=Integration&Category!=E2E&Category!=MlSsaX64&Category!=OfflineTraining&Category!=R4Cohort&Category!=R5Cohort&Category!=R5ArtifactX64"
+        run: dotnet test TheSandsOfTime.slnx --configuration Release --no-build --filter "Category!=Integration&Category!=E2E&Category!=MlSsaX64&Category!=OfflineTraining&Category!=R4Cohort&Category!=R5Cohort&Category!=R5ArtifactX64&Category!=R6Qualification"
       # SSA tests are excluded above on purpose (they need MKL/OpenMP on Linux x64 and must never be skipped silently):
       # the ml-platform-x64 job below runs them and fails unless the expected probe tests executed and passed.
       - name: Fit the bounded R5 candidates and freeze Calibration
@@ -309,6 +309,7 @@ jobs:
               ("V4DatasetPostgresTests", "V2_six_bank_smoke_verifies_real_opening_risk_export_and_reader"): 1,
               ("V4DatasetPostgresTests", "Published_R5_score_admits_a_real_V4_reservation_and_replays_cold"): 1,
               ("V4DatasetPostgresTests", "Published_Worker_dispatches_and_synchronizes_a_model_admitted_hold"): 1,
+              ("V4ModelForkPostgresTests", "ModelRequired_fork_inherits_capacity_and_scores_its_own_suffix"): 1,
           }
           for test, minimum in required.items():
               observed = len(passed[test])
@@ -323,6 +324,41 @@ jobs:
           name: revenant-integration-evidence
           path: TestResults/revenant-integration/*.trx
           retention-days: 14
+      - name: Run the paired R6 live financial qualification
+        id: r6-qualification
+        if: >-
+          ${{ steps.revenant-coverage.outcome == 'success'
+              && github.event.action == 'edited'
+              && github.event.pull_request.head.repo.full_name == github.repository
+              && github.event.pull_request.head.ref == 'codex/r6-v4-model-required-20261112'
+              && contains(github.event.pull_request.body, format('R6-live-qualification: {0}', github.event.pull_request.head.sha)) }}
+        timeout-minutes: 7
+        env:
+          REVENANT_R6_EVIDENCE_DIR: ${{ github.workspace }}/TestResults/r6-qualification
+          REVENANT_R6_SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          dotnet test tests/Revenant/Revenant.Tests.csproj --configuration Release --no-build \
+            --filter "Category=R6Qualification&FullyQualifiedName~Six_bank_model_required_run_measures_interventions_against_rules_only" \
+            --logger "trx;LogFileName=r6-qualification.trx" --results-directory "$REVENANT_R6_EVIDENCE_DIR"
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import xml.etree.ElementTree as ET
+
+          directory = pathlib.Path(os.environ["REVENANT_R6_EVIDENCE_DIR"])
+          results = ET.parse(directory / "r6-qualification.trx").findall(".//{*}UnitTestResult")
+          assert len(results) == 1 and results[0].attrib["outcome"] == "Passed"
+          assert results[0].attrib["testName"].endswith(".Six_bank_model_required_run_measures_interventions_against_rules_only")
+          assert (directory / "qualification.json").stat().st_size > 0
+          assert (directory / "model-aware-bank-observations.jsonl").stat().st_size > 0
+          PY
+      - name: Upload R6 qualification evidence and bank observations
+        if: ${{ always() && (steps.r6-qualification.outcome == 'success' || steps.r6-qualification.outcome == 'failure') }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: r6-live-financial-evidence
+          path: TestResults/r6-qualification
+          retention-days: 30
       - name: Run explicitly selected R4 cohort on native PostgreSQL
         id: r4-cohort
         if: >-

@@ -75,18 +75,59 @@ public sealed class V4DatasetPostgresTests(LedgerDatabase db, ITestOutputHelper 
             var nextSeal = ObservedFinanceVersion.NextBoundary(boundary);
             Assert.Equal(V4StepKind.Blocked, (await store.SealAsync(Tenant, id, nextSeal, token)).Kind);
             await store.RetryAsync(Tenant, id, command.Request.Key, token);
+            var corruptDirectory = Directory.CreateTempSubdirectory("r6-bad-model-");
+            try
+            {
+                var path = Path.Combine(AppContext.BaseDirectory, "Intelligence", "Artifacts", BehavioralRiskScorerV2.ArtifactDirectory);
+                File.Copy(Path.Combine(path, "manifest.json"), Path.Combine(corruptDirectory.FullName, "manifest.json"));
+                await File.WriteAllBytesAsync(Path.Combine(corruptDirectory.FullName, "model.zip"), [0], token);
+                var corrupt = new V4SimulationStore(writer, ledger: ledger, model: new(() =>
+                    BehavioralRiskScorerV2.Load(corruptDirectory.FullName, BehavioralRiskScorerV2.FeatureSchema, BehavioralRiskScorerV2.PublishedPin)));
+                var invalid = await corrupt.AdvanceOneStepAsync(Tenant, id, token);
+                Assert.Equal(V4StepKind.Blocked, invalid.Kind);
+                Assert.Equal("model-configuration-InvalidArtifact", invalid.Command?.OutcomeCode);
+                await store.RetryAsync(Tenant, id, command.Request.Key, token);
+            }
+            finally
+            {
+                corruptDirectory.Delete(recursive: true);
+            }
 
             var failing = new V4SimulationStore(writer, ledger: PaymentKit.Store(writer, tx => new CaseFailingOutbox(
                 new PostgresOutboxWriter(tx, new MessagingTables("revenant")))), model: model);
             var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => failing.AdvanceOneStepAsync(Tenant, id, token));
             Assert.Equal("injected case outbox failure", failure.Message);
-            Assert.Equal(prior, (await store.ReadFinanceHistoryAsync(Tenant, id, id, token)).LastFact);
-            Assert.Equal(V4CommandStatus.Pending, (await store.AdmitAsync(Tenant, id, command.Request, token)).Status);
-            Assert.Equal(PaymentStatus.Initiated, (await ledger.GetPaymentAsync(Tenant, id, intentId, token))?.Status);
-            Assert.Null(await ledger.GetCaseAsync(Tenant, id, intentId, token));
-            Assert.Equal(0, await PaymentKit.Scalar<long>(db.Owner,
-                "SELECT count(*) FROM revenant.hold WHERE scenario_run_id = @run AND payment_id = @payment",
-                ("run", id.Value), ("payment", pending.PaymentId)));
+            await AssertScreeningRolledBack();
+
+            // This trigger changes the actual SQL reference after the ledger and outbox writes but
+            // before the production evidence guard. An invalid reference must abort the entire transaction.
+            await using (var install = db.Owner.CreateCommand($"""
+                CREATE FUNCTION revenant.test_r6_corrupt_evidence() RETURNS trigger LANGUAGE plpgsql AS $body$
+                BEGIN
+                  IF NEW.scenario_run_id = '{id.Value:D}'::uuid AND NEW.kind = 'Screening' THEN
+                    NEW.evidence_sha256 := decode(repeat('00', 32), 'hex');
+                  END IF;
+                  RETURN NEW;
+                END
+                $body$;
+                CREATE TRIGGER a_test_r6_corrupt_evidence BEFORE INSERT ON revenant.finance_fact
+                  FOR EACH ROW EXECUTE FUNCTION revenant.test_r6_corrupt_evidence();
+                """))
+                _ = await install.ExecuteNonQueryAsync(token);
+            try
+            {
+                var invalid = await Assert.ThrowsAsync<PostgresException>(() => store.AdvanceOneStepAsync(Tenant, id, token));
+                Assert.Equal("RV010", invalid.SqlState);
+                await AssertScreeningRolledBack();
+            }
+            finally
+            {
+                await using var remove = db.Owner.CreateCommand("""
+                    DROP TRIGGER a_test_r6_corrupt_evidence ON revenant.finance_fact;
+                    DROP FUNCTION revenant.test_r6_corrupt_evidence();
+                    """);
+                _ = await remove.ExecuteNonQueryAsync(CancellationToken.None);
+            }
 
             var receipt = await RunWorker(1, token);
             Assert.Equal(1, receipt.Steps);
@@ -128,6 +169,17 @@ public sealed class V4DatasetPostgresTests(LedgerDatabase db, ITestOutputHelper 
             output.WriteLine($"Published Worker Linux AMD64: fact={receipt.LastFact} prefix={receipt.PrefixDigest} "
                 + $"vector={evidence.VectorDigest} ppm={evidence.Ppm} reserved={payment.ReservedMinor}");
             return new(V4StepKind.ProcessedCommand, completed);
+
+            async Task AssertScreeningRolledBack()
+            {
+                Assert.Equal(prior, (await store.ReadFinanceHistoryAsync(Tenant, id, id, token)).LastFact);
+                Assert.Equal(V4CommandStatus.Pending, (await store.AdmitAsync(Tenant, id, command.Request, token)).Status);
+                Assert.Equal(PaymentStatus.Initiated, (await ledger.GetPaymentAsync(Tenant, id, intentId, token))?.Status);
+                Assert.Null(await ledger.GetCaseAsync(Tenant, id, intentId, token));
+                Assert.Equal(0, await PaymentKit.Scalar<long>(db.Owner,
+                    "SELECT count(*) FROM revenant.hold WHERE scenario_run_id = @run AND payment_id = @payment",
+                    ("run", id.Value), ("payment", pending.PaymentId)));
+            }
         });
         var config = V4EpisodeConfig.RiskRingChallenge;
         var design = V4EpisodePlanner.Plan(config, config.Roots().Single(x => x.Ordinal == 1), id);

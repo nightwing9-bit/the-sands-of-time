@@ -21,7 +21,8 @@ internal sealed record V4ExecutedEpisode(V4ProjectionHistory History, ImmutableA
 internal sealed class V4EpisodeExecutor(V4SimulationStore store, V4BranchExecution branch, PaymentLedgerStore ledger,
     Func<V4ScheduledCommand, long, CancellationToken, Task<V4Step?>>? dispatchOverride = null)
 {
-    internal async Task<V4ExecutedEpisode> ExecuteAsync(string tenant, string owner, V4EpisodePlan plan, CancellationToken ct, ObservedRiskMode riskMode = ObservedRiskMode.NotRequired)
+    internal async Task<V4ExecutedEpisode> ExecuteAsync(string tenant, string owner, V4EpisodePlan plan, CancellationToken ct,
+        ObservedRiskMode riskMode = ObservedRiskMode.NotRequired, bool complete = true)
     {
         var timer = Stopwatch.StartNew();
         var run = plan.Opening;
@@ -82,12 +83,15 @@ internal sealed class V4EpisodeExecutor(V4SimulationStore store, V4BranchExecuti
         }
 
         var replayStart = Stopwatch.GetTimestamp();
-        var completed = await branch.CompleteAsync(tenant, id, ct);
-        if (completed.Status != HistoryStatus.Verified || completed.FinalPosition != factCount)
+        if (complete)
         {
-            throw new InvalidOperationException("Episode completion does not verify its recorded fact count.");
+            var completed = await branch.CompleteAsync(tenant, id, ct);
+            if (completed.Status != HistoryStatus.Verified || completed.FinalPosition != factCount)
+                throw new InvalidOperationException("Episode completion does not verify its recorded fact count.");
         }
         var history = await branch.ReadProjectionHistoryAsync(tenant, id, ct);
+        if (history.Segments[^1].LastFact != factCount)
+            throw new InvalidOperationException("Episode dispatch count does not match the SQL journal.");
         return new(history, outcomes.MoveToImmutable(),
             new(timer.Elapsed, Stopwatch.GetElapsedTime(replayStart),
                 [.. bands.Select(x => new V4DispatchBand(x.Key, x.Value.Count, x.Value.Elapsed))]));
