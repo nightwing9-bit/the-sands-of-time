@@ -48,6 +48,17 @@ public sealed class V4DatasetPostgresTests(LedgerDatabase db, ITestOutputHelper 
             Assert.Contains(rows, r => r.Truth.Malicious && r.Truth.Attack == EpisodeAttack.Ring);
             Assert.Contains(rows, r => r.Truth.HardNegative);
             Assert.Equal(576 * 6, projection.Banks.Count);
+            var ordinary = design.Truth.Payments.First(x => !x.Malicious);
+            var attack = design.Truth.Payments.First(x => x.Malicious);
+            using (var relabeled = new V4DatasetExporter(config, TestRevision))
+            {
+                var changed = ordinary with { Malicious = true, Attack = attack.Attack, CampaignKey = attack.CampaignKey, HardNegative = false };
+                relabeled.Add(design with { Truth = design.Truth with { Payments = design.Truth.Payments.Replace(ordinary, changed) } },
+                    execution, projection);
+                var changedSplit = Assert.Single(relabeled.Complete().Splits);
+                Assert.Equal(manifest.Splits[0].ModelSha256, changedSplit.ModelSha256);
+                Assert.NotEqual(manifest.Splits[0].TruthSha256, changedSplit.TruthSha256);
+            }
             var damaged = Path.Combine(directory.FullName, "Train-risk-asof.bin");
             using (var stream = File.Open(damaged, FileMode.Open, FileAccess.Write))
                 stream.WriteByte(255);
@@ -64,11 +75,14 @@ public sealed class V4DatasetPostgresTests(LedgerDatabase db, ITestOutputHelper 
     [Trait("Category", "R5Cohort")]
     public async Task Generate_native_R5_cohort()
     {
-        if (Environment.GetEnvironmentVariable("R5_DATASET_MODE") != "qualification")
-            throw new InvalidOperationException("Select R5 qualification explicitly after the smoke.");
+        var config = Environment.GetEnvironmentVariable("R5_DATASET_MODE") switch
+        {
+            "qualification" => V4EpisodeConfig.RiskQualification,
+            "challenge" => V4EpisodeConfig.RiskRingChallenge,
+            _ => throw new InvalidOperationException("Select qualification or the frozen independent challenge explicitly."),
+        };
         var revision = Environment.GetEnvironmentVariable("R5_CODE_REVISION") ?? throw new InvalidOperationException("Source revision required.");
         var directory = Environment.GetEnvironmentVariable("R5_DATASET_OUTPUT") ?? throw new InvalidOperationException("Output directory required.");
-        var config = V4EpisodeConfig.RiskQualification;
         using var time = new CancellationTokenSource(TimeSpan.FromMinutes(30));
         var logins = await db.ProvisionDeployedLoginsAsync();
         await using var host = Host(logins.Worker);
@@ -84,7 +98,12 @@ public sealed class V4DatasetPostgresTests(LedgerDatabase db, ITestOutputHelper 
             }
             manifest = exporter.Complete();
         }
-        Assert.Equal(124_416, manifest.Splits.Sum(s => s.Tables.Single(t => t.Name == "bank").Rows));
+        Assert.Equal(config.Roots().Count() * 864 * 6, manifest.Splits.Sum(s => s.Tables.Single(t => t.Name == "bank").Rows));
+        if (config.ShiftedRing)
+        {
+            output.WriteLine($"Independent ring challenge manifest {manifest.Sha256}");
+            return;
+        }
         var reader = new V4RiskDatasetReader(directory, manifest.Sha256);
         var developmentEvidence = new List<object>();
         foreach (var split in new[] { V4DatasetSplit.Train, V4DatasetSplit.Validation })

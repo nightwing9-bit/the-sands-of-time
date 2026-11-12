@@ -24,6 +24,9 @@ jobs:
     name: dotnet restore/build/test
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v6
 
@@ -46,6 +49,27 @@ jobs:
         run: dotnet test TheSandsOfTime.slnx --configuration Release --no-build --filter "Category!=Integration&Category!=E2E&Category!=MlSsaX64&Category!=OfflineTraining&Category!=R4Cohort&Category!=R5Cohort"
       # SSA tests are excluded above on purpose (they need MKL/OpenMP on Linux x64 and must never be skipped silently):
       # the ml-platform-x64 job below runs them and fails unless the expected probe tests executed and passed.
+      - name: Fit the bounded R5 candidates and freeze Calibration
+        id: r5-offline-selection
+        if: >-
+          ${{ github.event.action == 'edited'
+              && github.event.pull_request.head.repo.full_name == github.repository
+              && github.event.pull_request.head.ref == 'codex/r5-behavioral-risk-v2-20261112'
+              && contains(github.event.pull_request.body, 'R5-offline-experiment: select ') }}
+        timeout-minutes: 6
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          R5_PR_BODY: ${{ github.event.pull_request.body }}
+          R5_EXPERIMENT_REVISION: ${{ github.event.pull_request.head.sha }}
+        run: bash scripts/checks/r5-offline-experiment.sh select
+      - name: Upload R5 development, calibration and frozen candidate evidence
+        if: ${{ !cancelled() && steps.r5-offline-selection.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: r5-offline-selection
+          path: TestResults/r5-offline-select
+          retention-days: 14
 
   ml-platform-x64:
     name: ML.NET platform probe (Linux x64 FastTree + SSA)
@@ -155,6 +179,9 @@ jobs:
     runs-on: ubuntu-24.04
     # Docker is preinstalled on GitHub-hosted Ubuntu runners; Testcontainers starts PostgreSQL/Redis per fixture.
     timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-dotnet@v6
@@ -385,6 +412,28 @@ jobs:
             TestResults/r5-cohort/FinalTest-payment-truth.bin
             TestResults/r5-cohort/FinalTest-campaign-truth.bin
           if-no-files-found: error
+          retention-days: 14
+      - name: Evaluate the frozen R5 model on FinalTest and an independent financial ring cohort
+        id: r5-offline-evaluation
+        if: >-
+          ${{ steps.revenant-coverage.outcome == 'success'
+              && github.event.action == 'edited'
+              && github.event.pull_request.head.repo.full_name == github.repository
+              && github.event.pull_request.head.ref == 'codex/r5-behavioral-risk-v2-20261112'
+              && contains(github.event.pull_request.body, 'R5-offline-experiment: evaluate ') }}
+        timeout-minutes: 12
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          R5_PR_BODY: ${{ github.event.pull_request.body }}
+          R5_EXPERIMENT_REVISION: ${{ github.event.pull_request.head.sha }}
+        run: bash scripts/checks/r5-offline-experiment.sh evaluate
+      - name: Upload frozen R5 FinalTest and ring challenge evidence
+        if: ${{ !cancelled() && steps.r5-offline-evaluation.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: r5-offline-evaluation
+          path: TestResults/r5-offline-evaluate
           retention-days: 14
   web:
     name: npm ci/typecheck/test/build

@@ -100,6 +100,11 @@ public sealed class V4RiskFeatureTests
         Assert.Equal(RiskFeatureVectorV2.MaxValue, RiskFeatureVectorV2.Ratio(long.MaxValue, 1));
         Assert.Throws<CanonicalFormatException>(() => new RiskFeatureVectorV2(risk.Vector.Values.SetItem(1, 0)));
         Assert.Throws<CanonicalFormatException>(() => new RiskFeatureVectorV2(risk.Vector.Values.RemoveAt(0)));
+        var large = fixture.Intent("largest-v4-intent", at, long.MaxValue, payer: 2, payee: 0);
+        var largeRisk = V4ObservationProjector.RiskAt(fixture.History(), large.IntentId, at);
+        Assert.Equal(RiskFeatureVectorV2.MaxValue, Get(largeRisk, "amount"));
+        Assert.Equal(RiskFeatureVectorV2.MaxValue, Get(largeRisk, "amount_to_available"));
+        Assert.Equal(largeRisk.Vector.Values, largeRisk.Vector.ToModelInput().Select(x => checked((int)x)));
     }
 
     private static int Get(V4RiskAsOf row, string name) =>

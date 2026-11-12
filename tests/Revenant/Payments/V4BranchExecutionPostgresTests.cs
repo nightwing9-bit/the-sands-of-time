@@ -4,6 +4,8 @@ using Marrow.Kernel.Messaging;
 using Marrow.Infrastructure.Messaging;
 using Revenant.Cases;
 using Revenant.Finance;
+using Revenant.Intelligence;
+using Revenant.Observations;
 using Revenant.Scenario;
 using Marrow.Timeline;
 using Microsoft.Extensions.DependencyInjection;
@@ -228,6 +230,8 @@ public sealed class V4BranchExecutionPostgresTests(LedgerDatabase db, ITestOutpu
         Assert.Equal(forkSeal.Sequence, sourceAtFork.LastFact);
 
         await RunAsync(sourceId, Intake(comparison));
+        var liveSourceRisk = V4ObservationProjector.RiskAt(await execution.ReadProjectionHistoryAsync(Tenant, sourceId, Ct),
+            comparison.IntentId, Nine);
         await RunAsync(sourceId, Opportunity("screen-comparison", FinanceFactKind.Screening, comparison));
         await RunAsync(sourceId, Opportunity("settle-comparison", FinanceFactKind.Settlement, comparison));
         var posted = await BalanceAsync(sourceId, comparison.SourceAccountId);
@@ -296,6 +300,10 @@ public sealed class V4BranchExecutionPostgresTests(LedgerDatabase db, ITestOutpu
         Assert.Single(steps, step => step.Command!.Status == V4CommandStatus.Completed);
         Assert.Single(steps, step => step.Command!.OutcomeCode == "intent-already-recorded");
         Assert.Equal(1, await PaymentKit.Count(db.Owner, "finance_fact", childId.Value));
+        var liveChildRisk = V4ObservationProjector.RiskAt(await execution.ReadProjectionHistoryAsync(Tenant, childId, Ct),
+            comparison.IntentId, Nine);
+        Assert.Equal(liveSourceRisk.CutoffPrefixDigest, liveChildRisk.CutoffPrefixDigest);
+        Assert.Equal(liveSourceRisk.Vector.Encode(), liveChildRisk.Vector.Encode());
         await RunAsync(childId, Opportunity("screen-comparison", FinanceFactKind.Screening, comparison));
         Assert.Equal(2, await PaymentKit.Count(db.Owner, "finance_fact", childId.Value));
         Assert.Equal(V4CommandStatus.Completed, (await store.AdmitAsync(Tenant, childId, intake, Ct)).Status);
@@ -347,6 +355,8 @@ public sealed class V4BranchExecutionPostgresTests(LedgerDatabase db, ITestOutpu
         var secondHold = Intent("r3-hold-second", 6, Nine + 2, competingAmount, new(true, false));
         await RunAsync(childId, Intake(firstHold));
         await RunAsync(childId, Intake(secondHold));
+        var beforeSameTimeScreen = V4ObservationProjector.RiskAt(await execution.ReadProjectionHistoryAsync(Tenant, childId, Ct),
+            secondHold.IntentId, Nine + 2);
         _ = await store.AdmitAsync(Tenant, childId, Opportunity("reserve-first", FinanceFactKind.Screening, firstHold), Ct);
         _ = await store.AdmitAsync(Tenant, childId, Opportunity("reserve-second", FinanceFactKind.Screening, secondHold), Ct);
         var reserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -373,6 +383,15 @@ public sealed class V4BranchExecutionPostgresTests(LedgerDatabase db, ITestOutpu
 
         _ = await store.SealAsync(Tenant, childId, Nine + 300_000, Ct);
         var childFinal = await execution.CompleteAsync(Tenant, childId, Ct);
+        var sourceRows = V4ObservationProjector.Project(await execution.ReadProjectionHistoryAsync(Tenant, sourceId, Ct), captureRisk: true).RiskAsOf;
+        var childRows = V4ObservationProjector.Project(await execution.ReadProjectionHistoryAsync(Tenant, childId, Ct), captureRisk: true).RiskAsOf;
+        Assert.Equal(liveSourceRisk.Vector.Encode(), sourceRows.Single(x => x.IntentId == comparison.IntentId).Vector.Encode());
+        Assert.Equal(liveChildRisk.Vector.Encode(), childRows.Single(x => x.IntentId == comparison.IntentId).Vector.Encode());
+        var secondAsOf = childRows.Single(x => x.IntentId == secondHold.IntentId);
+        var holds5m = RiskFeatureVectorV2.Columns.Select(c => c.Name).ToList().IndexOf("holds_5m");
+        Assert.Equal(beforeSameTimeScreen.Vector.Values[holds5m] + 1, secondAsOf.Vector.Values[holds5m]);
+        Assert.DoesNotContain(childRows, x => x.IntentId == compensating.IntentId);
+        output.WriteLine($"R5 exact committed-prefix parity under divergent financial branches; schema {RiskFeatureVectorV2.SchemaHash}");
         await using var coldHost = Host(logins.Worker);
         var cold = Engine(coldHost);
         var coldSource = (await cold.ReplayAsync(source.TimelineId, Ct)).Value;
