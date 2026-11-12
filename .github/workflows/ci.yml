@@ -49,20 +49,98 @@ jobs:
   ml-platform-x64:
     name: ML.NET platform probe (Linux x64 FastTree + SSA)
     # Authoritative SSA gate (Spec 08 R08.13): a native GitHub-hosted Ubuntu x86_64 runner, no emulation.
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
       - name: Runner is Linux x86_64
-        run: test "$(uname -s)" = Linux && test "$(uname -m)" = x86_64 && cat /etc/os-release
+        run: test "$(uname -s)" = Linux && test "$(uname -m)" = x86_64 && uname -sm && cat /etc/os-release && dotnet --info
       # Microsoft.ML.Mkl.Redist ships libMklImports.so but not its OpenMP dependency libiomp5.so; libomp-dev provides that name.
       - name: Install OpenMP runtime for MKL
         run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends libomp-dev
       - name: FastTree + DetectSpikeBySsa + ForecastBySsa fit/save/load/predict
         run: bash scripts/checks/ml-platform-probe.sh --ci
+      - name: Build the published Linux AMD64 Worker
+        run: docker build --platform linux/amd64 -f deploy/docker/Worker.Dockerfile -t sands-worker-ml:ci .
+      - name: Run SSA and pinned FastTree in the published Worker
+        shell: bash
+        run: |
+          set -o pipefail
+          image=sands-worker-ml:ci
+          image_id=$(docker image inspect --format '{{.Id}}' "$image")
+          {
+            printf 'image=%s\nimage_id=%s\n' "$image" "$image_id"
+            docker run --rm --network none --platform linux/amd64 --entrypoint sh "$image" \
+              -ec 'cat /etc/os-release; uname -m; getconf GNU_LIBC_VERSION; dotnet --list-runtimes'
+          } | tee TestResults/ml-platform/worker-image.txt
+          rc=0
+          docker run --rm --network none --platform linux/amd64 -e ML_RUNTIME_IMAGE_ID="$image_id" \
+            "$image" --ml-runtime-selftest | tee TestResults/ml-platform/worker-runtime.json || rc=$?
+          printf 'selftest_exit=%s\n' "$rc" | tee -a TestResults/ml-platform/worker-image.txt
+          test "$rc" -eq 0
+          jq -e '.Result == "PASS" and .ProcessArchitecture == "X64" and .Spike.Executed and .Forecast.Executed
+            and .SaveLoad and .PredictionValid and .FastTree == "PASS"' TestResults/ml-platform/worker-runtime.json
+      - name: Verify published Worker startup and dependency health
+        timeout-minutes: 8
+        shell: bash
+        run: |
+          exec > >(tee TestResults/ml-platform/worker-health.txt) 2>&1
+          umask 077
+          smoke_dir=$(mktemp -d)
+          project="r1-worker-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          compose=(docker compose --project-name "$project" --env-file "$smoke_dir/fixture.env"
+            -f deploy/compose/docker-compose.yml -f "$smoke_dir/worker-image.yml")
+          trap '"${compose[@]}" down --volumes --remove-orphans; rm -rf "$smoke_dir"' EXIT
+          {
+            printf 'POSTGRES_DB=r1_%s_%s\nPOSTGRES_USER=postgres\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
+            for variable in POSTGRES_PASSWORD REDIS_PASSWORD API_DB_PASSWORD REALTIME_DB_PASSWORD WORKER_DB_PASSWORD \
+              API_LEDGER_DB_PASSWORD REALTIME_LEDGER_DB_PASSWORD WORKER_LEDGER_DB_PASSWORD IDENTITY_MASTER_SECRET; do
+              secret=$(openssl rand -hex 32)
+              printf '%s=%s\n' "$variable" "$secret"
+            done
+          } > "$smoke_dir/fixture.env"
+          printf 'services:\n  worker:\n    image: sands-worker-ml:ci\n' > "$smoke_dir/worker-image.yml"
+
+          "${compose[@]}" up --detach --no-build --wait --wait-timeout 120 worker
+          worker=$("${compose[@]}" ps --quiet worker)
+          test "$(docker inspect --format '{{.Image}}' "$worker")" = "$(docker image inspect --format '{{.Id}}' sands-worker-ml:ci)"
+          test "$(docker inspect --format '{{.Config.User}}' "$worker")" = app
+          test "$(docker exec "$worker" id -un)" = app
+          test "$(docker exec "$worker" id -u)" -gt 0
+          test "$(docker inspect --format '{{.State.Health.Status}}' "$worker")" = healthy
+          docker exec "$worker" sh -ec 'wget -qO- http://127.0.0.1:8080/health/live >/dev/null'
+          printf 'user=app\ncompose_health=healthy\nliveness=200\n'
+
+          readiness_status() {
+            docker exec "$worker" sh -c '
+              wget --server-response --output-document=/dev/null --timeout=8 --tries=1 http://127.0.0.1:8080/health/ready 2>&1 |
+                awk "\$1 ~ /^HTTP\\// { print \$2; exit }"
+            '
+          }
+          wait_for_readiness() {
+            for attempt in {1..12}; do
+              if [ "$(readiness_status)" = "$1" ]; then
+                return 0
+              fi
+              sleep 2
+            done
+            printf 'Worker did not report readiness %s\n' "$1" >&2
+            return 1
+          }
+          wait_for_readiness 200
+          printf 'readiness_with_dependencies=200\n'
+          "${compose[@]}" stop redis
+          wait_for_readiness 503
+          docker exec "$worker" sh -ec 'wget -qO- http://127.0.0.1:8080/health/live >/dev/null'
+          test "$(docker inspect --format '{{.State.Running}} {{.RestartCount}}' "$worker")" = 'true 0'
+          docker logs "$worker" 2>&1 | grep -F 'Application started' >/dev/null
+          printf 'readiness_without_redis=503\nliveness_without_redis=200\nworker_restarts=0\n'
+          "${compose[@]}" stop worker
+          test "$(docker inspect --format '{{.State.ExitCode}}' "$worker")" -eq 0
+          printf 'worker_stop_exit=0\n'
       - name: Upload probe evidence
         if: always()
         uses: actions/upload-artifact@v6
@@ -73,14 +151,16 @@ jobs:
 
   integration:
     name: dotnet integration (Testcontainers)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Docker is preinstalled on GitHub-hosted Ubuntu runners; Testcontainers starts PostgreSQL/Redis per fixture.
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
+      - name: Runner is Linux x86_64
+        run: test "$(uname -s)" = Linux && test "$(uname -m)" = x86_64 && uname -sm && dotnet --info
       - name: Pull service images
         timeout-minutes: 5
         run: |
@@ -89,6 +169,7 @@ jobs:
       - name: Restore
         run: dotnet restore TheSandsOfTime.slnx
       - name: Build (warnings are errors)
+        id: integration-build
         run: dotnet build TheSandsOfTime.slnx --configuration Release --no-restore -warnaserror
       # The whole tests/Integration project, unfiltered, so no identity/MFA, hub authorization/revocation,
       # outbox/inbox or deployment-guard test can be skipped by a missing trait. A hung test is dumped and killed.
@@ -115,6 +196,63 @@ jobs:
           name: integration-test-results
           path: TestResults/integration
           retention-days: 7
+      - name: Revenant real-PostgreSQL tests
+        id: revenant-integration
+        if: ${{ !cancelled() && steps.integration-build.outcome == 'success' }}
+        timeout-minutes: 15
+        run: >-
+          dotnet test tests/Revenant/Revenant.Tests.csproj --configuration Release --no-build
+          --filter "Category=Integration"
+          --logger "console;verbosity=normal" --logger "trx;LogFileName=revenant.trx"
+          --blame-hang-timeout 5m --blame-hang-dump-type mini
+          --results-directory TestResults/revenant-integration
+      - name: Require executed Revenant integration and R1 coverage
+        if: ${{ !cancelled() && steps.revenant-integration.outcome == 'success' }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import collections
+          import xml.etree.ElementTree as ET
+
+          report = ET.parse("TestResults/revenant-integration/revenant.trx")
+          counters = report.find(".//{*}Counters").attrib
+          results = report.findall(".//{*}UnitTestResult")
+          counts = {key: int(counters[key]) for key in ("total", "executed", "passed")}
+          print(counts, flush=True)
+          if not results or any(value != len(results) for value in counts.values()):
+              raise SystemExit("Expected every discovered integration result to execute and pass")
+
+          definitions = {
+              test.attrib["id"]: test.find("{*}TestMethod").attrib
+              for test in report.findall(".//{*}TestDefinitions/{*}UnitTest")
+          }
+          passed = collections.defaultdict(set)
+          for result in results:
+              if result.attrib["outcome"] != "Passed":
+                  raise SystemExit(f"Unexpected result: {result.attrib['testName']}")
+              method = definitions[result.attrib["testId"]]
+              key = (method["className"].rsplit(".", 1)[-1], method["name"])
+              passed[key].add(result.attrib["testName"])
+
+          required = {
+              ("ModelInputAdmissionTests", "V3_checks_the_inclusive_amount_bound_before_effects_and_keeps_intake_idempotent"): 1,
+              ("ModelInputAdmissionTests", "Incompatible_queue_heads_leave_no_effects_and_do_not_starve_other_runs"): 1,
+              ("ModelAwareScreeningTests", "A_learned_score_holds_a_base_clear_payment_in_a_live_V3_run_that_then_settles_after_review_and_verifies_after_crash_and_cold_replay"): 1,
+              ("ModelAwareScreeningTests", "Unavailable_models_fail_closed_while_the_worker_screens_V2_and_recovers"): 3,
+          }
+          for test, minimum in required.items():
+              observed = len(passed[test])
+              print(f"{'.'.join(test)}: {observed} passed")
+              if observed < minimum:
+                  raise SystemExit(f"Missing executed R1 cases for {'.'.join(test)}")
+          PY
+      - name: Upload Revenant integration evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: revenant-integration-evidence
+          path: TestResults/revenant-integration/*.trx
+          retention-days: 14
   web:
     name: npm ci/typecheck/test/build
     runs-on: ubuntu-latest

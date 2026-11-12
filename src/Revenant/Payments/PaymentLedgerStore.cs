@@ -212,6 +212,19 @@ public sealed partial class PaymentLedgerStore(
                 "The amount currency differs from the account currency; there is no FX path.");
         }
 
+        if (cursor.FinanceVersion == ModelAwareFinanceVersion)
+        {
+            // Postings commit with a run fact under this cursor. Read without an account row lock to preserve the
+            // account-before-cursor lock order. Screening rechecks the posted balance at its own later boundary.
+            var posted = await ScalarAsync<long>(connection, tx,
+                "SELECT posted_minor FROM revenant.account_available_balance WHERE account_id = @a", ct, ("a", source.AccountId));
+            var features = RiskFeaturesV1.Build(intent.Amount.Currency, intent.Amount.MinorUnits, posted);
+            if (features.IsFailure)
+            {
+                return Fail<IntakeReceipt>(PaymentFailureCode.InvalidRequest, $"Model-required intake: {features.Error}.");
+            }
+        }
+
         var paymentId = await ScalarAsync<Guid>(connection, tx,
             """
             INSERT INTO revenant.payment (tenant_id, scenario_run_id, intent_id, source_account_id, dest_account_id, currency, amount_minor, status)
@@ -454,7 +467,7 @@ public sealed partial class PaymentLedgerStore(
         return new OutboxMessage(id, eventType, 1, $"payment:{paymentId:N}", clock.GetUtcNow(), payload, correlationId);
     }
 
-    private sealed record Cursor(long LastFactSeq, long LastIntentSequence, long LastEventTimeMs);
+    private sealed record Cursor(long LastFactSeq, long LastIntentSequence, long LastEventTimeMs, string FinanceVersion);
 
     private sealed record StoredCommand(
         byte[] RequestHash, Guid PaymentId, PaymentStatus ResultStatus, long ResultVersion, string? RejectCode);
@@ -468,10 +481,16 @@ public sealed partial class PaymentLedgerStore(
         NpgsqlConnection connection, NpgsqlTransaction tx, Guid run, CancellationToken ct)
     {
         await using var cmd = Command(connection, tx,
-            "SELECT last_fact_seq, last_intent_sequence, last_event_time_ms FROM revenant.run_cursor WHERE scenario_run_id = @run FOR UPDATE",
+            """
+            SELECT c.last_fact_seq, c.last_intent_sequence, c.last_event_time_ms, r.finance_version
+              FROM revenant.run_cursor c JOIN revenant.scenario_run r ON r.id = c.scenario_run_id
+             WHERE c.scenario_run_id = @run FOR UPDATE OF c
+            """,
             ("run", run));
         await using var reader = await cmd.ExecuteReaderAsync(ct);
-        return await reader.ReadAsync(ct) ? new Cursor(reader.GetInt64(0), reader.GetInt64(1), reader.GetInt64(2)) : null;
+        return await reader.ReadAsync(ct)
+            ? new Cursor(reader.GetInt64(0), reader.GetInt64(1), reader.GetInt64(2), reader.GetString(3))
+            : null;
     }
 
     private static async Task<StoredCommand?> ReadCommandAsync(

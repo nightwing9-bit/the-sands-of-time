@@ -249,6 +249,83 @@ public sealed class RiskModelTests
 
     // ---- failure behaviour ----
 
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    [InlineData(false, true)]
+    public void Read_failures_are_typed_at_the_manifest_and_zip_boundaries(bool manifestFails, bool permissionFailure)
+    {
+        var manifest = Path.Combine(ArtifactDirectory, RiskModelScorer.ManifestFileName);
+        var zip = Path.Combine(ArtifactDirectory, RiskModelScorer.ArtifactFileName);
+        Exception Failure() => permissionFailure ? new UnauthorizedAccessException() : new IOException();
+        var result = RiskModelScorer.Load(manifest, zip,
+            path => manifestFails ? throw Failure() : File.ReadAllText(path),
+            path => !manifestFails ? throw Failure() : File.ReadAllBytes(path));
+        Assert.Equal(RiskModelError.ArtifactIoUnavailable, result.Error.Code);
+        Assert.Contains(Path.GetFileName(manifestFails ? manifest : zip), result.Error.Detail);
+    }
+
+    [Theory]
+    [InlineData(true, RiskModelError.ManifestMissing)]
+    [InlineData(false, RiskModelError.ArtifactMissing)]
+    public void A_file_removed_at_read_time_is_typed_as_missing(bool removeManifest, RiskModelError code)
+    {
+        var dir = CopyArtifact();
+        try
+        {
+            var manifest = Path.Combine(dir.FullName, RiskModelScorer.ManifestFileName);
+            var zip = Path.Combine(dir.FullName, RiskModelScorer.ArtifactFileName);
+            var result = RiskModelScorer.Load(manifest, zip,
+                path =>
+                {
+                    if (removeManifest)
+                    {
+                        Assert.True(File.Exists(path));
+                        File.Delete(path);
+                    }
+                    return File.ReadAllText(path);
+                },
+                path =>
+                {
+                    Assert.True(File.Exists(path));
+                    File.Delete(path);
+                    return File.ReadAllBytes(path);
+                });
+            Assert.Equal(code, result.Error.Code);
+        }
+        finally
+        {
+            dir.Delete(true);
+        }
+    }
+
+    [Fact]
+    public void A_directory_in_place_of_the_zip_is_typed_and_the_same_provider_recovers_after_restoration()
+    {
+        var root = Directory.CreateTempSubdirectory("risk-restore-");
+        try
+        {
+            var dir = Directory.CreateDirectory(Path.Combine(root.FullName, RiskPolicyCatalog.V1.ArtifactDirectory));
+            var manifest = RiskModelScorer.ManifestFileName;
+            var zip = RiskModelScorer.ArtifactFileName;
+            File.Copy(Path.Combine(ArtifactDirectory, manifest), Path.Combine(dir.FullName, manifest));
+            var target = Path.Combine(dir.FullName, zip);
+            Directory.CreateDirectory(target);
+            var provider = new RiskModelProvider(root.FullName);
+            Assert.Equal(RiskModelError.ArtifactIoUnavailable, provider.Get(RiskPolicyCatalog.V1).Error.Code);
+            Directory.Delete(target);
+            File.Copy(Path.Combine(ArtifactDirectory, zip), target);
+            var scorer = provider.Get(RiskPolicyCatalog.V1).Value;
+            Assert.Equal(RiskPolicyCatalog.V1.Model, scorer.Identity);
+            Assert.Same(scorer, provider.Get(RiskPolicyCatalog.V1).Value);
+        }
+        finally
+        {
+            root.Delete(true);
+        }
+    }
+
     [Fact]
     public void A_tampered_or_truncated_artifact_fails_the_checksum_before_ml_net_sees_it()
     {

@@ -29,6 +29,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.ML" Version="5.0.1" />
     <PackageReference Include="Microsoft.ML.FastTree" Version="5.0.1" />
+    <InternalsVisibleTo Include="Revenant.Tests" />
   </ItemGroup>
   <!-- The committed, checksummed artifact travels with the assembly so a Worker can load it from AppContext.BaseDirectory. -->
   <ItemGroup>
