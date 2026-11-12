@@ -86,6 +86,7 @@ public sealed class V4BranchExecutionPostgresTests(LedgerDatabase db, ITestOutpu
         }
 
         await AssertBindingRejectedAsync(child with { ExecutionRunId = new(Guid.NewGuid()) }, PaymentKit.TenantB);
+        await AssertBindingRejectedAsync(child with { ExecutionRunId = new(Guid.NewGuid()), TimelineId = new(Guid.NewGuid()) }, Tenant);
         await AssertBindingRejectedAsync(child with { ExecutionRunId = new(Guid.NewGuid()), LineageRunId = new(Guid.NewGuid()) }, Tenant);
         await AssertBindingRejectedAsync(child with { ExecutionRunId = new(Guid.NewGuid()),
             Fork = child.Fork with { StateHash = ObservedFinanceV4Tests.EmptyDigest } }, Tenant);

@@ -3,7 +3,7 @@ CREATE TABLE revenant.v4_branch_execution (
   tenant_id text NOT NULL,
   execution_run_id uuid PRIMARY KEY,
   lineage_run_id uuid NOT NULL,
-  timeline_id uuid NOT NULL UNIQUE REFERENCES marrow_timeline.histories (timeline_id),
+  timeline_id uuid NOT NULL UNIQUE,
   source_execution_run_id uuid,
   source_timeline_id uuid,
   fork_fact_seq bigint CHECK (fork_fact_seq > 0),
@@ -72,7 +72,8 @@ BEGIN
 END
 $$;
 
--- The writer gets no Marrow read or write grant. This trigger can only accept/reject an insert.
+-- Marrow history cannot be deleted or truncated. Verify the reference at registration
+-- while preserving module-local foreign keys and the existing writer privileges.
 CREATE FUNCTION revenant.guard_v4_marrow_origin() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog AS $$
 BEGIN
