@@ -302,6 +302,7 @@ jobs:
               ("BehavioralEpisodePostgresTests", "Six_bank_behavioral_root_commits_real_payments_holds_returns_and_seals"): 1,
               ("V4DatasetPostgresTests", "Generated_smoke_reproduces_semantic_exports_under_different_execution_ids"): 1,
               ("V4DatasetPostgresTests", "V2_six_bank_smoke_verifies_real_opening_risk_export_and_reader"): 1,
+              ("V4DatasetPostgresTests", "Published_R5_score_admits_a_real_V4_reservation_and_replays_cold"): 1,
           }
           for test, minimum in required.items():
               observed = len(passed[test])

@@ -159,12 +159,12 @@ internal sealed partial class V4SimulationStore
     }
 
     private static async Task<List<V4StoredFact>> ReadFactsAsync(NpgsqlTransaction tx, string tenant, ScenarioRunId execution,
-        ScenarioRunId lineage, CancellationToken ct)
+        ScenarioRunId lineage, CancellationToken ct, long through = long.MaxValue)
     {
         await using var facts = Sql(tx, """
-            SELECT fact_seq, effective_time_ms, canonical, canonical_sha256, v4_prefix_digest, kind, schema_version
-              FROM revenant.finance_fact WHERE scenario_run_id = @run AND tenant_id = @tenant ORDER BY fact_seq
-            """, ("run", execution.Value), ("tenant", tenant));
+            SELECT fact_seq, effective_time_ms, canonical, canonical_sha256, v4_prefix_digest, kind, schema_version, evidence_schema, evidence_sha256
+              FROM revenant.finance_fact WHERE scenario_run_id = @run AND tenant_id = @tenant AND fact_seq <= @through ORDER BY fact_seq
+            """, ("run", execution.Value), ("tenant", tenant), ("through", through));
         await using var reader = await facts.ExecuteReaderAsync(ct);
         var rows = new List<V4StoredFact>();
         while (await reader.ReadAsync(ct))
@@ -176,7 +176,8 @@ internal sealed partial class V4SimulationStore
                 throw new InvalidOperationException("V4 canonical fact payload digest mismatch.");
             }
             var input = new ObservedFinanceInput(lineage, reader.GetInt64(0), reader.GetInt64(1), kind,
-                reader.GetString(6), [.. bytes]);
+                reader.GetString(6), [.. bytes], reader.IsDBNull(7) ? null : reader.GetString(7),
+                reader.IsDBNull(8) ? null : Convert.ToHexStringLower(reader.GetFieldValue<byte[]>(8)));
             ObservedFinanceInputCodec.Validate(input);
             rows.Add(new(input, Convert.ToHexStringLower(reader.GetFieldValue<byte[]>(4))));
         }

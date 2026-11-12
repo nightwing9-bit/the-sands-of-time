@@ -131,8 +131,13 @@ public sealed class ObservedFinanceStateCodec : IStateCodec<ObservedFinanceState
     public byte[] EncodeCanonical(ObservedFinanceState s)
     {
         Validate(s);
-        return new CanonicalWriter().WriteInt32(1).WriteBytes(LedgerFinanceStateCodec.Instance.EncodeCanonical(s.Ledger))
-            .WriteInt64(s.LastEffectiveTimeMs).WriteInt64(s.LastSealedBoundaryMs).WriteBytes(Convert.FromHexString(s.PrefixDigest)).ToArray();
+        var w = new CanonicalWriter().WriteInt32(1).WriteBytes(LedgerFinanceStateCodec.Instance.EncodeCanonical(s.Ledger))
+            .WriteInt64(s.LastEffectiveTimeMs).WriteInt64(s.LastSealedBoundaryMs).WriteBytes(Convert.FromHexString(s.PrefixDigest));
+        // Optional extension only for states that have committed a post-warmup model Screening.
+        if (s.ReviewCounts != default)
+            w.WriteString(V4ReviewCounts.Policy).WriteInt64(s.ReviewCounts.Eligible)
+                .WriteInt64(s.ReviewCounts.Mandatory).WriteInt64(s.ReviewCounts.Learned);
+        return w.ToArray();
     }
 
     public ObservedFinanceState Decode(ReadOnlySpan<byte> bytes)
@@ -146,6 +151,14 @@ public sealed class ObservedFinanceStateCodec : IStateCodec<ObservedFinanceState
             throw new CanonicalFormatException("Noncanonical inherited V4 ledger bytes.");
         }
         var state = new ObservedFinanceState(ledger, r.ReadInt64(), r.ReadInt64(), ObservedFinanceEncoding.ReadHash(ref r));
+        if (r.Remaining != 0)
+        {
+            if (r.ReadString() != V4ReviewCounts.Policy)
+                throw new CanonicalFormatException("Unknown V4 capacity state extension.");
+            state = state with { ReviewCounts = new(r.ReadInt64(), r.ReadInt64(), r.ReadInt64()) };
+            if (state.ReviewCounts == default)
+                throw new CanonicalFormatException("Redundant V4 capacity extension.");
+        }
         r.EnsureEnd();
         Validate(state);
         return state;
@@ -154,7 +167,7 @@ public sealed class ObservedFinanceStateCodec : IStateCodec<ObservedFinanceState
     private static void Validate(ObservedFinanceState s)
     {
         if (s.RunId.IsEmpty || !ObservedFinanceEncoding.IsHash(s.PrefixDigest) || !ObservedFinanceEncoding.IsManifestHash(s.Ledger.ManifestContentHash)
-            || s.LastFact < 0 || !ObservedFinanceVersion.IsBoundary(s.LastSealedBoundaryMs)
+            || s.LastFact < 0 || !s.ReviewCounts.Valid || s.ReviewCounts.Eligible > s.LastFact || !ObservedFinanceVersion.IsBoundary(s.LastSealedBoundaryMs)
             || s.LastEffectiveTimeMs < s.LastSealedBoundaryMs
             || (s.LastSealedBoundaryMs <= long.MaxValue - ObservedFinanceVersion.BucketMs
                 && s.LastEffectiveTimeMs >= ObservedFinanceVersion.NextBoundary(s.LastSealedBoundaryMs))

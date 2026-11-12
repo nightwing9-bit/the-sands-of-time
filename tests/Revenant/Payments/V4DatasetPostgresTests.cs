@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Revenant.Contracts;
 using Revenant.Finance;
+using Revenant.Intelligence;
 using Revenant.Observations;
 using Revenant.Payments;
 using Revenant.Synthetic;
@@ -22,6 +23,105 @@ public sealed class V4DatasetPostgresTests(LedgerDatabase db, ITestOutputHelper 
     private const string Tenant = PaymentKit.TenantA;
     private const string Owner = PaymentKit.Operator;
     private const string TestRevision = "0000000000000000000000000000000000000000";
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task Published_R5_score_admits_a_real_V4_reservation_and_replays_cold()
+    {
+        using var time = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+        var ct = time.Token;
+        var logins = await db.ProvisionDeployedLoginsAsync();
+        await using var host = Host(logins.Worker);
+        var engine = host.GetRequiredService<ITimelineEngine<ObservedFinanceState, ObservedFinanceInput, ObservedFinanceContext>>();
+        var ledger = PaymentKit.Store(db.Writer);
+        var model = new Lazy<Marrow.Kernel.Results.Result<BehavioralRiskScorerV2, BehavioralRiskFailureV2>>(() =>
+            BehavioralRiskScorerV2.Load(Path.Combine(AppContext.BaseDirectory, "Intelligence", "Artifacts",
+                BehavioralRiskScorerV2.ArtifactDirectory), BehavioralRiskScorerV2.FeatureSchema, BehavioralRiskScorerV2.PublishedPin));
+        Assert.True(model.Value.IsSuccess, model.Value.IsFailure ? model.Value.Error.ToString() : null);
+        var store = new V4SimulationStore(db.Writer, ledger: ledger, model: model);
+        var branch = new V4BranchExecution(store, engine);
+        var executor = new V4EpisodeExecutor(store, branch, ledger);
+        var config = V4EpisodeConfig.RiskRingChallenge;
+        foreach (var group in config.Roots())
+        {
+            var id = new ScenarioRunId(Guid.NewGuid());
+            var design = V4EpisodePlanner.Plan(config, group, id);
+            var executed = await executor.ExecuteAsync(Tenant, Owner, design.Financial, ct, ObservedRiskMode.ModelRequired);
+            var segment = Assert.Single(executed.History.Segments);
+            var screening = segment.Facts.Where(f => f.Input.Kind == ObservedFactKind.Screening)
+                .Select(f => V4ModelScreeningEvidence.Decode(f.Input)).ToArray();
+            Assert.Contains(screening, e => e.Decision == V4ScreeningResult.WarmupRulesOnly);
+            output.WriteLine($"Root {group.Ordinal}: {screening.Count(e => e.Ppm.HasValue)} scores, "
+                + $"{screening.Count(e => e.AboveThreshold)} requests, {screening.Count(e => e.Admitted)} admissions.");
+            var hold = screening.FirstOrDefault(e => e.Admitted);
+            if (hold is null) continue;
+
+            var prefix = executed.History with
+            {
+                Segments = [segment with { Facts = segment.Facts.TakeWhile(f => f.Input.Sequence < hold.Sequence).ToArray(), LastFact = hold.PriorSequence }],
+            };
+            var asOf = V4ObservationProjector.RiskAt(prefix, hold.IntentId, hold.At);
+            Assert.Equal(asOf.Vector.Encode(), hold.Vector.ToArray());
+            Assert.Equal(asOf.Vector.Digest, hold.VectorDigest);
+            Assert.Equal(asOf.CutoffPrefixDigest, hold.PriorDigest);
+            var score = model.Value.Value.Score(hold.Vector.AsSpan()).Value;
+            Assert.Equal(score.RiskPpm, hold.Ppm);
+            Assert.Equal(BitConverter.SingleToInt32Bits(score.RawScore), hold.RawBits);
+            Assert.True(hold.AboveThreshold && hold.OpensCase);
+            Assert.Equal(PaymentReason.None, hold.BaseReason);
+            Assert.True(hold.Available > 0);
+
+            var payment = await ledger.GetPaymentAsync(Tenant, id, hold.IntentId, ct);
+            Assert.NotNull(payment);
+            Assert.Equal(PaymentStatus.Held, payment.Status);
+            Assert.Equal(1, await PaymentKit.Scalar<long>(db.Owner, """
+                SELECT count(*) FROM revenant.hold h JOIN revenant.review_case c ON c.payment_id = h.payment_id
+                WHERE h.scenario_run_id = @run AND h.payment_id = @payment AND h.status = 'Active'
+                  AND c.status = 'Open' AND h.amount_minor = @amount
+                """, ("run", id.Value), ("payment", payment.PaymentId), ("amount", payment.AmountMinor)));
+            Assert.Equal(1, await PaymentKit.Scalar<long>(db.Owner, """
+                SELECT count(*) FROM revenant.finance_fact f JOIN revenant.v4_scheduled_command q
+                  ON (f.scenario_run_id, f.v4_command_seq) = (q.run_id, q.command_seq)
+                WHERE f.scenario_run_id = @run AND f.fact_seq = @seq AND q.status = 'Completed'
+                  AND f.evidence_schema = @schema AND f.evidence_sha256 = sha256(f.canonical)
+                  AND f.canonical = @bytes
+                """, ("run", id.Value), ("seq", hold.Sequence), ("schema", V4ModelScreeningEvidence.Schema),
+                ("bytes", hold.ToInput().Payload.ToArray())));
+
+            await using var coldHost = Host(logins.Worker);
+            var coldEngine = coldHost.GetRequiredService<ITimelineEngine<ObservedFinanceState, ObservedFinanceInput, ObservedFinanceContext>>();
+            var coldStore = new V4SimulationStore(db.Writer);
+            var binding = await coldStore.ReadBindingAsync(Tenant, id, ct);
+            var replay = (await coldEngine.ReplayAsync(binding.TimelineId, ct)).Value;
+            Assert.Equal(HistoryStatus.Verified, replay.Status);
+            Assert.Equal(segment.LastFact, replay.FinalPosition);
+            var before = (await coldEngine.RestoreAsync(binding.TimelineId, hold.PriorSequence, ct)).Value.State;
+            var after = (await coldEngine.RestoreAsync(binding.TimelineId, hold.Sequence, ct)).Value.State;
+            var source = before.Ledger.Payments[hold.IntentId].Intent.SourceAccountId;
+            var prior = before.Ledger.Accounts[source];
+            var next = after.Ledger.Accounts[source];
+            Assert.Equal(prior.PostedMinor, next.PostedMinor);
+            Assert.Equal(prior.ReservedMinor + payment.AmountMinor, next.ReservedMinor);
+            Assert.Equal(prior.AvailableMinor - payment.AmountMinor, next.AvailableMinor);
+            var end = replay.FinalState.Ledger.Accounts[source];
+            Assert.True(end.ReservedMinor >= payment.AmountMinor);
+            Assert.Equal(1, await PaymentKit.Scalar<long>(db.Owner, """
+                SELECT count(*) FROM revenant.account_available_balance
+                WHERE scenario_run_id = @run AND local_account_id = @account
+                  AND posted_minor = @posted AND reserved_minor = @reserved AND available_minor = @available
+                """, ("run", id.Value), ("account", source), ("posted", end.PostedMinor), ("reserved", end.ReservedMinor),
+                ("available", end.AvailableMinor)));
+            var reconciled = await new V4BranchExecution(coldStore, coldEngine).SynchronizeAsync(Tenant, id, ct);
+            Assert.Equal(replay.FinalState.PrefixDigest, reconciled.PrefixDigest);
+            output.WriteLine($"Execution={id.Value} Timeline={binding.TimelineId.Value} fact={hold.Sequence} "
+                + $"prefix={hold.PriorDigest} vector={hold.VectorDigest} ppm={hold.Ppm} "
+                + $"eligible={hold.Capacity.Eligible} slots={hold.Allowed} mandatory={hold.Capacity.Mandatory} "
+                + $"priorLearned={hold.Capacity.Learned} before={prior.PostedMinor}/{prior.ReservedMinor}/{prior.AvailableMinor} "
+                + $"after={next.PostedMinor}/{next.ReservedMinor}/{next.AvailableMinor}");
+            return;
+        }
+        Assert.Fail("No real R5 score admitted a learned hold across the four deterministic six-bank roots.");
+    }
 
     [Fact]
     [Trait("Category", "Integration")]

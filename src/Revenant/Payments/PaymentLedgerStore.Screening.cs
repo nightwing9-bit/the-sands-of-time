@@ -224,8 +224,11 @@ public sealed partial class PaymentLedgerStore
         long fact;
         if (evidence is null)
         {
-            fact = await AppendFactAsync(connection, tx, tenantId, run, payment.Id, FinanceFactKind.Screening, PaymentStepCodec.ScreeningSchema,
-                PaymentStepCodec.Encode(intentId), ScreeningActor, correlationId, version, ct, dispatch: dispatch);
+            var modelInput = dispatch?.Screening?.ToInput();
+            fact = await AppendFactAsync(connection, tx, tenantId, run, payment.Id, FinanceFactKind.Screening,
+                modelInput?.PayloadSchema ?? PaymentStepCodec.ScreeningSchema,
+                modelInput?.Payload.ToArray() ?? PaymentStepCodec.Encode(intentId),
+                ScreeningActor, correlationId, version, ct, dispatch: dispatch);
         }
         else
         {

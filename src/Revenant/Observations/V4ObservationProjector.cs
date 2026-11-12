@@ -63,7 +63,14 @@ internal sealed partial class V4ObservationProjector
             {
                 var fact = stored.Input;
                 if (captureRisk && fact.Kind == ObservedFactKind.Screening)
-                    projector.riskRows.Add(projector.BuildRisk(state, PaymentId(fact), fact.EffectiveTimeMs));
+                {
+                    var row = projector.BuildRisk(state, PaymentId(fact), fact.EffectiveTimeMs);
+                    if (fact.PayloadSchema == V4ModelScreeningEvidence.Schema
+                        && V4ModelScreeningEvidence.Decode(fact) is { Ppm: not null } evidence
+                        && !evidence.Vector.AsSpan().SequenceEqual(row.Vector.Encode()))
+                        throw new InvalidOperationException("Recorded model vector disagrees with the replayed V4 activity prefix.");
+                    projector.riskRows.Add(row);
+                }
                 var next = stored.Apply(state, segment.Context);
                 if (fact.Kind == ObservedFactKind.ObservationSeal)
                 {
@@ -195,6 +202,7 @@ internal sealed partial class V4ObservationProjector
     private static string PaymentId(ObservedFinanceInput fact) => fact.Kind switch
     {
         ObservedFactKind.PaymentIntent => PaymentIntentCodec.Instance.Decode(fact.Payload.AsSpan()).IntentId,
+        ObservedFactKind.Screening when fact.PayloadSchema == V4ModelScreeningEvidence.Schema => V4ModelScreeningEvidence.Decode(fact).IntentId,
         ObservedFactKind.Screening or ObservedFactKind.Settlement => PaymentStepCodec.Decode(fact.Payload.AsSpan()),
         ObservedFactKind.ReviewDecision => ReviewDecisionCodec.Decode(fact.Payload.AsSpan()).IntentId,
         ObservedFactKind.ReturnInstruction => ReturnInstructionCodec.Decode(fact.Payload.AsSpan()).IntentId,

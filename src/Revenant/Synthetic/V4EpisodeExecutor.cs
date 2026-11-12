@@ -5,6 +5,7 @@ using Marrow.Timeline;
 using Revenant.Cases;
 using Revenant.Contracts;
 using Revenant.Finance;
+using Revenant.Intelligence;
 using Revenant.Observations;
 using Revenant.Payments;
 using Revenant.Scenario;
@@ -19,7 +20,7 @@ internal sealed record V4ExecutedEpisode(V4ProjectionHistory History, ImmutableA
 
 internal sealed class V4EpisodeExecutor(V4SimulationStore store, V4BranchExecution branch, PaymentLedgerStore ledger)
 {
-    internal async Task<V4ExecutedEpisode> ExecuteAsync(string tenant, string owner, V4EpisodePlan plan, CancellationToken ct)
+    internal async Task<V4ExecutedEpisode> ExecuteAsync(string tenant, string owner, V4EpisodePlan plan, CancellationToken ct, ObservedRiskMode riskMode = ObservedRiskMode.NotRequired)
     {
         var timer = Stopwatch.StartNew();
         var run = plan.Opening;
@@ -32,7 +33,9 @@ internal sealed class V4EpisodeExecutor(V4SimulationStore store, V4BranchExecuti
             throw new InvalidOperationException("Financial plan does not match the pinned opening or neutral input contract.");
         }
         var context = new ObservedFinanceContext(run.Manifest.ScenarioVersion, run.Manifest.ContentHash, origin,
-            PolicyCatalog.RefOf(PolicyCatalog.V7), ReviewPolicy.Version, ObservedRiskMode.NotRequired, "", null, [], []);
+            PolicyCatalog.RefOf(PolicyCatalog.V7), ReviewPolicy.Version, riskMode,
+            riskMode == ObservedRiskMode.ModelRequired ? BehavioralRiskScorerV2.FeatureSchema : "",
+            riskMode == ObservedRiskMode.ModelRequired ? BehavioralRiskScorerV2.PublishedPin : null, [], []);
         await branch.OpenSourceAsync(tenant, owner, run, context, ct);
         var latest = origin;
         var factCount = 0;

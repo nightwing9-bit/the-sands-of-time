@@ -128,7 +128,30 @@ public sealed partial class PaymentLedgerStore
         {
             var policy = dispatch.Context.LegacyContext().Value.Policy;
             var reason = FinanceLedgerReducer.ScreeningReason(payment.Intent, payment.Velocity15m, policy);
-            var screened = await ApplyScreeningAsync(connection, tx, tenant, execution, intentId, locked, reason, null, null,
+            long? available = null;
+            if (dispatch.Context.RiskMode == ObservedRiskMode.ModelRequired)
+            {
+                available = (await LockAvailableAsync(connection, tx, [locked.SourceAccountId], ct))[locked.SourceAccountId];
+                var cursor = await ScalarAsync<long>(connection, tx, """
+                    SELECT last_fact_seq FROM revenant.run_cursor WHERE scenario_run_id = @run FOR UPDATE
+                    """, ct, ("run", execution));
+                if (cursor != dispatch.Prior.LastFact
+                    || available != dispatch.Prior.Ledger.Accounts[payment.Intent.SourceAccountId].AvailableMinor)
+                    throw new InvalidOperationException("V4 model screening prefix disagrees with locked finance state.");
+
+                var inferred = await dispatch.Infer!(intentId, ct);
+                if (inferred.Evidence is not { } evidence)
+                {
+                    var code = inferred.BlockedCode!;
+                    return new(V4CommandStatus.RetryableBlocked, code, [.. new CanonicalWriter().WriteString(code).ToArray()]);
+                }
+                var validation = ObservedFinanceReducer.Apply(dispatch.Prior, evidence.ToInput(), dispatch.Context);
+                if (validation.IsFailure)
+                    throw new ObservedFinanceTransitionException(validation.Error);
+                reason = evidence.EffectiveReason;
+                dispatch = dispatch with { Screening = evidence };
+            }
+            var screened = await ApplyScreeningAsync(connection, tx, tenant, execution, intentId, locked, reason, available, null,
                 request.Key, ct, dispatch);
             return Done(screened.Status.ToString(), dispatch.Prior.LastFact + 1);
         }
@@ -157,8 +180,12 @@ public sealed partial class PaymentLedgerStore
         CancellationToken ct)
     {
         var sequence = checked(dispatch.Prior.LastFact + 1);
-        var input = new ObservedFinanceInput(dispatch.Prior.RunId, sequence, dispatch.EffectiveMs,
-            (ObservedFactKind)kind, schema, [.. payload]);
+        var input = kind == FinanceFactKind.Screening && dispatch.Screening is { } screening
+            ? screening.ToInput()
+            : new ObservedFinanceInput(dispatch.Prior.RunId, sequence, dispatch.EffectiveMs, (ObservedFactKind)kind, schema, [.. payload]);
+        if (input.Sequence != sequence || input.EffectiveTimeMs != dispatch.EffectiveMs || input.PayloadSchema != schema
+            || !input.Payload.AsSpan().SequenceEqual(payload))
+            throw new InvalidOperationException("V4 journal and audit payloads disagree.");
         var next = ObservedFinanceReducer.Apply(dispatch.Prior, input, dispatch.Context);
         if (next.IsFailure)
         {
@@ -180,11 +207,13 @@ public sealed partial class PaymentLedgerStore
         await ExecAsync(connection, tx, """
             INSERT INTO revenant.finance_fact
               (tenant_id, scenario_run_id, fact_seq, kind, schema_version, payment_id, canonical, canonical_sha256,
-               effective_time_ms, v4_command_seq)
-            VALUES (@tenant, @run, @seq, @kind, @schema, @payment, @canonical, @sha, @time, @command)
-            """, ct, ("tenant", tenant), ("run", run), ("seq", sequence), ("kind", kind.ToString()), ("schema", schema),
+               effective_time_ms, v4_command_seq, evidence_schema, evidence_sha256)
+            VALUES (@tenant, @run, @seq, @kind, @schema, @payment, @canonical, @sha, @time, @command, @evidenceSchema, @evidenceSha)
+            """, ct, ("tenant", tenant), ("run", run), ("seq", sequence), ("kind", kind.ToString()), ("schema", input.PayloadSchema),
             ("payment", paymentId), ("canonical", payload), ("sha", FinanceFactCodec.PayloadHash(payload)),
-            ("time", dispatch.EffectiveMs), ("command", dispatch.Command.Sequence));
+            ("time", dispatch.EffectiveMs), ("command", dispatch.Command.Sequence),
+            ("evidenceSchema", (object?)input.EvidenceSchema ?? DBNull.Value),
+            ("evidenceSha", input.EvidenceSha256 is { } hash ? Convert.FromHexString(hash) : DBNull.Value));
         return sequence;
     }
 }

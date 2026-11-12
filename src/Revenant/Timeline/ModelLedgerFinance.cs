@@ -265,7 +265,7 @@ public static class ModelLedgerReducer
         : PaymentReason.None;
 
     // The V2 screening consequence, for an already decided reason (same trail, reservation, case and insufficient-funds rule).
-    private static LedgerFinanceState Screen(LedgerFinanceState state, LedgerPayment p, PaymentReason reason)
+    internal static LedgerFinanceState Screen(LedgerFinanceState state, LedgerPayment p, PaymentReason reason)
     {
         var source = state.Accounts[p.Intent.SourceAccountId];
         var amount = p.Intent.Amount.MinorUnits;

@@ -1,6 +1,8 @@
 using System.Security.Cryptography;
 using Npgsql;
 using Revenant.Contracts;
+using Revenant.Intelligence;
+using Marrow.Kernel.Results;
 using Revenant.Timeline;
 
 namespace Revenant.Payments;
@@ -8,7 +10,8 @@ namespace Revenant.Payments;
 /// <summary>R2's internal dispatcher and journal. A handler can classify only a bounded, no-ledger-effect R2 test operation.
 /// The handler is supplied by the test assembly. The production composition has no V4 handler or public V4 opener.</summary>
 internal sealed partial class V4SimulationStore(NpgsqlDataSource source,
-    Func<V4ScheduledCommand, CancellationToken, Task<V4CommandOutcome?>>? testHandler = null, PaymentLedgerStore? ledger = null)
+    Func<V4ScheduledCommand, CancellationToken, Task<V4CommandOutcome?>>? testHandler = null, PaymentLedgerStore? ledger = null,
+    Lazy<Result<BehavioralRiskScorerV2, BehavioralRiskFailureV2>>? model = null)
 {
     private const string CommandColumns = """
         command_seq, command_key, command_class, command_kind, payload_schema, canonical_payload, payload_sha256,
