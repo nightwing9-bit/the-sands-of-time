@@ -33,6 +33,7 @@ public sealed class ScreeningWorker(
 
     private long _screened;
     private bool _modelUnavailableLogged;
+    private HashSet<BlockedScreening> _blocked = [];
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -41,6 +42,7 @@ public sealed class ScreeningWorker(
         while (!stoppingToken.IsCancellationRequested)
         {
             int count;
+            bool foundBlocked;
             try
             {
                 var model = store.ModelAvailability();
@@ -52,25 +54,29 @@ public sealed class ScreeningWorker(
                         logger.LogWarning("Revenant risk model unavailable ({Code}): model-required runs stay Initiated; rules-only runs continue.", model.Error.Code);
                     }
                 }
-                var outcomes = await store.ScreenBatchAsync(ledger.TenantId, batchSize, $"screening-{Guid.NewGuid():N}", stoppingToken);
+                var blocked = new HashSet<BlockedScreening>();
+                var outcomes = await store.ScreenBatchAsync(ledger.TenantId, batchSize, $"screening-{Guid.NewGuid():N}", stoppingToken, failure =>
+                {
+                    blocked.Add(failure);
+                    if (!_blocked.Contains(failure))
+                    {
+                        logger.LogWarning(
+                            "Revenant screening blocked for run {RunId}, intent {IntentId} ({Code}, {FeatureError}): {Detail}",
+                            failure.RunId, failure.IntentId, failure.Failure.Code, failure.FeatureError, failure.Failure.Detail);
+                    }
+                });
+                if (model.IsSuccess)
+                {
+                    _blocked = blocked;
+                }
                 count = outcomes.Count;
+                foundBlocked = blocked.Count != 0;
                 Interlocked.Add(ref _screened, count);
                 backoff = 0;
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
                 return;
-            }
-            catch (RiskScreeningUnavailableException ex)
-            {
-                // Model-required screening failed closed (nothing committed for that payment); back off and retry, never fall back.
-                backoff = backoff == 0 ? 100 : Math.Min(backoff * 2, Math.Max(100, options.MaxBackoffMs));
-                logger.LogWarning("Revenant model-aware screening unavailable ({Code}); retrying in {BackoffMs} ms.", ex.Failure.Code, backoff);
-                if (!await DelayAsync(backoff, stoppingToken))
-                {
-                    return;
-                }
-                continue;
             }
             catch (Exception ex) when (ex is NpgsqlException or TimeoutException or InvalidOperationException { InnerException: NpgsqlException })
             {
@@ -83,7 +89,7 @@ public sealed class ScreeningWorker(
                 }
                 continue;
             }
-            if (count < batchSize && !await DelayAsync(Math.Max(10, options.IdleDelayMs), stoppingToken))
+            if ((foundBlocked || count < batchSize) && !await DelayAsync(Math.Max(10, options.IdleDelayMs), stoppingToken))
             {
                 return;
             }

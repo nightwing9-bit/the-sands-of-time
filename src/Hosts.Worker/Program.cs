@@ -1,9 +1,15 @@
+using Hosts.Worker;
 using Marrow.Infrastructure.Hosting;
 using Marrow.Infrastructure.Messaging;
 using Marrow.Infrastructure.Timeline;
 using Revenant.Api;
 using Revenant.Projection;
 using Revenant.Timeline;
+
+if (args is ["--ml-runtime-selftest"])
+{
+    return MlRuntimeSelfTest.Run();
+}
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddMarrowHostDefaults();
@@ -36,3 +42,4 @@ app.MapGet("/", () => Results.Ok(new { service = "hosts-worker", status = "boots
 app.MapMarrowHealth("hosts-worker");
 
 app.Run();
+return 0;

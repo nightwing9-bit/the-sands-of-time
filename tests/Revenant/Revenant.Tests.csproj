@@ -5,6 +5,8 @@
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
+    <GenerateProgramFile>false</GenerateProgramFile>
     <AssemblyName>Revenant.Tests</AssemblyName>
     <RootNamespace>Revenant.Tests</RootNamespace>
   </PropertyGroup>
@@ -25,6 +27,7 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="../../src/Hosts.Worker/MlRuntimeSsa.cs" Link="Platform/MlRuntimeSsa.cs" />
     <ProjectReference Include="..\..\src\Revenant\Revenant.csproj" />
     <ProjectReference Include="..\..\src\Revenant.Contracts\Revenant.Contracts.csproj" />
     <!-- Test-only host composition of the shared Timeline over PostgreSQL; the Revenant domain itself never references Infrastructure. -->

@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Security;
 using System.Text.Json;
 using Marrow.Kernel.Results;
 using Microsoft.ML;
@@ -26,6 +27,7 @@ public enum RiskModelError
 
     /// <summary>The pre-screening facts cannot form a <c>risk-features-v1</c> vector (task 8.3); no screening is committed.</summary>
     FeaturesIncompatible = 13,
+    ArtifactIoUnavailable = 14,
 }
 
 /// <summary>A typed load or scoring failure. A caller must not screen on failure (R08.08).</summary>
@@ -96,22 +98,30 @@ public sealed class RiskModelScorer
     public static Result<RiskModelScorer, RiskModelFailure> LoadDirectory(string directory) =>
         Load(Path.Combine(directory, ManifestFileName), Path.Combine(directory, ArtifactFileName));
 
-    public static Result<RiskModelScorer, RiskModelFailure> Load(string manifestPath, string artifactPath)
+    public static Result<RiskModelScorer, RiskModelFailure> Load(string manifestPath, string artifactPath) =>
+        Load(manifestPath, artifactPath, File.ReadAllText, File.ReadAllBytes);
+
+    internal static Result<RiskModelScorer, RiskModelFailure> Load(
+        string manifestPath, string artifactPath, Func<string, string> readManifest, Func<string, byte[]> readArtifact)
     {
-        if (!File.Exists(manifestPath))
+        ArgumentNullException.ThrowIfNull(manifestPath);
+        ArgumentNullException.ThrowIfNull(artifactPath);
+        var json = Read(manifestPath, readManifest, RiskModelError.ManifestMissing);
+        if (json.IsFailure)
         {
-            return Fail(RiskModelError.ManifestMissing, manifestPath);
+            return Result<RiskModelScorer, RiskModelFailure>.Failure(json.Error);
         }
         RiskModelManifest? manifest;
         try
         {
-            manifest = JsonSerializer.Deserialize<RiskModelManifest>(File.ReadAllText(manifestPath));
+            manifest = JsonSerializer.Deserialize<RiskModelManifest>(json.Value);
         }
         catch (JsonException ex)
         {
             return Fail(RiskModelError.ManifestMalformed, ex.Message);
         }
-        if (manifest is null || manifest.FeatureNames is null || manifest.Dataset is null || manifest.Environment is null || manifest.ModelId is null)
+        if (manifest is null || manifest.FeatureNames is null || manifest.Dataset is null || manifest.Environment is null
+            || manifest.ModelId is null || manifest.Trainer is null)
         {
             return Fail(RiskModelError.ManifestMalformed, "required members are missing");
         }
@@ -137,11 +147,12 @@ public sealed class RiskModelScorer
             return Fail(RiskModelError.ManifestMalformed, "thresholdPpm is outside [1, 1000000]");
         }
 
-        if (!File.Exists(artifactPath))
+        var artifact = Read(artifactPath, readArtifact, RiskModelError.ArtifactMissing);
+        if (artifact.IsFailure)
         {
-            return Fail(RiskModelError.ArtifactMissing, artifactPath);
+            return Result<RiskModelScorer, RiskModelFailure>.Failure(artifact.Error);
         }
-        var bytes = File.ReadAllBytes(artifactPath);
+        var bytes = artifact.Value;
         if (bytes.LongLength != manifest.ArtifactBytes || !string.Equals(RiskModelManifestCodec.Sha256Hex(bytes), manifest.ArtifactSha256, StringComparison.Ordinal))
         {
             return Fail(RiskModelError.ArtifactChecksumMismatch, "the artifact bytes do not match the manifest size/SHA-256");
@@ -155,6 +166,23 @@ public sealed class RiskModelScorer
         return core is not null
             ? Result<RiskModelScorer, RiskModelFailure>.Success(new RiskModelScorer(core, manifest))
             : Result<RiskModelScorer, RiskModelFailure>.Failure(failure!);
+    }
+
+    private static Result<T, RiskModelFailure> Read<T>(string path, Func<string, T> read, RiskModelError missing)
+    {
+        try
+        {
+            return Result<T, RiskModelFailure>.Success(read(path));
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return Result<T, RiskModelFailure>.Failure(new RiskModelFailure(missing, path));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SecurityException or ArgumentException or NotSupportedException)
+        {
+            return Result<T, RiskModelFailure>.Failure(new RiskModelFailure(
+                RiskModelError.ArtifactIoUnavailable, $"{Path.GetFileName(path)}: {ex.GetType().Name}"));
+        }
     }
 
     /// <summary>Scores one vector into PPM. See <see cref="ScoreBatch"/>.</summary>
@@ -195,7 +223,8 @@ internal sealed class RiskModelCore
             using var stream = new MemoryStream(artifactBytes, writable: false);
             model = ml.Model.Load(stream, out inputSchema);
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
+        catch (Exception ex) when (ex is IOException or InvalidDataException or FormatException or ArgumentException
+            or InvalidOperationException or NotSupportedException or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException)
         {
             failure = new RiskModelFailure(RiskModelError.ModelLoadFailed, ex.Message);
             return null;

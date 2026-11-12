@@ -20,9 +20,16 @@ public sealed class LedgerDatabase : IAsyncLifetime
     private const string ReplayUser = "revenant_replay_test";
     private const string ReplayPassword = "revenant-replay-test-only";
 
-    private readonly PostgreSqlContainer _container = new PostgreSqlBuilder(Image)
-        .WithResourceMapping(new DirectoryInfo(Path.Combine(RepositoryRoot(), "scripts", "db")), "/sands/db/")
-        .Build();
+    private readonly string _databaseName = $"revenant_{Guid.NewGuid():N}";
+    private readonly PostgreSqlContainer _container;
+
+    public LedgerDatabase()
+    {
+        _container = new PostgreSqlBuilder(Image)
+            .WithDatabase(_databaseName)
+            .WithResourceMapping(new DirectoryInfo(Path.Combine(RepositoryRoot(), "scripts", "db")), "/sands/db/")
+            .Build();
+    }
 
     private NpgsqlDataSource? _owner;
     private NpgsqlDataSource? _writer;
@@ -38,7 +45,7 @@ public sealed class LedgerDatabase : IAsyncLifetime
         await _container.StartAsync();
         var result = await _container.ExecAsync([
             "env", "PGHOST=localhost", "PGPORT=5432", "PGUSER=postgres", "PGPASSWORD=postgres",
-            "PGDATABASE=postgres", "MIGRATE_CONNECT_ATTEMPTS=5", "sh", "/sands/db/migrate.sh"]);
+            $"PGDATABASE={_databaseName}", "MIGRATE_CONNECT_ATTEMPTS=5", "sh", "/sands/db/migrate.sh"]);
         MigrateOutput = result.Stdout + result.Stderr;
         if (result.ExitCode != 0)
         {
@@ -108,7 +115,7 @@ public sealed class LedgerDatabase : IAsyncLifetime
         const string worker = "workerTestOnlyPassword000001", workerLedger = "workerLedgerTestOnlyPassword01",
             apiLedger = "apiLedgerTestOnlyPassword000001", realtimeLedger = "realtimeLedgerTestOnlyPassword1";
         var result = await _container.ExecAsync([
-            "env", "PGHOST=localhost", "PGPORT=5432", "PGUSER=postgres", "PGPASSWORD=postgres", "PGDATABASE=postgres",
+            "env", "PGHOST=localhost", "PGPORT=5432", "PGUSER=postgres", "PGPASSWORD=postgres", $"PGDATABASE={_databaseName}",
             "MIGRATE_CONNECT_ATTEMPTS=5", $"WORKER_DB_PASSWORD={worker}", $"WORKER_LEDGER_DB_PASSWORD={workerLedger}",
             $"API_LEDGER_DB_PASSWORD={apiLedger}", $"REALTIME_LEDGER_DB_PASSWORD={realtimeLedger}", "sh", "/sands/db/migrate.sh"]);
         var output = result.Stdout + result.Stderr;
@@ -132,7 +139,7 @@ public sealed class LedgerDatabase : IAsyncLifetime
     {
         var result = await _container.ExecAsync([
             "env", "PGHOST=localhost", "PGPORT=5432", "PGUSER=postgres", "PGPASSWORD=postgres",
-            "PGDATABASE=postgres", "MIGRATE_CONNECT_ATTEMPTS=5", "sh", "/sands/db/migrate.sh"]);
+            $"PGDATABASE={_databaseName}", "MIGRATE_CONNECT_ATTEMPTS=5", "sh", "/sands/db/migrate.sh"]);
         return (result.ExitCode ?? -1, result.Stdout + result.Stderr);
     }
 

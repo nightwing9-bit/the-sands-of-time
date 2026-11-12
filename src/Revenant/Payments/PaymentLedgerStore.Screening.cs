@@ -19,11 +19,15 @@ public sealed record ScreeningOutcome(
 /// A model-required screening could not be scored (features incompatible, or a non-finite/out-of-range score). The transaction is
 /// rolled back: the payment stays Initiated and no decision, fact, hold, case or outbox row exists (R08.08).
 /// </summary>
-public sealed class RiskScreeningUnavailableException(RiskModelFailure failure)
+public sealed class RiskScreeningUnavailableException(RiskModelFailure failure, RiskFeatureError? featureError = null)
     : InvalidOperationException($"Model-required screening is unavailable: {failure.Code}: {failure.Detail}")
 {
     public RiskModelFailure Failure { get; } = failure;
+    public RiskFeatureError? FeatureError { get; } = featureError;
 }
+
+public sealed record BlockedScreening(
+    ScenarioRunId RunId, string IntentId, RiskModelFailure Failure, RiskFeatureError? FeatureError);
 
 /// <summary>
 /// Spec 07 task 7.5: the production entry point into Held. The LiveOps screening step (run by <see cref="ScreeningWorker"/>) takes
@@ -53,8 +57,12 @@ public sealed partial class PaymentLedgerStore
         riskModels?.Get(RiskPolicyCatalog.V1)
         ?? Result<RiskModelScorer, RiskModelFailure>.Failure(new RiskModelFailure(RiskModelError.ArtifactMissing, "no risk model provider is configured"));
 
+    public Task<IReadOnlyList<ScreeningOutcome>> ScreenBatchAsync(
+        string tenantId, int maxPayments, string correlationId, CancellationToken ct) =>
+        ScreenBatchAsync(tenantId, maxPayments, correlationId, ct, onBlocked: null);
+
     public async Task<IReadOnlyList<ScreeningOutcome>> ScreenBatchAsync(
-        string tenantId, int maxPayments, string correlationId, CancellationToken ct)
+        string tenantId, int maxPayments, string correlationId, CancellationToken ct, Action<BlockedScreening>? onBlocked)
     {
         if (string.IsNullOrWhiteSpace(tenantId) || !ValidCorrelation(correlationId) || maxPayments < 1 || maxPayments > MaxSettlementBatch)
         {
@@ -63,19 +71,31 @@ public sealed partial class PaymentLedgerStore
         // Resolved once per batch: a verified scorer or none. Without one, model-required runs are skipped (fail closed).
         var scorer = ModelAvailability().TryGetValue(out var s) ? s : null;
         var outcomes = new List<ScreeningOutcome>();
-        for (var i = 0; i < maxPayments; i++)
+        // After a blocked head, leave the run untouched for this pass and look for work in other runs.
+        var excludedRuns = new HashSet<Guid>();
+        while (outcomes.Count < maxPayments)
         {
-            var outcome = await TransientSql.RetryAsync(() => ScreenOneAsync(tenantId, correlationId, scorer, ct), ct);
-            if (outcome is null)
+            var attempt = await TransientSql.RetryAsync(
+                () => ScreenOneAsync(tenantId, correlationId, scorer, [.. excludedRuns], ct), ct);
+            if (attempt.Outcome is { } outcome)
+            {
+                outcomes.Add(outcome);
+            }
+            else if (attempt.Blocked is { } blocked)
+            {
+                excludedRuns.Add(blocked.RunId.Value);
+                onBlocked?.Invoke(blocked);
+            }
+            else
             {
                 break;
             }
-            outcomes.Add(outcome);
         }
         return outcomes;
     }
 
-    private async Task<ScreeningOutcome?> ScreenOneAsync(string tenantId, string correlationId, RiskModelScorer? scorer, CancellationToken ct)
+    private async Task<(ScreeningOutcome? Outcome, BlockedScreening? Blocked)> ScreenOneAsync(
+        string tenantId, string correlationId, RiskModelScorer? scorer, Guid[] excludedRuns, CancellationToken ct)
     {
         await using var connection = await dataSource.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
@@ -88,6 +108,7 @@ public sealed partial class PaymentLedgerStore
         byte[] canonical;
         bool modelAware;
         string[] versions = scorer is null ? [FinanceVersion] : [FinanceVersion, ModelAwareFinanceVersion];
+        // For V3, SKIP LOCKED may skip a locked head run but cannot move past its head within the run.
         await using (var cmd = Command(connection, tx,
             """
             SELECT p.id, p.scenario_run_id, p.intent_id, p.version, p.source_account_id, p.dest_account_id, p.currency, p.amount_minor,
@@ -96,15 +117,21 @@ public sealed partial class PaymentLedgerStore
               JOIN revenant.finance_fact f ON f.payment_id = p.id AND f.kind = 'PaymentIntent'
               JOIN revenant.scenario_run r ON r.id = p.scenario_run_id
              WHERE p.status = 'Initiated' AND r.finance_version = ANY(@versions)
+               AND NOT (p.scenario_run_id = ANY(@excluded))
+               AND (r.finance_version <> @modelAware OR NOT EXISTS (
+                   SELECT 1 FROM revenant.payment q
+                   JOIN revenant.finance_fact g ON g.payment_id = q.id AND g.kind = 'PaymentIntent'
+                    WHERE q.scenario_run_id = p.scenario_run_id AND q.status = 'Initiated' AND g.fact_seq < f.fact_seq
+               ))
              ORDER BY p.scenario_run_id, f.fact_seq
              LIMIT 1
                FOR UPDATE OF p SKIP LOCKED
-            """, ("versions", versions)))
+            """, ("versions", versions), ("excluded", excludedRuns), ("modelAware", ModelAwareFinanceVersion)))
         await using (var reader = await cmd.ExecuteReaderAsync(ct))
         {
             if (!await reader.ReadAsync(ct))
             {
-                return null;
+                return (null, null);
             }
             payment = new LockedPayment(reader.GetGuid(0), PaymentStatus.Initiated, reader.GetInt64(3), reader.GetGuid(4), reader.GetGuid(5),
                 reader.GetString(6), reader.GetInt64(7));
@@ -135,7 +162,15 @@ public sealed partial class PaymentLedgerStore
         InferenceEvidenceV1? evidence = null;
         if (modelAware)
         {
-            (evidence, available) = await InferAsync(connection, tx, scorer!, new ScenarioRunId(run), intentId, payment, reason, ct);
+            try
+            {
+                (evidence, available) = await InferAsync(connection, tx, scorer!, new ScenarioRunId(run), intentId, payment, reason, ct);
+            }
+            catch (RiskScreeningUnavailableException ex)
+            {
+                await tx.RollbackAsync(ct);
+                return (null, new BlockedScreening(new ScenarioRunId(run), intentId, ex.Failure, ex.FeatureError));
+            }
             reason = ModelLedgerReducer.EffectiveReason(reason, evidence.FinalDecision);
         }
 
@@ -193,7 +228,7 @@ public sealed partial class PaymentLedgerStore
             }
         }
         await tx.CommitAsync(ct);
-        return new ScreeningOutcome(new ScenarioRunId(run), intentId, payment.Id, status, version, holdReason, fact, evidence);
+        return (new ScreeningOutcome(new ScenarioRunId(run), intentId, payment.Id, status, version, holdReason, fact, evidence), null);
     }
 
     /// <summary>
@@ -216,7 +251,8 @@ public sealed partial class PaymentLedgerStore
             new SourceBalanceObservation(posted, BalanceMoment.BeforeScreening, asOf), new ScreeningBoundary(asOf));
         if (!built.TryGetValue(out var features))
         {
-            throw new RiskScreeningUnavailableException(new RiskModelFailure(RiskModelError.FeaturesIncompatible, built.Error.ToString()));
+            throw new RiskScreeningUnavailableException(
+                new RiskModelFailure(RiskModelError.FeaturesIncompatible, built.Error.ToString()), built.Error);
         }
         var risk = RiskPolicyCatalog.V1;
         var identity = scorer.Identity;

@@ -220,6 +220,19 @@ public sealed class ModelLedgerReducerTests(ITestOutputHelper output)
             var posted = state.Ledger.Accounts[intent.SourceAccountId].PostedMinor;
             var snapshot = RiskFeaturesV1.Build("USD", intent.Amount.MinorUnits, posted).Value;
             var score = scorer.Score(snapshot.Vector).Value;
+            if (intent.IntentId == "FR-0041")
+            {
+                var opening = run.Manifest.Accounts.Single(a => a.AccountId == intent.SourceAccountId).OpeningBalance.MinorUnits;
+                var beforeSettlement = RiskFeaturesV1.Build(intent.Amount.Currency, intent.Amount.MinorUnits, opening).Value;
+                Assert.Equal((143_381L, 314_052L, 253_652), (intent.Amount.MinorUnits, posted, score));
+                Assert.Equal(1_000_000L, opening);
+                Assert.Equal("cfdccf6c46af98439c353d90a55269de33e6994fbc4b282e7ee0adc1a313cb8f", snapshot.FeatureHash);
+                Assert.Equal("a36f27bb806a02c8648134bd5390dca3050d6b5da445746fc692f9cccab77bd3", beforeSettlement.FeatureHash);
+                var preSettlementScore = scorer.Score(beforeSettlement.Vector).Value;
+                var fresh = new RiskModelProvider(RiskModelOptions.DefaultArtifactRoot).Get(Risk).Value;
+                Assert.Equal([preSettlementScore, score], fresh.ScoreBatch([beforeSettlement.Vector, snapshot.Vector]).Value);
+                output.WriteLine($"FR-0041 pre-settlement posted {opening}, hash {beforeSettlement.FeatureHash}, score {preSettlementScore} PPM");
+            }
             var evidence = Evidence(state, intent, score, context);
             state = ModelLedgerReducer.Apply(state, ScreeningFact(++seq, evidence), context).Value;
             var p = state.Ledger.Payments[intent.IntentId];

@@ -131,6 +131,7 @@ services:
     restart: "on-failure:5"
 
   worker:
+    platform: linux/amd64
     build:
       context: ../..
       dockerfile: deploy/docker/Worker.Dockerfile
