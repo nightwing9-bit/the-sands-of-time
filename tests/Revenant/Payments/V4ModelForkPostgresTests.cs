@@ -1,5 +1,7 @@
 using Marrow.Infrastructure.Timeline;
+using Marrow.Infrastructure.Messaging;
 using Marrow.Kernel.Canonical;
+using Marrow.Kernel.Messaging;
 using Marrow.Timeline;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
@@ -138,6 +140,19 @@ public sealed class V4ModelForkPostgresTests(LedgerDatabase db, ITestOutputHelpe
         Assert.NotEqual(sourceEvidence.PriorDigest, decisions[1].PriorDigest);
         Assert.Equal(PaymentStatus.Held, (await ledger.GetPaymentAsync(Tenant, childId, branchOnly.IntentId, ct))!.Status);
         Assert.Null(await ledger.GetPaymentAsync(Tenant, sourceId, branchOnly.IntentId, ct));
+        var open = await execution.SynchronizeAsync(Tenant, childId, ct);
+        var insufficient = new PaymentIntent(sourceId, "r6-child-insufficient", continued.Sequence + 1, at,
+            original.SourceBankId, original.SourceAccountId, original.DestBankId, original.DestAccountId,
+            Money.Usd(open.Ledger.Accounts[original.SourceAccountId].PostedMinor + 1), SyntheticTruth.Legitimate, new(true, false));
+        await Dispatch(Intake(insufficient));
+        Assert.Equal(nameof(PaymentStatus.Rejected),
+            (await Dispatch(Opportunity(insufficient.IntentId, at, ObservedFactKind.Screening))).OutcomeCode);
+        var rejectedFact = (await store.ReadFinanceHistoryAsync(Tenant, childId, sourceId, ct)).Facts[^1].Input;
+        var rejected = V4ModelScreeningEvidence.Decode(rejectedFact);
+        Assert.Equal(V4ScreeningResult.BaseRuleRejection, rejected.Decision);
+        Assert.False(rejected.OpensCase || rejected.Admitted);
+        Assert.Null(await ledger.GetCaseAsync(Tenant, childId, insufficient.IntentId, ct));
+        Assert.Equal(open.ReviewCounts with { Eligible = open.ReviewCounts.Eligible + 1 }, rejected.NextCounts);
 
         var heldIntent = branchOnly.IntentId;
         Assert.Equal(V4CommandStatus.Cancelled, (await Dispatch(Opportunity(heldIntent, at, ObservedFactKind.Settlement, "denied"))).Status);
@@ -153,6 +168,9 @@ public sealed class V4ModelForkPostgresTests(LedgerDatabase db, ITestOutputHelpe
         var settled = (await ledger.GetPaymentAsync(Tenant, childId, heldIntent, ct))!;
         Assert.Equal(nameof(PaymentStatus.Returned), (await Dispatch(Human(heldIntent, at, ObservedFactKind.ReturnInstruction,
             "return", Owner, settled.Version, CaseAction.Assign))).OutcomeCode);
+        var returned = (await ledger.GetPaymentAsync(Tenant, childId, heldIntent, ct))!;
+        Assert.Equal(V4CommandStatus.Cancelled, (await Dispatch(Human(heldIntent, at, ObservedFactKind.ReturnInstruction,
+            "return-again", Owner, returned.Version, CaseAction.Assign))).Status);
         Assert.Equal(V4CommandStatus.Completed, (await Dispatch(Human(hold.IntentId, at, ObservedFactKind.ReviewDecision,
             "reject", Owner, inheritedCase.Version, CaseAction.Reject))).Status);
         Assert.Equal(PaymentStatus.Rejected, (await ledger.GetPaymentAsync(Tenant, childId, hold.IntentId, ct))!.Status);
@@ -175,8 +193,8 @@ public sealed class V4ModelForkPostgresTests(LedgerDatabase db, ITestOutputHelpe
         Assert.Equal(childFinal.FinalStateHash, coldChild.FinalStateHash);
         Assert.Equal(PaymentStatus.Returned, coldChild.FinalState.Ledger.Payments[heldIntent].Status);
         Assert.Equal(0, coldChild.FinalState.Ledger.Payments[hold.IntentId].ReservedMinor);
-        Assert.Equal(childHold.Capacity.Eligible + 1, coldChild.FinalState.ReviewCounts.Eligible);
-        Assert.Equal(decisions[1].NextCounts, coldChild.FinalState.ReviewCounts);
+        Assert.Equal(childHold.Capacity.Eligible + 2, coldChild.FinalState.ReviewCounts.Eligible);
+        Assert.Equal(rejected.NextCounts, coldChild.FinalState.ReviewCounts);
         output.WriteLine($"fork={forkFact.Input.Sequence} checkpoint={inherited.StateHash} sourceSql={sourceSql} "
             + $"sourceRecord={coldSource.LastRecordHash} childState={coldChild.FinalStateHash} capacity={inherited.State.ReviewCounts} "
             + $"sourceVector={sourceEvidence.VectorDigest} childVector={decisions[1].VectorDigest} childPpm={decisions[1].Ppm} "
@@ -192,6 +210,140 @@ public sealed class V4ModelForkPostgresTests(LedgerDatabase db, ITestOutputHelpe
             Assert.NotNull(step.Command);
             Assert.Equal(request.Key, step.Command.Request.Key);
             return step.Command;
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task Competing_model_screenings_consume_the_last_slot_once()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+        var ct = timeout.Token;
+        var logins = await db.ProvisionDeployedLoginsAsync();
+        await using var host = TimelineHost(logins.Worker);
+        await using var writer = NpgsqlDataSource.Create(logins.WorkerLedger);
+        var ledger = PaymentKit.Store(writer);
+        var model = new Lazy<Marrow.Kernel.Results.Result<BehavioralRiskScorerV2, BehavioralRiskFailureV2>>(() =>
+            BehavioralRiskScorerV2.Load(Path.Combine(AppContext.BaseDirectory, "Intelligence", "Artifacts",
+                BehavioralRiskScorerV2.ArtifactDirectory), BehavioralRiskScorerV2.FeatureSchema, BehavioralRiskScorerV2.PublishedPin));
+        var store = new V4SimulationStore(writer, ledger: ledger, model: model);
+        var branch = new V4BranchExecution(store, Engine(host));
+        var id = new ScenarioRunId(Guid.NewGuid());
+        var config = V4EpisodeConfig.RiskRingChallenge;
+        var plan = V4EpisodePlanner.Plan(config, config.Roots().Single(g => g.Ordinal == 1), id).Financial;
+        var first = plan.Payments.Single(p => p.Intent.IntentId == "P-00000054").Intent;
+        var at = first.EventTimeUtcMs;
+        var boundary = at - at % ObservedFinanceVersion.BucketMs;
+        var pre = plan with { Payments = [.. plan.Payments.TakeWhile(p => p.Intent.IntentId != first.IntentId)] };
+        _ = await new V4EpisodeExecutor(store, branch, ledger).ExecuteAsync(Tenant, Owner, pre, ct,
+            ObservedRiskMode.ModelRequired, complete: false, sealThrough: boundary);
+        await IntakeAsync(first);
+        var state = await branch.SynchronizeAsync(Tenant, id, ct);
+        Assert.Equal(new V4ReviewCounts(27, 0, 0), state.ReviewCounts);
+        var history = await branch.ReadProjectionHistoryAsync(Tenant, id, ct);
+        var segment = Assert.Single(history.Segments);
+
+        // Pick a distinct, funded payer for the same busy beneficiary. The actual model scores the
+        // prospective prefixes in the test. Both commands below still run inference and admission in SQL.
+        PaymentIntent? second = null;
+        foreach (var account in state.Ledger.Accounts.Values)
+        {
+            if (account.AccountId == first.SourceAccountId || account.AccountId == first.DestAccountId)
+                continue;
+            foreach (var amount in new[] { first.Amount.MinorUnits, 64_000L, 32_000L, 99_000L })
+            {
+                if (account.AvailableMinor < amount || amount >= PolicyCatalog.V7.VelocityAmountFloorMinor)
+                    continue;
+                var candidate = new PaymentIntent(id, "r6-concurrent-second", first.Sequence + 1, at,
+                    account.BankId, account.AccountId, first.DestBankId, first.DestAccountId, Money.Usd(amount),
+                    SyntheticTruth.Legitimate, first.Features);
+                var proposed = new ObservedFinanceInput(id, state.LastFact + 1, at, ObservedFactKind.PaymentIntent,
+                    ScenarioSchemas.InputSchemaVersion, [.. PaymentIntentCodec.Instance.EncodeCanonical(candidate)]);
+                var added = ObservedFinanceReducer.Apply(state, proposed, segment.Context);
+                if (added.IsFailure) continue;
+                var facts = segment.Facts.Append(new(proposed, added.Value.PrefixDigest)).ToArray();
+                var beforeFirst = history with { Segments = [segment with { Facts = facts, LastFact = proposed.Sequence }] };
+                var firstVector = V4ObservationProjector.RiskAt(beforeFirst, first.IntentId, at).Vector;
+                var firstScore = model.Value.Value.Score(firstVector).Value;
+                if (!firstScore.AtOrAboveThreshold) continue;
+                var admitted = V4ModelScreeningEvidence.Create(added.Value, segment.Context, first.IntentId, at,
+                    [.. firstVector.Encode()], BitConverter.SingleToInt32Bits(firstScore.RawScore), firstScore.RiskPpm);
+                if (!admitted.Admitted) continue;
+                var firstFact = admitted.ToInput();
+                var firstHeld = ObservedFinanceReducer.Apply(added.Value, firstFact, segment.Context).Value;
+                var beforeSecond = history with
+                {
+                    Segments = [segment with { Facts = [.. facts, new(firstFact, firstHeld.PrefixDigest)], LastFact = firstFact.Sequence }],
+                };
+                var secondVector = V4ObservationProjector.RiskAt(beforeSecond, candidate.IntentId, at).Vector;
+                if (!model.Value.Value.Score(secondVector).Value.AtOrAboveThreshold) continue;
+                second = candidate;
+                break;
+            }
+            if (second is not null) break;
+        }
+        Assert.NotNull(second);
+        await IntakeAsync(second);
+        var firstRequest = Opportunity(first.IntentId, at, ObservedFactKind.Screening);
+        var secondRequest = Opportunity(second.IntentId, at, ObservedFactKind.Screening);
+        _ = await store.AdmitAsync(Tenant, id, firstRequest, ct);
+        _ = await store.AdmitAsync(Tenant, id, secondRequest, ct);
+        var reserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var worker = new V4SimulationStore(writer, ledger: PaymentKit.Store(writer, tx =>
+            new BarrierOutbox(new PostgresOutboxWriter(tx, new MessagingTables("revenant")), reserved, release)), model: model);
+        var firstTask = worker.AdvanceOneStepAsync(Tenant, id, ct);
+        Task<V4Step> secondTask;
+        try
+        {
+            await reserved.Task.WaitAsync(TimeSpan.FromSeconds(15), ct);
+            secondTask = store.AdvanceOneStepAsync(Tenant, id, ct);
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
+        var steps = await Task.WhenAll(firstTask, secondTask);
+        Assert.Equal(nameof(PaymentStatus.Held), steps[0].Command?.OutcomeCode);
+        Assert.Equal(nameof(PaymentStatus.Cleared), steps[1].Command?.OutcomeCode);
+        var historyAfter = await store.ReadFinanceHistoryAsync(Tenant, id, id, ct);
+        var firstEvidence = V4ModelScreeningEvidence.Decode(historyAfter.Facts[^2].Input);
+        var secondEvidence = V4ModelScreeningEvidence.Decode(historyAfter.Facts[^1].Input);
+        Assert.True(firstEvidence.AboveThreshold && firstEvidence.Admitted);
+        Assert.True(secondEvidence.AboveThreshold && secondEvidence.Suppressed);
+        Assert.Equal(firstEvidence.Sequence, secondEvidence.PriorSequence);
+        Assert.Equal(historyAfter.Facts[^2].PrefixDigest, secondEvidence.PriorDigest);
+        Assert.Equal(new V4ReviewCounts(29, 0, 1), secondEvidence.NextCounts);
+        Assert.Equal(0, secondEvidence.Available);
+        Assert.NotNull(await ledger.GetCaseAsync(Tenant, id, first.IntentId, ct));
+        Assert.Null(await ledger.GetCaseAsync(Tenant, id, second.IntentId, ct));
+        Assert.Equal(V4CommandStatus.Completed, (await store.AdmitAsync(Tenant, id, firstRequest, ct)).Status);
+        Assert.Equal(historyAfter.LastFact, (await store.ReadFinanceHistoryAsync(Tenant, id, id, ct)).LastFact);
+        Assert.Equal(V4StepKind.Sealed, (await store.SealAsync(Tenant, id, ObservedFinanceVersion.NextBoundary(boundary), ct)).Kind);
+        Assert.Equal(HistoryStatus.Verified, (await branch.CompleteAsync(Tenant, id, ct)).Status);
+        output.WriteLine($"eligible=28/29 slots=1 ppms={firstEvidence.Ppm}/{secondEvidence.Ppm} "
+            + $"admitted={firstEvidence.IntentId} suppressed={secondEvidence.IntentId} reserved={first.Amount.MinorUnits}");
+
+        async Task IntakeAsync(PaymentIntent intent)
+        {
+            var request = Intake(intent);
+            _ = await store.AdmitAsync(Tenant, id, request, ct);
+            var step = await store.AdvanceOneStepAsync(Tenant, id, ct);
+            Assert.Equal(request.Key, step.Command?.Request.Key);
+            Assert.Equal(V4CommandStatus.Completed, step.Command?.Status);
+        }
+    }
+
+    private sealed class BarrierOutbox(IOutboxWriter writer, TaskCompletionSource reserved, TaskCompletionSource release) : IOutboxWriter
+    {
+        public async Task EnqueueAsync(OutboxMessage message, CancellationToken ct)
+        {
+            if (message.EventType == PaymentLedgerStore.EventHoldReserved)
+            {
+                reserved.TrySetResult();
+                await release.Task.WaitAsync(TimeSpan.FromSeconds(15), ct);
+            }
+            await writer.EnqueueAsync(message, ct);
         }
     }
 

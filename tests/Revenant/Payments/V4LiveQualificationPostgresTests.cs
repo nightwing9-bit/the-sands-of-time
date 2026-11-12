@@ -186,6 +186,7 @@ public sealed class V4LiveQualificationPostgresTests(LedgerDatabase db, ITestOut
             LearnedExecution = learnedId,
             Warmup = evidence.Count(e => e.Decision == V4ScreeningResult.WarmupRulesOnly),
             Eligible = evidence.Last().NextCounts.Eligible,
+            AllowedSlots = evidence.Last().NextCounts.Slots,
             Scored = scoringTimes.Count,
             AboveThreshold = evidence.Count(e => e.AboveThreshold),
             Requests = evidence.Where(e => e.AboveThreshold).Select(e => new
@@ -204,9 +205,12 @@ public sealed class V4LiveQualificationPostgresTests(LedgerDatabase db, ITestOut
                     (Bank: planByIntent[e.IntentId].SourceBankId, Day: (e.At - liveSegment.Context.OriginMs) / V4EpisodeConfig.WarmupMs))
                 .Select(g => new { g.Key.Bank, g.Key.Day, Cases = g.Count() }).ToArray(),
             PeakFiveMinuteReviews = evidence.Where(e => e.OpensCase).GroupBy(e => e.LastSeal).Max(g => g.Count()),
+            PeakFiveMinuteThresholdRequests = evidence.Where(e => e.AboveThreshold).GroupBy(e => e.LastSeal).Max(g => g.Count()),
             BaselineAtEndOfPlan = Flow(baseObservations),
             LearnedAtEndOfPlan = Flow(afterHold),
             LearnedAfterReview = Flow(complete),
+            BaselineTerminal = Terminal(baselineFinal),
+            LearnedTerminal = Terminal(learnedFinal),
             LatencyMs = new { Scoring = Latency(scoringTimes), Dispatch = Latency(transactionTimes) },
             ChangedLaterFeatureVectors = changed.Length,
             Example = new
@@ -215,6 +219,7 @@ public sealed class V4LiveQualificationPostgresTests(LedgerDatabase db, ITestOut
                 CanonicalVector = Convert.ToBase64String(held.Vector.AsSpan()),
                 EvidenceSha256 = held.ToInput().EvidenceSha256,
                 held.Ppm, held.RawBits, held.Capacity.Eligible, held.Allowed, held.Available,
+                AttackFamily = truth[held.IntentId].Attack?.ToString(),
                 PrincipalReserved = payer.Amount.MinorUnits,
                 BeforeReview = Balance(beforeReview.Accounts[payer.SourceAccountId]),
                 Final = Balance(learnedFinal.Accounts[payer.SourceAccountId]),
@@ -258,6 +263,17 @@ public sealed class V4LiveQualificationPostgresTests(LedgerDatabase db, ITestOut
             ReleasedMinor = p.Banks.Sum(b => b.Released),
             Held = p.Banks.Sum(b => b.Held),
             RejectedAtScreening = p.Banks.Sum(b => b.Rejected),
+        };
+        static object Terminal(LedgerFinanceState state) => new
+        {
+            Payments = state.Payments.Values.GroupBy(p => p.Status).Select(g => new
+            {
+                Status = g.Key.ToString(), Count = g.Count(), PrincipalMinor = g.Sum(p => p.Intent.Amount.MinorUnits),
+            }).ToArray(),
+            Cases = state.Payments.Values.Where(p => p.Case is not null).GroupBy(p => p.Case).Select(g => new
+            {
+                Status = g.Key.ToString(), Count = g.Count(),
+            }).ToArray(),
         };
         static object Balance(LedgerAccount a) => new { a.PostedMinor, a.ReservedMinor, a.AvailableMinor };
         static object Latency(List<double> values)

@@ -22,12 +22,17 @@ internal sealed class V4EpisodeExecutor(V4SimulationStore store, V4BranchExecuti
     Func<V4ScheduledCommand, long, CancellationToken, Task<V4Step?>>? dispatchOverride = null)
 {
     internal async Task<V4ExecutedEpisode> ExecuteAsync(string tenant, string owner, V4EpisodePlan plan, CancellationToken ct,
-        ObservedRiskMode riskMode = ObservedRiskMode.NotRequired, bool complete = true)
+        ObservedRiskMode riskMode = ObservedRiskMode.NotRequired, bool complete = true, long? sealThrough = null)
     {
         var timer = Stopwatch.StartNew();
         var run = plan.Opening;
         var id = run.RunId;
         var origin = run.Manifest.StartUtcMs;
+        var finalBoundary = sealThrough ?? plan.EndMs;
+        if (!ObservedFinanceVersion.IsBoundary(finalBoundary) || finalBoundary > plan.EndMs || finalBoundary < origin
+            || (sealThrough.HasValue && (complete || plan.Payments.Any(p =>
+                p.Intent.EventTimeUtcMs >= ObservedFinanceVersion.NextBoundary(finalBoundary)))))
+            throw new InvalidOperationException("A partial episode must stop in the requested open interval.");
         if (run.Manifest.V4EpisodeDurationMs is not { } duration || plan.EndMs != checked(origin + duration)
             || plan.Payments.Any(p => p.Intent.RunId != id || p.Intent.Truth != SyntheticTruth.Legitimate
                 || p.Intent.EventTimeUtcMs < origin || p.Intent.EventTimeUtcMs >= plan.EndMs))
@@ -75,7 +80,7 @@ internal sealed class V4EpisodeExecutor(V4SimulationStore store, V4BranchExecuti
             outcomes.Add(new(p.IntentId, Code(intake), Code(screening), settlement, returned));
         }
 
-        while (latest < plan.EndMs)
+        while (latest < finalBoundary)
         {
             var boundary = ObservedFinanceVersion.NextBoundary(latest);
             var step = await store.SealAsync(tenant, id, boundary, ct);

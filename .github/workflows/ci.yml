@@ -310,6 +310,7 @@ jobs:
               ("V4DatasetPostgresTests", "Published_R5_score_admits_a_real_V4_reservation_and_replays_cold"): 1,
               ("V4DatasetPostgresTests", "Published_Worker_dispatches_and_synchronizes_a_model_admitted_hold"): 1,
               ("V4ModelForkPostgresTests", "ModelRequired_fork_inherits_capacity_and_scores_its_own_suffix"): 1,
+              ("V4ModelForkPostgresTests", "Competing_model_screenings_consume_the_last_slot_once"): 1,
           }
           for test, minimum in required.items():
               observed = len(passed[test])
