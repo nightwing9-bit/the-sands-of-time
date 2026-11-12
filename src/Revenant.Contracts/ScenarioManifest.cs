@@ -32,7 +32,11 @@ public sealed record ScenarioManifest(
     long StartUtcMs,
     ImmutableArray<BankDescriptor> Banks,
     ImmutableArray<AccountDescriptor> Accounts,
-    string ContentHash);
+    string ContentHash)
+{
+    /// <summary>Duration pinned by the V4 behavioral episode manifest extension.</summary>
+    public long? V4EpisodeDurationMs { get; init; }
+}
 
 public sealed record RunBankState(string BankId, string RunScopedKey, string Name);
 

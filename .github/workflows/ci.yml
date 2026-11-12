@@ -247,6 +247,7 @@ jobs:
               ("V4BranchExecutionPostgresTests", "Verified_source_forks_byte_identically_and_the_child_appends_only_its_suffix"): 1,
               ("V4BranchExecutionPostgresTests", "Financial_fork_preserves_the_opening_and_posts_or_reserves_under_the_actual_policy"): 1,
               ("V4BranchExecutionPostgresTests", "Reconciliation_rejects_conflicting_bytes_already_written_at_the_SQL_position"): 1,
+              ("BehavioralEpisodePostgresTests", "Six_bank_behavioral_root_commits_real_payments_holds_returns_and_seals"): 1,
           }
           for test, minimum in required.items():
               observed = len(passed[test])

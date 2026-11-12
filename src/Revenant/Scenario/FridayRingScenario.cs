@@ -60,6 +60,8 @@ public static class FridayRingScenario
 
     public static string BankId(int index) => $"BANK-{BankLetters[index]}";
 
+    internal static string BankName(int index) => BankNames[index];
+
     public static string CustomerAccountId(int bankIndex, int customer) => $"{BankId(bankIndex)}/ACC-{customer}";
 
     public static string MuleAccountId(int bankIndex) => $"{BankId(bankIndex)}/ACC-3";
