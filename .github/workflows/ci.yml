@@ -274,7 +274,8 @@ jobs:
                   != contains(github.event.pull_request.body, 'R4-native-cohort: qualification')) }}
         timeout-minutes: 34
         env:
-          R4_DATASET_MODE: ${{ contains(github.event.pull_request.body, 'R4-native-cohort: qualification') && 'qualification' || 'pilot' }}
+          R4_DATASET_MODE: >-
+            ${{ contains(github.event.pull_request.body, 'R4-native-cohort: qualification') && 'qualification' || 'pilot' }}
           R4_CODE_REVISION: ${{ github.event.pull_request.head.sha }}
           R4_DATASET_OUTPUT: ${{ github.workspace }}/TestResults/r4-cohort
         run: |
