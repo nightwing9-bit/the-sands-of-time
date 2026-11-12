@@ -66,6 +66,12 @@ internal sealed record V4BankObservation(V4SealIdentity Seal, string BankId, Obs
     {
         var w = ObservationEncoding.Begin(Schema);
         Seal.Write(w);
+        WriteContent(w);
+        return w.ToArray();
+    }
+
+    internal void WriteContent(CanonicalWriter w)
+    {
         if (string.IsNullOrWhiteSpace(BankId))
         {
             throw new CanonicalFormatException("Missing bank identity.");
@@ -84,7 +90,7 @@ internal sealed record V4BankObservation(V4SealIdentity Seal, string BankId, Obs
             w.WriteInt64(value);
         }
 
-        return w.WriteInt64(NetSettled).ToArray();
+        w.WriteInt64(NetSettled);
     }
 
     internal static V4BankObservation Decode(ReadOnlySpan<byte> bytes, string digest)

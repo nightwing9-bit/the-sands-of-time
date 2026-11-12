@@ -8,6 +8,7 @@ name: ci
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, edited]
   push:
     branches: [main]
 
@@ -42,7 +43,7 @@ jobs:
 
       # Remaining cheap unit tests. Integration and E2E tests must carry these traits to stay out of the fast job.
       - name: Cheap unit tests
-        run: dotnet test TheSandsOfTime.slnx --configuration Release --no-build --filter "Category!=Integration&Category!=E2E&Category!=MlSsaX64&Category!=OfflineTraining"
+        run: dotnet test TheSandsOfTime.slnx --configuration Release --no-build --filter "Category!=Integration&Category!=E2E&Category!=MlSsaX64&Category!=OfflineTraining&Category!=R4Cohort"
       # SSA tests are excluded above on purpose (they need MKL/OpenMP on Linux x64 and must never be skipped silently):
       # the ml-platform-x64 job below runs them and fails unless the expected probe tests executed and passed.
 
@@ -248,6 +249,7 @@ jobs:
               ("V4BranchExecutionPostgresTests", "Financial_fork_preserves_the_opening_and_posts_or_reserves_under_the_actual_policy"): 1,
               ("V4BranchExecutionPostgresTests", "Reconciliation_rejects_conflicting_bytes_already_written_at_the_SQL_position"): 1,
               ("BehavioralEpisodePostgresTests", "Six_bank_behavioral_root_commits_real_payments_holds_returns_and_seals"): 1,
+              ("V4DatasetPostgresTests", "Generated_smoke_reproduces_semantic_exports_under_different_execution_ids"): 1,
           }
           for test, minimum in required.items():
               observed = len(passed[test])
@@ -261,6 +263,44 @@ jobs:
         with:
           name: revenant-integration-evidence
           path: TestResults/revenant-integration/*.trx
+          retention-days: 14
+      - name: Run explicitly selected R4 cohort on native PostgreSQL
+        id: r4-cohort
+        if: >-
+          ${{ github.event.action == 'edited'
+              && github.event.pull_request.head.repo.full_name == github.repository
+              && github.event.pull_request.head.ref == 'codex/r4-causal-observations-episodes-20261112'
+              && (contains(github.event.pull_request.body, 'R4-native-cohort: pilot')
+                  != contains(github.event.pull_request.body, 'R4-native-cohort: qualification')) }}
+        timeout-minutes: 34
+        env:
+          R4_DATASET_MODE: ${{ contains(github.event.pull_request.body, 'R4-native-cohort: qualification') && 'qualification' || 'pilot' }}
+          R4_CODE_REVISION: ${{ github.event.pull_request.head.sha }}
+          R4_DATASET_OUTPUT: ${{ github.workspace }}/TestResults/r4-cohort
+        run: |
+          dotnet test tests/Revenant/Revenant.Tests.csproj --configuration Release --no-build \
+            --filter "Category=R4Cohort&FullyQualifiedName~Generate_native_R4_cohort" \
+            --logger "console;verbosity=normal" --logger "trx;LogFileName=cohort.trx" \
+            --results-directory TestResults/r4-cohort
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          report = ET.parse("TestResults/r4-cohort/cohort.trx")
+          cases = report.findall(".//{*}UnitTestResult")
+          counters = report.find(".//{*}Counters").attrib
+          assert len(cases) == 1 and all(counters[key] == "1" for key in ("total", "executed", "passed"))
+          assert cases[0].attrib["outcome"] == "Passed" and cases[0].attrib["testName"].endswith(".Generate_native_R4_cohort")
+          PY
+      - name: Upload bounded R4 cohort evidence
+        if: ${{ !cancelled() && steps.r4-cohort.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: r4-native-cohort-evidence
+          path: |
+            TestResults/r4-cohort/cohort.trx
+            TestResults/r4-cohort/manifest.bin
+            TestResults/r4-cohort/manifest.json
+            TestResults/r4-cohort/sample.json
+            TestResults/r4-cohort/performance.json
           retention-days: 14
   web:
     name: npm ci/typecheck/test/build

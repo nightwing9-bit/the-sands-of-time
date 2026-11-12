@@ -57,19 +57,24 @@ internal sealed record V4AccountObservation(V4SealIdentity Seal, string AccountI
 
     internal byte[] Encode()
     {
+        var w = ObservationEncoding.Begin(Schema);
+        Seal.Write(w);
+        WriteContent(w);
+        return w.ToArray();
+    }
+
+    internal void WriteContent(CanonicalWriter w)
+    {
         if (string.IsNullOrWhiteSpace(AccountId) || string.IsNullOrWhiteSpace(BankId)
             || LastSuccessfulActivityMs >= Seal.BoundaryMs || SinceActivityMs <= 0)
         {
             throw new CanonicalFormatException("Invalid account observation identity or activity time.");
         }
-        var w = ObservationEncoding.Begin(Schema);
-        Seal.Write(w);
         w.WriteString(AccountId).WriteString(BankId);
         Balance.Write(w);
         V4ActivityWindow.WriteAll(w, Windows);
         ObservationEncoding.WriteOptional(w, LastSuccessfulActivityMs);
         ObservationEncoding.WriteOptional(w, SinceActivityMs);
-        return w.ToArray();
     }
 
     internal static V4AccountObservation Decode(ReadOnlySpan<byte> bytes, string digest)
