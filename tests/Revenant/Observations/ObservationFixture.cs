@@ -10,15 +10,16 @@ namespace Revenant.Tests.Observations;
 internal sealed class ObservationFixture
 {
     private readonly List<V4StoredFact> facts = [];
-    internal ScenarioRun Run { get; } = BehavioralEpisodeScenarioTests.Opening(BehavioralEpisodeScenarioTests.RunId);
+    internal ScenarioRun Run { get; }
     internal ObservedFinanceContext Context { get; }
     internal ObservedFinanceState Initial { get; }
     internal ObservedFinanceState State { get; private set; }
     internal long Origin => Context.OriginMs;
     internal IReadOnlyList<V4StoredFact> Facts => facts;
 
-    internal ObservationFixture()
+    internal ObservationFixture(ScenarioRun? run = null)
     {
+        Run = run ?? BehavioralEpisodeScenarioTests.Opening(BehavioralEpisodeScenarioTests.RunId);
         Context = BehavioralEpisodeScenarioTests.Pin(Run);
         State = Initial = ObservedFinanceReducer.Initial(Run, Context).Value;
     }
@@ -29,9 +30,12 @@ internal sealed class ObservationFixture
         var dest = Run.Manifest.Accounts[payee];
         var p = new PaymentIntent(Run.RunId, id, State.Ledger.LastIntentSequence + 1, time, source.BankId, source.AccountId,
             dest.BankId, dest.AccountId, Money.Usd(amount), SyntheticTruth.Legitimate, new(true, sanctioned));
-        Add(ObservedFactKind.PaymentIntent, time, ScenarioSchemas.InputSchemaVersion, PaymentIntentCodec.Instance.EncodeCanonical(p));
+        Intake(p);
         return p;
     }
+
+    internal void Intake(PaymentIntent intent) => Add(ObservedFactKind.PaymentIntent, intent.EventTimeUtcMs,
+        ScenarioSchemas.InputSchemaVersion, PaymentIntentCodec.Instance.EncodeCanonical(intent));
 
     internal void Screen(PaymentIntent intent, long time) =>
         Add(ObservedFactKind.Screening, time, PaymentStepCodec.ScreeningSchema, PaymentStepCodec.Encode(intent.IntentId));

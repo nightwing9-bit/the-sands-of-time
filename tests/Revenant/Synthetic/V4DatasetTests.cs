@@ -1,4 +1,6 @@
 using Revenant.Contracts;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Revenant.Observations;
 using Revenant.Scenario;
 using Revenant.Synthetic;
@@ -10,6 +12,59 @@ namespace Revenant.Tests.Synthetic;
 
 public sealed class V4DatasetTests
 {
+    [Fact]
+    public void Published_v1_manifest_and_every_root_fingerprint_remain_unchanged()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "TheSandsOfTime.slnx"))) dir = dir.Parent;
+        Assert.NotNull(dir);
+        var published = JsonSerializer.Deserialize<V4DatasetManifest>(
+            File.ReadAllBytes(Path.Combine(dir.FullName, "docs", "recovery", "r4-qualified-dataset-manifest.json")),
+            new JsonSerializerOptions { Converters = { new JsonStringEnumConverter() } })!;
+        Assert.Equal("a40cfb31cab319541a339d5c07a7068b6fda4717718a8012af5a999a83e793df",
+            ObservationEncoding.Hash(V4DatasetExporter.EncodeManifest(published)));
+        foreach (var (group, root) in V4EpisodeConfig.Qualification.Roots().Zip(published.Roots))
+        {
+            var plan = V4EpisodePlanner.Plan(V4EpisodeConfig.Qualification, group, new(Guid.NewGuid()));
+            Assert.Equal(root.Key, group.Key);
+            Assert.Equal(root.ManifestSha256, plan.Financial.Opening.Manifest.ContentHash);
+            Assert.Equal(root.BehaviorSha256, plan.HistoryFingerprint);
+        }
+    }
+
+    [Fact]
+    public void V2_uses_pinned_independent_openings_and_overlapping_development_schedules()
+    {
+        var config = V4EpisodeConfig.RiskQualification;
+        Assert.Equal(new[] { 12, 4, 4, 4 }, config.Roots().GroupBy(x => x.Split).Select(x => x.Count()));
+        Assert.Empty(config.Roots().Select(x => x.Key).Intersect(V4EpisodeConfig.Qualification.Roots().Select(x => x.Key)));
+        Assert.Empty(config.Roots().Select(x => x.Key).Intersect(V4EpisodeConfig.RiskRingChallenge.Roots().Select(x => x.Key)));
+        var development = config.Roots().Where(r => r.Split is V4DatasetSplit.Train or V4DatasetSplit.Validation)
+            .Select(g => V4EpisodePlanner.Plan(config, g, new(Guid.NewGuid()))).ToArray();
+        Assert.Equal(development.Length, development.Select(d => d.Financial.Opening.Manifest.StartUtcMs).Distinct().Count());
+        Assert.Equal(development.Length * 5, development.SelectMany(d => d.CampaignFingerprints).Distinct().Count());
+        foreach (var design in development)
+        {
+            var run = design.Financial.Opening;
+            var origin = run.Manifest.StartUtcMs;
+            Assert.True(BehavioralEpisodeScenario.MatchesOpening(run, origin));
+            Assert.False(BehavioralEpisodeScenario.MatchesOpening(run with { Manifest = run.Manifest with { V4EpisodeGenerator = null } }, origin));
+            var scored = design.Financial.Payments.Zip(design.Truth.Payments)
+                .Where(row => row.First.Intent.EventTimeUtcMs >= origin + V4EpisodeConfig.WarmupMs).ToArray();
+            Assert.Equal(design.Truth.Payments.Count(p => p.Malicious), scored.Count(p => p.Second.Malicious));
+            foreach (var offset in new[] { 1, 2 })
+            {
+                var day = scored.Where(row => (row.First.Intent.EventTimeUtcMs - origin) / V4EpisodeConfig.WarmupMs == offset);
+                Assert.Contains(day, row => row.Second.Malicious);
+                Assert.Contains(day, row => row.Second.HardNegative);
+            }
+            Assert.All(design.Financial.Payments, p => Assert.Equal(SyntheticTruth.Legitimate, p.Intent.Truth));
+            var again = V4EpisodePlanner.Plan(config, design.Group, new(Guid.NewGuid()));
+            Assert.Equal(design.HistoryFingerprint, again.HistoryFingerprint);
+            Assert.Equal(run.Manifest.ContentHash, again.Financial.Opening.Manifest.ContentHash);
+        }
+    }
+
     [Fact]
     public void Cohort_groups_are_assigned_before_generation_and_disjoint_across_splits()
     {

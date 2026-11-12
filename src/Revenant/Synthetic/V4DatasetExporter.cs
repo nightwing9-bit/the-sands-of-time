@@ -2,8 +2,10 @@ using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Marrow.Kernel.Canonical;
 using Revenant.Finance;
+using Revenant.Intelligence;
 using Revenant.Observations;
 using Revenant.Scenario;
 using Revenant.Timeline;
@@ -11,7 +13,11 @@ using Revenant.Timeline;
 namespace Revenant.Synthetic;
 
 internal sealed record V4DatasetTable(string Name, long Rows, long Bytes, string Sha256);
-internal sealed record V4DatasetRoot(string Key, V4DatasetSplit Split, string ManifestSha256, string BehaviorSha256, int Accounts, long Facts);
+internal sealed record V4DatasetRoot(string Key, V4DatasetSplit Split, string ManifestSha256, string BehaviorSha256, int Accounts, long Facts)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? OriginMs { get; init; }
+}
 internal sealed record V4DatasetSplitSummary(V4DatasetSplit Split, int Roots, long Legitimate, long Fraud, long HardNegatives,
     long FraudScored, long LegitimateScored, long Anomalies, long AnomalyNegatives, long FullTargets,
     long Intake, long Screened, long Held, long Rejected, long Settled, long Returned, long InsufficientSettlement, long FraudPosted,
@@ -22,19 +28,39 @@ internal sealed record V4DatasetManifest(string Schema, string CodeRevision, V4E
 internal sealed class V4DatasetExporter : IDisposable
 {
     internal const string Schema = "dataset-manifest/1";
+    internal const string RiskSchema = "dataset-manifest/2";
     internal const string StreamSchema = "revenant-dataset-stream/1";
-    private const string FraudStream = "fraud-asof";
+    internal const string RiskStream = "risk-asof";
+    internal const string RiskRowSchema = "dataset-risk-row/2";
+    internal const string FraudStream = "fraud-asof";
     private const string BankStream = "bank";
     private const string AccountStream = "account";
     private const string TargetsStream = "targets";
-    private const string AttemptStream = "attempt-outcomes";
-    private const string PaymentTruthStream = "payment-truth";
+    internal const string AttemptStream = "attempt-outcomes";
+    internal const string PaymentTruthStream = "payment-truth";
     private const string AnomalyTruthStream = "anomaly-truth";
-    private const string CampaignTruthStream = "campaign-truth";
+    internal const string CampaignTruthStream = "campaign-truth";
 
     private static readonly string[] ModelStreams = [FraudStream, BankStream, AccountStream, TargetsStream];
     private static readonly string[] TruthStreams = [PaymentTruthStream, AnomalyTruthStream, CampaignTruthStream];
     private static readonly string[] StreamNames = [.. ModelStreams, AttemptStream, .. TruthStreams];
+    internal static IReadOnlyList<string> RiskTableNames { get; } = Array.AsReadOnly([.. StreamNames, RiskStream]);
+
+    internal static string SplitDigest(string schema, IEnumerable<V4DatasetTable> tables)
+    {
+        var ordered = tables.ToArray();
+        var w = ObservationEncoding.Begin(schema).WriteCount(ordered.Length);
+        foreach (var table in ordered)
+            w.WriteString(table.Name).WriteBytes(Convert.FromHexString(table.Sha256));
+        return ObservationEncoding.Hash(w.ToArray());
+    }
+
+    internal static string ModelDigest(IReadOnlyList<V4DatasetTable> tables, bool v2) =>
+        SplitDigest("dataset-model-streams/1", (v2 ? ModelStreams.Append(RiskStream) : ModelStreams.AsEnumerable())
+            .Select(name => tables.Single(t => t.Name == name)));
+
+    internal static string TruthDigest(IReadOnlyList<V4DatasetTable> tables) =>
+        SplitDigest("dataset-truth-streams/1", TruthStreams.Select(name => tables.Single(t => t.Name == name)));
 
     private readonly V4EpisodeConfig configuration;
     private readonly string codeRevision;
@@ -62,7 +88,7 @@ internal sealed class V4DatasetExporter : IDisposable
         this.directory = directory;
         if (directory is not null) Directory.CreateDirectory(directory);
         foreach (var split in expected.Select(x => x.Split).Distinct())
-            splits.Add(split, new(split, writeTables ? directory : null));
+            splits.Add(split, new(split, writeTables ? directory : null, configuration.IsV2));
     }
 
     internal void Add(V4EpisodeDesign design, V4ExecutedEpisode execution, V4ObservationProjector observations)
@@ -78,6 +104,7 @@ internal sealed class V4DatasetExporter : IDisposable
         var seedManifest = opening.Manifest;
         var position = execution.History.Segments.Single().LastFact;
         if (seedManifest.Accounts.Any(a => !accountIdentities.Add(a.AccountId))
+            || seedManifest.V4EpisodeGenerator != configuration.Generator
             || execution.History.ExecutionRunId != opening.RunId
             || execution.History.Genesis.Ledger.ManifestContentHash != seedManifest.ContentHash)
         {
@@ -116,6 +143,21 @@ internal sealed class V4DatasetExporter : IDisposable
                 .WriteInt64(row.CutoffFactSeq).WriteInt64(row.EffectiveTimeMs).WriteInt64(row.LastSealBoundaryMs);
             row.Inputs.Write(w);
             sink.Add(FraudStream, w.ToArray());
+        }
+        if (configuration.IsV2)
+        {
+            if (observations.RiskAsOf.Count != observations.FraudAsOf.Count)
+                throw new InvalidOperationException("Every screening opportunity must have a v2 vector.");
+            foreach (var (risk, asOf) in observations.RiskAsOf.Zip(observations.FraudAsOf))
+            {
+                if (risk.IntentId != asOf.IntentId || risk.CutoffFactSeq != asOf.CutoffFactSeq
+                    || risk.CutoffPrefixDigest != asOf.CutoffPrefixDigest || risk.EffectiveTimeMs != asOf.EffectiveTimeMs)
+                    throw new InvalidOperationException("Risk feature row does not match its causal observation.");
+                var w = Row(RiskRowSchema, RiskFeatureVectorV2.Schema, key).WriteString(risk.IntentId)
+                    .WriteInt64(risk.CutoffFactSeq).WriteInt64(risk.EffectiveTimeMs).WriteString(risk.SourceBankId)
+                    .WriteBytes(risk.Vector.Encode());
+                sink.Add(RiskStream, w.ToArray());
+            }
         }
         foreach (var row in observations.Banks)
         {
@@ -200,7 +242,8 @@ internal sealed class V4DatasetExporter : IDisposable
             sink.Add(CampaignTruthStream, w.ToArray());
         }
 
-        roots.Add(new(key, design.Group.Split, seedManifest.ContentHash, design.HistoryFingerprint, seedManifest.Accounts.Length, position));
+        roots.Add(new(key, design.Group.Split, seedManifest.ContentHash, design.HistoryFingerprint, seedManifest.Accounts.Length, position)
+        { OriginMs = configuration.IsV2 ? seedManifest.StartUtcMs : null });
         if (directory is not null && roots.Count == 1)
         {
             // Compact typed derived sample. Exclude truth and operational IDs.
@@ -221,37 +264,50 @@ internal sealed class V4DatasetExporter : IDisposable
         if (complete || roots.Count != expected.Length) throw new InvalidOperationException("The dataset is incomplete.");
         complete = true;
         var summaries = splits.Values.Select(s => s.Finish()).ToArray();
-        var w = ObservationEncoding.Begin(Schema).WriteString(codeRevision)
-            .WriteString(BehavioralEpisodeScenario.Version).WriteString(BehavioralEpisodeScenario.GeneratorVersion)
+        var schema = configuration.IsV2 ? RiskSchema : Schema;
+        var manifest = new V4DatasetManifest(schema, codeRevision, configuration, roots.ToArray(), summaries, "");
+        var canonical = EncodeManifest(manifest);
+        manifest = manifest with { Sha256 = ObservationEncoding.Hash(canonical) };
+        if (directory is not null)
+        {
+            File.WriteAllBytes(Path.Combine(directory, "manifest.bin"), canonical);
+            File.WriteAllBytes(Path.Combine(directory, "manifest.json"), JsonSerializer.SerializeToUtf8Bytes(manifest,
+                new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } }));
+        }
+        return manifest;
+    }
+
+    internal static byte[] EncodeManifest(V4DatasetManifest manifest)
+    {
+        var configuration = manifest.Configuration;
+        var w = ObservationEncoding.Begin(manifest.Schema).WriteString(manifest.CodeRevision)
+            .WriteString(BehavioralEpisodeScenario.Version).WriteString(configuration.Generator ?? BehavioralEpisodeScenario.GeneratorVersion)
             .WriteString(V4EpisodeConfig.Assignment).WriteInt64(configuration.MasterSeed).WriteInt64(configuration.OriginMs)
             .WriteInt64(configuration.Duration).WriteString(V4BankObservation.Schema).WriteString(V4AccountObservation.Schema)
             .WriteString(V4FraudAsOfObservation.Schema).WriteString(V4BankTargets.Schema).WriteString(V4PaymentTruth.Schema)
             .WriteCount(BehavioralEpisodeScenario.BankCount);
         for (var i = 0; i < BehavioralEpisodeScenario.BankCount; i++) w.WriteString(FridayRingScenario.BankId(i));
-        w.WriteCount(roots.Count);
-        foreach (var root in roots)
+        if (configuration.IsV2)
+            w.WriteBoolean(configuration.ShiftedRing).WriteString(RiskFeatureVectorV2.Schema).WriteString(RiskFeatureVectorV2.SchemaHash);
+        w.WriteCount(manifest.Roots.Count);
+        foreach (var root in manifest.Roots)
+        {
             w.WriteString(root.Key).WriteByte((byte)root.Split).WriteString(root.ManifestSha256).WriteString(root.BehaviorSha256)
                 .WriteInt32(root.Accounts).WriteInt64(root.Facts);
-        w.WriteCount(summaries.Length);
-        foreach (var split in summaries)
+            if (configuration.IsV2) w.WriteInt64(root.OriginMs!.Value);
+        }
+        w.WriteCount(manifest.Splits.Count);
+        foreach (var split in manifest.Splits)
         {
             w.WriteByte((byte)split.Split).WriteCount(split.Roots).WriteBytes(Convert.FromHexString(split.ModelSha256))
                 .WriteBytes(Convert.FromHexString(split.TruthSha256)).WriteCount(split.Tables.Count);
             foreach (var table in split.Tables)
                 w.WriteString(table.Name).WriteInt64(table.Rows).WriteInt64(table.Bytes).WriteBytes(Convert.FromHexString(table.Sha256));
         }
-        var canonical = w.ToArray();
-        var manifest = new V4DatasetManifest(Schema, codeRevision, configuration, roots.ToArray(), summaries, ObservationEncoding.Hash(canonical));
-        if (directory is not null)
-        {
-            File.WriteAllBytes(Path.Combine(directory, "manifest.bin"), canonical);
-            File.WriteAllBytes(Path.Combine(directory, "manifest.json"), JsonSerializer.SerializeToUtf8Bytes(manifest,
-                new JsonSerializerOptions { WriteIndented = true, Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() } }));
-        }
-        return manifest;
+        return w.ToArray();
     }
 
-    private static bool IsScreened(string? status) =>
+    internal static bool IsScreened(string? status) =>
         status is nameof(PaymentStatus.Cleared) or nameof(PaymentStatus.Held) or nameof(PaymentStatus.Rejected);
 
     private static CanonicalWriter Row(string tag, string content, string key) =>
@@ -280,10 +336,13 @@ internal sealed class V4DatasetExporter : IDisposable
         internal long Legitimate, Fraud, HardNegatives, FraudScored, LegitimateScored, Anomalies, AnomalyNegatives, FullTargets,
             Intake, Screened, Held, Rejected, Settled, Returned, InsufficientSettlement, FraudPosted;
 
-        internal SplitSink(V4DatasetSplit split, string? directory)
+        private readonly bool risk;
+        internal SplitSink(V4DatasetSplit split, string? directory, bool risk)
         {
             this.split = split;
-            sinks = StreamNames.ToDictionary(name => name,
+            this.risk = risk;
+            var names = risk ? RiskTableNames : StreamNames;
+            sinks = names.ToDictionary(name => name,
                 name => new TableSink(name, directory is null ? null : Path.Combine(directory, $"{split}-{name}.bin")), StringComparer.Ordinal);
         }
 
@@ -294,21 +353,10 @@ internal sealed class V4DatasetExporter : IDisposable
             if (FraudScored == 0 || LegitimateScored == 0 || HardNegatives == 0 || Anomalies == 0 || AnomalyNegatives == 0
                 || Attacks.Values.Any(count => count == 0))
                 throw new InvalidOperationException("An episode split lacks required behavior or truth coverage.");
-            var tables = StreamNames.Select(name => sinks[name].Finish()).ToArray();
+            var tables = (risk ? RiskTableNames : StreamNames).Select(name => sinks[name].Finish()).ToArray();
             return new(split, Roots, Legitimate, Fraud, HardNegatives, FraudScored, LegitimateScored, Anomalies, AnomalyNegatives,
                 FullTargets, Intake, Screened, Held, Rejected, Settled, Returned, InsufficientSettlement, FraudPosted, Attacks, tables,
-                Combined("dataset-model-streams/1", ModelStreams), Combined("dataset-truth-streams/1", TruthStreams));
-
-            string Combined(string schema, string[] names)
-            {
-                var w = ObservationEncoding.Begin(schema).WriteCount(names.Length);
-                foreach (var name in names)
-                {
-                    var table = tables.Single(x => x.Name == name);
-                    w.WriteString(name).WriteBytes(Convert.FromHexString(table.Sha256));
-                }
-                return ObservationEncoding.Hash(w.ToArray());
-            }
+                ModelDigest(tables, risk), TruthDigest(tables));
         }
 
         public void Dispose()

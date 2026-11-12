@@ -24,6 +24,9 @@ jobs:
     name: dotnet restore/build/test
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v6
 
@@ -43,9 +46,30 @@ jobs:
 
       # Remaining cheap unit tests. Integration and E2E tests must carry these traits to stay out of the fast job.
       - name: Cheap unit tests
-        run: dotnet test TheSandsOfTime.slnx --configuration Release --no-build --filter "Category!=Integration&Category!=E2E&Category!=MlSsaX64&Category!=OfflineTraining&Category!=R4Cohort"
+        run: dotnet test TheSandsOfTime.slnx --configuration Release --no-build --filter "Category!=Integration&Category!=E2E&Category!=MlSsaX64&Category!=OfflineTraining&Category!=R4Cohort&Category!=R5Cohort&Category!=R5ArtifactX64"
       # SSA tests are excluded above on purpose (they need MKL/OpenMP on Linux x64 and must never be skipped silently):
       # the ml-platform-x64 job below runs them and fails unless the expected probe tests executed and passed.
+      - name: Fit the bounded R5 candidates and freeze Calibration
+        id: r5-offline-selection
+        if: >-
+          ${{ github.event.action == 'edited'
+              && github.event.pull_request.head.repo.full_name == github.repository
+              && github.event.pull_request.head.ref == 'codex/r5-behavioral-risk-v2-20261112'
+              && contains(github.event.pull_request.body, 'R5-offline-experiment: select ') }}
+        timeout-minutes: 6
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          R5_PR_BODY: ${{ github.event.pull_request.body }}
+          R5_EXPERIMENT_REVISION: ${{ github.event.pull_request.head.sha }}
+        run: bash scripts/checks/r5-offline-experiment.sh select
+      - name: Upload R5 development, calibration and frozen candidate evidence
+        if: ${{ !cancelled() && steps.r5-offline-selection.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: r5-offline-selection
+          path: TestResults/r5-offline-select
+          retention-days: 14
 
   ml-platform-x64:
     name: ML.NET platform probe (Linux x64 FastTree + SSA)
@@ -64,8 +88,31 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends libomp-dev
       - name: FastTree + DetectSpikeBySsa + ForecastBySsa fit/save/load/predict
         run: bash scripts/checks/ml-platform-probe.sh --ci
+      - name: Verify the pinned R5 artifact in a fresh native test process
+        run: |
+          dotnet test tests/Revenant/Revenant.Tests.csproj --configuration Release --no-build \
+            --filter "Category=R5ArtifactX64&FullyQualifiedName~R5_pinned_artifact_loads_and_scores_references_and_rejects_corruption_on_linux_x64" \
+            --logger "trx;LogFileName=r5-artifact.trx" --results-directory TestResults/ml-platform/r5
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          report = ET.parse("TestResults/ml-platform/r5/r5-artifact.trx")
+          cases = report.findall(".//{*}UnitTestResult")
+          counters = report.find(".//{*}Counters").attrib
+          assert len(cases) == 1 and all(counters[key] == "1" for key in ("total", "executed", "passed"))
+          assert cases[0].attrib["outcome"] == "Passed" and ".R5_pinned_artifact_loads_and_scores_references_" in cases[0].attrib["testName"]
+          PY
       - name: Build the published Linux AMD64 Worker
         run: docker build --platform linux/amd64 -f deploy/docker/Worker.Dockerfile -t sands-worker-ml:ci .
+      - name: Score the exact R5 references in the published Worker
+        shell: bash
+        run: |
+          set -o pipefail
+          docker run --rm --network none --platform linux/amd64 sands-worker-ml:ci --r5-risk-selftest \
+            | tee TestResults/ml-platform/r5-worker-runtime.json
+          jq -e '.Result == "PASS" and .ProcessArchitecture == "X64" and .References == 7
+            and .FeatureSchema == "risk-features-v2" and .ThresholdPpm == 852469
+            and .ArtifactSha256 == "56bca32c36dd1911d163a6f92369da43382e1937d875228339f15f8608519c7c"' \
+            TestResults/ml-platform/r5-worker-runtime.json
       - name: Run SSA and pinned FastTree in the published Worker
         shell: bash
         run: |
@@ -155,6 +202,9 @@ jobs:
     runs-on: ubuntu-24.04
     # Docker is preinstalled on GitHub-hosted Ubuntu runners; Testcontainers starts PostgreSQL/Redis per fixture.
     timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-dotnet@v6
@@ -208,6 +258,7 @@ jobs:
           --blame-hang-timeout 5m --blame-hang-dump-type mini
           --results-directory TestResults/revenant-integration
       - name: Require executed Revenant integration and recovery coverage
+        id: revenant-coverage
         if: ${{ !cancelled() && steps.revenant-integration.outcome == 'success' }}
         shell: bash
         run: |
@@ -250,6 +301,7 @@ jobs:
               ("V4BranchExecutionPostgresTests", "Reconciliation_rejects_conflicting_bytes_already_written_at_the_SQL_position"): 1,
               ("BehavioralEpisodePostgresTests", "Six_bank_behavioral_root_commits_real_payments_holds_returns_and_seals"): 1,
               ("V4DatasetPostgresTests", "Generated_smoke_reproduces_semantic_exports_under_different_execution_ids"): 1,
+              ("V4DatasetPostgresTests", "V2_six_bank_smoke_verifies_real_opening_risk_export_and_reader"): 1,
           }
           for test, minimum in required.items():
               observed = len(passed[test])
@@ -302,6 +354,109 @@ jobs:
             TestResults/r4-cohort/manifest.json
             TestResults/r4-cohort/sample.json
             TestResults/r4-cohort/performance.json
+          retention-days: 14
+      - name: Run explicitly selected R5 cohort after the financial smoke
+        id: r5-cohort
+        if: >-
+          ${{ steps.revenant-coverage.outcome == 'success'
+              && (github.event.action == 'opened' || github.event.action == 'edited')
+              && github.event.pull_request.head.repo.full_name == github.repository
+              && github.event.pull_request.head.ref == 'codex/r5-behavioral-risk-v2-20261112'
+              && contains(github.event.pull_request.body, 'R5-native-cohort: qualification') }}
+        timeout-minutes: 34
+        env:
+          R5_DATASET_MODE: qualification
+          R5_CODE_REVISION: ${{ github.event.pull_request.head.sha }}
+          R5_DATASET_OUTPUT: ${{ github.workspace }}/TestResults/r5-cohort
+        run: |
+          dotnet test tests/Revenant/Revenant.Tests.csproj --configuration Release --no-build \
+            --filter "Category=R5Cohort&FullyQualifiedName~Generate_native_R5_cohort" \
+            --logger "console;verbosity=normal" --logger "trx;LogFileName=cohort.trx" \
+            --results-directory TestResults/r5-cohort
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          report = ET.parse("TestResults/r5-cohort/cohort.trx")
+          cases = report.findall(".//{*}UnitTestResult")
+          counters = report.find(".//{*}Counters").attrib
+          assert len(cases) == 1 and all(counters[key] == "1" for key in ("total", "executed", "passed"))
+          assert cases[0].attrib["outcome"] == "Passed" and cases[0].attrib["testName"].endswith(".Generate_native_R5_cohort")
+          PY
+      - name: Upload R5 cohort manifest and test results
+        if: ${{ !cancelled() && steps.r5-cohort.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: r5-native-cohort-evidence
+          path: |
+            TestResults/r5-cohort/cohort.trx
+            TestResults/r5-cohort/manifest.bin
+            TestResults/r5-cohort/manifest.json
+            TestResults/r5-cohort/development-evidence.json
+          retention-days: 14
+      - name: Upload R5 development streams
+        if: ${{ steps.r5-cohort.outcome == 'success' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: r5-cohort-development
+          path: |
+            TestResults/r5-cohort/Train-risk-asof.bin
+            TestResults/r5-cohort/Train-fraud-asof.bin
+            TestResults/r5-cohort/Train-attempt-outcomes.bin
+            TestResults/r5-cohort/Train-payment-truth.bin
+            TestResults/r5-cohort/Train-campaign-truth.bin
+            TestResults/r5-cohort/Validation-risk-asof.bin
+            TestResults/r5-cohort/Validation-fraud-asof.bin
+            TestResults/r5-cohort/Validation-attempt-outcomes.bin
+            TestResults/r5-cohort/Validation-payment-truth.bin
+            TestResults/r5-cohort/Validation-campaign-truth.bin
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload R5 calibration streams
+        if: ${{ steps.r5-cohort.outcome == 'success' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: r5-cohort-calibration
+          path: |
+            TestResults/r5-cohort/Calibration-risk-asof.bin
+            TestResults/r5-cohort/Calibration-fraud-asof.bin
+            TestResults/r5-cohort/Calibration-attempt-outcomes.bin
+            TestResults/r5-cohort/Calibration-payment-truth.bin
+            TestResults/r5-cohort/Calibration-campaign-truth.bin
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload R5 final-test streams
+        if: ${{ steps.r5-cohort.outcome == 'success' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: r5-cohort-final-test
+          path: |
+            TestResults/r5-cohort/FinalTest-risk-asof.bin
+            TestResults/r5-cohort/FinalTest-fraud-asof.bin
+            TestResults/r5-cohort/FinalTest-attempt-outcomes.bin
+            TestResults/r5-cohort/FinalTest-payment-truth.bin
+            TestResults/r5-cohort/FinalTest-campaign-truth.bin
+          if-no-files-found: error
+          retention-days: 14
+      - name: Evaluate the frozen R5 model on FinalTest and an independent financial ring cohort
+        id: r5-offline-evaluation
+        if: >-
+          ${{ steps.revenant-coverage.outcome == 'success'
+              && github.event.action == 'edited'
+              && github.event.pull_request.head.repo.full_name == github.repository
+              && github.event.pull_request.head.ref == 'codex/r5-behavioral-risk-v2-20261112'
+              && contains(github.event.pull_request.body, 'R5-offline-experiment: evaluate ') }}
+        timeout-minutes: 12
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          R5_PR_BODY: ${{ github.event.pull_request.body }}
+          R5_EXPERIMENT_REVISION: ${{ github.event.pull_request.head.sha }}
+        run: bash scripts/checks/r5-offline-experiment.sh evaluate
+      - name: Upload frozen R5 FinalTest and ring challenge evidence
+        if: ${{ !cancelled() && steps.r5-offline-evaluation.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: r5-offline-evaluation
+          path: TestResults/r5-offline-evaluate
           retention-days: 14
   web:
     name: npm ci/typecheck/test/build

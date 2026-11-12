@@ -43,17 +43,9 @@ internal sealed partial class V4ObservationProjector
             }
             var candidate = prior.Intent;
             var past = PriorActivity(candidate.SourceAccountId, fact.EffectiveTimeMs, state.LastFact, candidate.IntentId);
-            var account = state.Ledger.Accounts[candidate.SourceAccountId];
-            var lastOutgoing = past.LastOrDefault(x => x.Kind is ActivityKind.Intent or ActivityKind.SettleOut);
-            var utc = DateTimeOffset.FromUnixTimeMilliseconds(fact.EffectiveTimeMs);
             screeningRows.Add(new(executionRun, candidate.IntentId, fact.EffectiveTimeMs, state.LastFact,
                 state.LastSealedBoundaryMs, state.PrefixDigest,
-                new(candidate.Amount.MinorUnits, candidate.Amount.Currency, new(account.PostedMinor, account.ReservedMinor),
-                    candidate.Features.NewBeneficiary, candidate.Features.SanctionsHit,
-                    past.Any(x => x.Other == candidate.DestAccountId && x.Kind == ActivityKind.Intent),
-                    past.Any(x => x.Other == candidate.DestAccountId),
-                    lastOutgoing is null ? null : checked(fact.EffectiveTimeMs - lastOutgoing.At),
-                    utc.Hour * 60 + utc.Minute, (int)utc.DayOfWeek, Windows(past, fact.EffectiveTimeMs))));
+                FraudInputs(state, candidate, fact.EffectiveTimeMs, past)));
         }
 
         switch (fact.Kind)
@@ -89,6 +81,19 @@ internal sealed partial class V4ObservationProjector
             entries.Add(new(fact.EffectiveTimeMs, fact.Sequence, intent.IntentId, other, intent.Amount.MinorUnits, kind));
             touched.Add(id);
         }
+    }
+
+    private V4FraudInputs FraudInputs(ObservedFinanceState state, PaymentIntent candidate, long at, Activity[] past)
+    {
+        var account = state.Ledger.Accounts[candidate.SourceAccountId];
+        var lastOutgoing = past.LastOrDefault(x => x.Kind is ActivityKind.Intent or ActivityKind.SettleOut);
+        var utc = DateTimeOffset.FromUnixTimeMilliseconds(at);
+        return new(candidate.Amount.MinorUnits, candidate.Amount.Currency, new(account.PostedMinor, account.ReservedMinor),
+            candidate.Features.NewBeneficiary, candidate.Features.SanctionsHit,
+            past.Any(x => x.Other == candidate.DestAccountId && x.Kind == ActivityKind.Intent),
+            past.Any(x => x.Other == candidate.DestAccountId),
+            lastOutgoing is null ? null : checked(at - lastOutgoing.At),
+            utc.Hour * 60 + utc.Minute, (int)utc.DayOfWeek, Windows(past, at));
     }
 
     partial void CloseAccountInterval(V4SealIdentity seal, ObservedFinanceState state)

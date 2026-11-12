@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Security.Cryptography;
+using System.Text.Json.Serialization;
 using Marrow.Kernel.Canonical;
 using Revenant.Contracts;
 using Revenant.Observations;
@@ -17,16 +18,31 @@ internal sealed record V4EpisodeConfig(long MasterSeed, long OriginMs, int Hours
 {
     internal const string Assignment = "independent-root-split/1";
     internal const long HourMs = 3_600_000;
+    internal const long WarmupMs = 24 * HourMs;
     internal long Duration => checked(Hours * HourMs);
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Generator { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool ShiftedRing { get; init; }
+    internal bool IsV2 => Generator == BehavioralEpisodeScenario.GeneratorVersionV2;
 
     internal static readonly V4EpisodeConfig Qualification = new(937_041_261, 1_768_176_000_000, 72, 12, 4, 4, 4);
     internal static readonly V4EpisodeConfig Pilot = Qualification with { Hours = 48, Train = 1, Validation = 1, Calibration = 0, FinalTest = 0 };
     internal static readonly V4EpisodeConfig Smoke = Qualification with { Hours = 2, Train = 1, Validation = 0, Calibration = 0, FinalTest = 0 };
+    internal static readonly V4EpisodeConfig RiskQualification = new(2_697_831_047, Qualification.OriginMs, 72, 12, 4, 4, 4)
+    { Generator = BehavioralEpisodeScenario.GeneratorVersionV2 };
+    internal static readonly V4EpisodeConfig RiskSmoke = RiskQualification with
+    { Hours = 48, Train = 1, Validation = 0, Calibration = 0, FinalTest = 0 };
+    internal static readonly V4EpisodeConfig RiskRingChallenge = RiskQualification with
+    { MasterSeed = 4_814_623_101, Train = 0, Validation = 0, Calibration = 0, FinalTest = 4, ShiftedRing = true };
 
     internal IEnumerable<V4RootGroup> Roots()
     {
         var counts = new[] { Train, Validation, Calibration, FinalTest };
         if (Hours is < 2 or > 720 || counts.Any(n => n is < 0 or > 1_000) || counts.Sum() == 0
+            || (Generator is not null && !IsV2) || (ShiftedRing && !IsV2)
+            || (IsV2 && (Hours < 48 || Hours % 24 != 0
+                || OriginMs > DateTimeOffset.MaxValue.ToUnixTimeMilliseconds() - Duration - 56 * WarmupMs))
             || OriginMs < 0 || OriginMs > DateTimeOffset.MaxValue.ToUnixTimeMilliseconds() - Duration
             || !ObservedFinanceVersion.IsBoundary(OriginMs))
         {
@@ -37,7 +53,9 @@ internal sealed record V4EpisodeConfig(long MasterSeed, long OriginMs, int Hours
             for (var j = 0; j < counts[i]; j++)
             {
                 var split = (V4DatasetSplit)(i + 1);
-                var bytes = new CanonicalWriter().WriteString(Assignment).WriteInt64(MasterSeed).WriteByte((byte)split).WriteInt32(j).ToArray();
+                var w = new CanonicalWriter().WriteString(Assignment);
+                if (IsV2) w.WriteString(Generator!).WriteString("root-identity").WriteBoolean(ShiftedRing);
+                var bytes = w.WriteInt64(MasterSeed).WriteByte((byte)split).WriteInt32(j).ToArray();
                 var digest = SHA256.HashData(bytes);
                 yield return new(split, j, Convert.ToHexStringLower(digest), BinaryPrimitives.ReadInt64BigEndian(digest));
             }
@@ -52,13 +70,15 @@ internal sealed record V4EpisodeAnnotation(ImmutableArray<V4PaymentTruth> Paymen
 internal sealed record V4EpisodeDesign(V4RootGroup Group, V4EpisodePlan Financial, V4EpisodeAnnotation Truth,
     string HistoryFingerprint, ImmutableArray<string> CampaignFingerprints);
 
-internal static class V4EpisodePlanner
+internal static partial class V4EpisodePlanner
 {
     private sealed record Draft(long At, int From, int To, long Amount, bool Return, bool HardNegative,
         EpisodeAttack? Attack = null, EpisodeAnomaly Anomaly = EpisodeAnomaly.None);
 
     internal static V4EpisodeDesign Plan(V4EpisodeConfig config, V4RootGroup group, ScenarioRunId physicalRun)
     {
+        if (config.IsV2) return PlanV2(config, group, physicalRun);
+        if (config.Generator is not null) throw new ArgumentException("Unknown episode generator.", nameof(config));
         var population = Stream(group, "population");
         var schedule = Stream(group, "ordinary-schedules");
         var behavior = Stream(group, "account-behavior");
@@ -154,6 +174,35 @@ internal static class V4EpisodePlanner
         Add(abuseAt + 41_000, abuseFrom, utility, amounts.NextInt(6_000, 95_000), attack: EpisodeAttack.BeneficiaryAbuse);
         Add(abuseAt + 84_000, abuseFrom, abuseTo, amounts.NextInt(15_000, 185_000), attack: EpisodeAttack.BeneficiaryAbuse);
 
+        return Assemble(group, run, config.Duration, drafts, episodeIdentity);
+
+        long Slot(int day, int part)
+        {
+            var offset = day * 24 * V4EpisodeConfig.HourMs;
+            var dayMs = Math.Min(24 * V4EpisodeConfig.HourMs, config.Duration - offset);
+            return checked(config.OriginMs + offset + dayMs * part / 1_000 + time.NextInt(0, 30_000));
+        }
+
+        int Other(int first, int second = -1)
+        {
+            int target;
+            do { target = counterparty.NextInt(0, accounts.Length); } while (target == first || target == second);
+            return target;
+        }
+
+        void Add(long at, int from, int to, long amount, bool returnRequested = false, bool hard = false,
+            EpisodeAttack? attack = null, EpisodeAnomaly anomaly = EpisodeAnomaly.None)
+        {
+            if (at < config.OriginMs || at >= config.OriginMs + config.Duration) throw new InvalidOperationException("Plan exceeds episode duration.");
+            drafts.Add(new(at, from, to, amount, returnRequested, hard, attack, anomaly));
+        }
+    }
+
+    private static V4EpisodeDesign Assemble(V4RootGroup group, ScenarioRun run, long duration,
+        List<Draft> drafts, SeededRandom episodeIdentity)
+    {
+        var accounts = run.Manifest.Accounts;
+        var physicalRun = run.RunId;
         var ordered = drafts.OrderBy(d => d.At).ToArray();
         var financial = ImmutableArray.CreateBuilder<V4PlannedPayment>(ordered.Length);
         var paymentTruth = ImmutableArray.CreateBuilder<V4PaymentTruth>(ordered.Length);
@@ -181,31 +230,11 @@ internal static class V4EpisodePlanner
             }
         }
 
-        return new(group, new(run, checked(config.OriginMs + config.Duration), financial.MoveToImmutable()),
+        return new(group, new(run, checked(run.Manifest.StartUtcMs + duration), financial.MoveToImmutable()),
             new(paymentTruth.MoveToImmutable(), [.. anomalyTruth.Values.OrderBy(x => x.BoundaryMs).ThenBy(x => x.AccountId, StringComparer.Ordinal)]),
             Fingerprint(ordered), [.. ordered.Where(d => d.Attack.HasValue).GroupBy(d => d.Attack).OrderBy(g => g.Key)
                 .Select(g => Fingerprint(g.ToArray()))]);
 
-        long Slot(int day, int part)
-        {
-            var offset = day * 24 * V4EpisodeConfig.HourMs;
-            var dayMs = Math.Min(24 * V4EpisodeConfig.HourMs, config.Duration - offset);
-            return checked(config.OriginMs + offset + dayMs * part / 1_000 + time.NextInt(0, 30_000));
-        }
-
-        int Other(int first, int second = -1)
-        {
-            int target;
-            do { target = counterparty.NextInt(0, accounts.Length); } while (target == first || target == second);
-            return target;
-        }
-
-        void Add(long at, int from, int to, long amount, bool returnRequested = false, bool hard = false,
-            EpisodeAttack? attack = null, EpisodeAnomaly anomaly = EpisodeAnomaly.None)
-        {
-            if (at < config.OriginMs || at >= config.OriginMs + config.Duration) throw new InvalidOperationException("Plan exceeds episode duration.");
-            drafts.Add(new(at, from, to, amount, returnRequested, hard, attack, anomaly));
-        }
     }
 
     private static string Fingerprint(Draft[] ordered)
@@ -219,9 +248,9 @@ internal static class V4EpisodePlanner
         return ObservationEncoding.Hash(w.ToArray());
     }
 
-    private static SeededRandom Stream(V4RootGroup group, string domain)
+    private static SeededRandom Stream(V4RootGroup group, string domain, string version = BehavioralEpisodeScenario.GeneratorVersion)
     {
-        var hash = SHA256.HashData(new CanonicalWriter().WriteString(BehavioralEpisodeScenario.GeneratorVersion)
+        var hash = SHA256.HashData(new CanonicalWriter().WriteString(version)
             .WriteString(group.Key).WriteString(domain).ToArray());
         return SeededRandom.ForStream(BinaryPrimitives.ReadInt64BigEndian(hash), 0);
     }

@@ -36,6 +36,10 @@ public sealed record ScenarioManifest(
 {
     /// <summary>Duration pinned by the V4 behavioral episode manifest extension.</summary>
     public long? V4EpisodeDurationMs { get; init; }
+
+    /// <summary>Non-default generator pin for the V4 behavioral episode manifest extension.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? V4EpisodeGenerator { get; init; }
 }
 
 public sealed record RunBankState(string BankId, string RunScopedKey, string Name);
