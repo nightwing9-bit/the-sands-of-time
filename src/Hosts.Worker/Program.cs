@@ -11,6 +11,11 @@ if (args is ["--ml-runtime-selftest"])
     return MlRuntimeSelfTest.Run();
 }
 
+if (args is ["--r5-risk-selftest"])
+{
+    return R5RiskRuntimeSelfTest.Run();
+}
+
 var builder = WebApplication.CreateBuilder(args);
 builder.AddMarrowHostDefaults();
 builder.Services.AddMarrowDependencies(builder.Configuration);

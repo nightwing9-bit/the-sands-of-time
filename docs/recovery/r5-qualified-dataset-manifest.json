@@ -1,0 +1,575 @@
+{
+  "Schema": "dataset-manifest/2",
+  "CodeRevision": "62e5d6ec7a2efc9d51345dab84f2da2f4fe1ebf4",
+  "Configuration": {
+    "MasterSeed": 2697831047,
+    "OriginMs": 1768176000000,
+    "Hours": 72,
+    "Train": 12,
+    "Validation": 4,
+    "Calibration": 4,
+    "FinalTest": 4,
+    "Generator": "revenant-episode-generator/2"
+  },
+  "Roots": [
+    {
+      "Key": "c16f42797d92db2b8056c570c0cfe3b23a2e4ee3e1d4df3f05572894d4c20c17",
+      "Split": "Train",
+      "ManifestSha256": "sha256:a99bd50d6404e8fdef49258e0bdbdae9c08fd2a3cc0e24e3cf3661929c478035",
+      "BehaviorSha256": "4b76c4ba8894a5295a1b7f4112f2fa16377576b03e100057d1a50acc953a6a88",
+      "Accounts": 25,
+      "Facts": 1281,
+      "OriginMs": 1770906000000
+    },
+    {
+      "Key": "217f649499735c9efea93827fa89cfda305a00696daa4be912bbb393f2930e32",
+      "Split": "Train",
+      "ManifestSha256": "sha256:582e7df361eea2a101ae9c16e2fb52353e82fd3f7ac163c8b38728e49d5e52b9",
+      "BehaviorSha256": "7fc7b6debaa891de7ab2c7007ad16330b57489c81fed549b94aa0e898706b963",
+      "Accounts": 32,
+      "Facts": 1265,
+      "OriginMs": 1770866100000
+    },
+    {
+      "Key": "f0b84eefd7eb1f1d1fc344947cdea56eace00615edca7531433c0c26d19b0a28",
+      "Split": "Train",
+      "ManifestSha256": "sha256:985ac8d8d40a6cf42b0d5471a93a403cf382091b45c04d33012d68ea3108333b",
+      "BehaviorSha256": "2052e1311ecd2c00894bd8d2de92dcca68153b33dbdc587bffaa83f3d0792fa0",
+      "Accounts": 29,
+      "Facts": 1311,
+      "OriginMs": 1771366800000
+    },
+    {
+      "Key": "f915cadd896bb5eacb10ab8f39932c2d3d98c651eb389220b04b26e40255f951",
+      "Split": "Train",
+      "ManifestSha256": "sha256:9dea95a3bb01f4fee1727d8fcb77bcd26d6a6f6966ac9b18f77d524230685dc3",
+      "BehaviorSha256": "01ff60351911a5334ccaebd3937f878df0cc756520c5fb9950d876bc0e76ab1c",
+      "Accounts": 28,
+      "Facts": 1321,
+      "OriginMs": 1770094500000
+    },
+    {
+      "Key": "59305c63ab2672b16da259e0c540244ed1050770dc098fa690a669662beb7281",
+      "Split": "Train",
+      "ManifestSha256": "sha256:0aef6c25d07b6e203a19f5c56f8a9e38ac5670a7fd710b13c9d0c23ff5c58f6f",
+      "BehaviorSha256": "75521aba4a055200a7d49d3f4639bf79ba876faf610631a379cee3cab2176fcb",
+      "Accounts": 24,
+      "Facts": 1279,
+      "OriginMs": 1771630200000
+    },
+    {
+      "Key": "684f0941a7617cf68daddbf8c7480247f98795bf1bdac55b1f5ba795e7725420",
+      "Split": "Train",
+      "ManifestSha256": "sha256:4caec678e5eb48accde64f642bcafdbfe64a943c9f9acc03b424f3fd5f3767e8",
+      "BehaviorSha256": "cbf00eb60611808e55195e891618043a4a20274aad4aa4938b7a86deb615b400",
+      "Accounts": 29,
+      "Facts": 1287,
+      "OriginMs": 1771412700000
+    },
+    {
+      "Key": "d41672b0955bb4b61cbe45be4ad7ae08f917d5ec3796d7ac1faf49dd201a30d5",
+      "Split": "Train",
+      "ManifestSha256": "sha256:e60695d586a4b2d406c691088f3fa90d1565ec5c94a29fd1e77a2af916b8dee8",
+      "BehaviorSha256": "d43fb77c12f1e5c575dfa5c813695d4dd05d7b386def999670cd14259f198ac9",
+      "Accounts": 28,
+      "Facts": 1280,
+      "OriginMs": 1769644800000
+    },
+    {
+      "Key": "a5a81ce62c81a4dd6d34f166cd1edfec471580772135accf9f62b53453ac999b",
+      "Split": "Train",
+      "ManifestSha256": "sha256:e1bc4fff87d2226b1b0b3a2591f2bda583ca7b509d95b2747ac0354134b28ef6",
+      "BehaviorSha256": "318329870a227aa8094a5dab9ccda3afff4f0c82cbee3f25f3f29353cc1514c6",
+      "Accounts": 31,
+      "Facts": 1270,
+      "OriginMs": 1769259000000
+    },
+    {
+      "Key": "5d1cd9130be67d6615de8c92f2c2f398a3df759adac4b8dfe915f9ba75038e6d",
+      "Split": "Train",
+      "ManifestSha256": "sha256:26c3b0d4b5935e3c8f78a6d1391820c65e376696ea3a1c272054fee82c364904",
+      "BehaviorSha256": "322b640f7ac9612fab712b620dfa64a5c1c39f5a6a7f998f6b82c1151a3ff6f0",
+      "Accounts": 23,
+      "Facts": 1291,
+      "OriginMs": 1770708600000
+    },
+    {
+      "Key": "c39cddfe60fb32550a93583e885a31b959a61182867aacafc9326a67a7d60852",
+      "Split": "Train",
+      "ManifestSha256": "sha256:af5b092fd096de8df9b2bec2e5a4c7fbea2c35ea6589a52e6ed61da2908ff508",
+      "BehaviorSha256": "ff9987cd278101762a2c1aec1826f7e792e0b502167a20b32f838e9ca01525d6",
+      "Accounts": 25,
+      "Facts": 1302,
+      "OriginMs": 1769679900000
+    },
+    {
+      "Key": "02657f61430cb570dc47b171a1ce75b558139c187c3fd4a3b1f448ab4c339745",
+      "Split": "Train",
+      "ManifestSha256": "sha256:78e04e2a30b589f6236a4d77199cf74312bd06f2032c53c6b4bf2f27d1bbb349",
+      "BehaviorSha256": "aea09f71447ef76980bca3c657f3050ea968709967dd7dcea23da09e6c354754",
+      "Accounts": 28,
+      "Facts": 1310,
+      "OriginMs": 1772414400000
+    },
+    {
+      "Key": "944890cefc2e7a13dbd508d29ee8ab00748aaef42d2202ac6b7686148ea79e21",
+      "Split": "Train",
+      "ManifestSha256": "sha256:de97d08c2b6d77db7949cc64a8829d5d54f1060ffbc6d7833be78f89c9ed640a",
+      "BehaviorSha256": "1898c67ab376d0e46b58d7a91aa7b6bc563cbb7f884a5fb37e7607215deb8dd5",
+      "Accounts": 28,
+      "Facts": 1318,
+      "OriginMs": 1770355800000
+    },
+    {
+      "Key": "50514e4adab7e6d038ed2abb4c1fb1e327f80799c0a471236d80e6a4ea0b1c55",
+      "Split": "Validation",
+      "ManifestSha256": "sha256:a12feaba2dd56a6b87d106d7fc8556f747658951708465160a5210def3fe8759",
+      "BehaviorSha256": "880271b4de44c731069f48a0ee9cd7c6a89b3f7ac3a6ad654b4d637041308653",
+      "Accounts": 24,
+      "Facts": 1304,
+      "OriginMs": 1771846500000
+    },
+    {
+      "Key": "0b17385c513b963834067bc8f8a2747f595931aa2324a88ce2846a3d8409d136",
+      "Split": "Validation",
+      "ManifestSha256": "sha256:2877f14e161ee4a1ff477fb46518c61068c368281f060807cb31e99313538134",
+      "BehaviorSha256": "65c7e38a1dedee0b12df3912a7ddefebd70169a9b0dfc367b2a6752925615af2",
+      "Accounts": 25,
+      "Facts": 1297,
+      "OriginMs": 1772467800000
+    },
+    {
+      "Key": "185f5fc360d939289cdc61f73176474b3520dbaafc92c1f32253305b5455bcee",
+      "Split": "Validation",
+      "ManifestSha256": "sha256:d3940547c900224c57c5577967b984cbd3a41f7a2831b90ad9faffa203ec7205",
+      "BehaviorSha256": "3dbaf37908e54caa73632aebec80511145f2dc91ff03e0dca68ff9b5affc26a4",
+      "Accounts": 26,
+      "Facts": 1299,
+      "OriginMs": 1772818800000
+    },
+    {
+      "Key": "624decc8671f060c6b9be1a1f846fa07b7c9708df555507a12553a944e78df83",
+      "Split": "Validation",
+      "ManifestSha256": "sha256:0cc4bc7f44d30a8d5f585e07ff7869df2dd13e82ea71c018455775a73333ddf8",
+      "BehaviorSha256": "4ff1f5dee1bf93d1cc62cd1ac55ad31d2a20b69e4ffbdee66d5c34a6d49485cc",
+      "Accounts": 29,
+      "Facts": 1290,
+      "OriginMs": 1769085600000
+    },
+    {
+      "Key": "abe5d0e0e442087e0a327c7d963631e75f2ba897ecb1311977b40d39a2e08fe5",
+      "Split": "Calibration",
+      "ManifestSha256": "sha256:412f037052fbc872c2638c602bfccfc2947bed2c71525a7eae49ce56d53b4ea1",
+      "BehaviorSha256": "631c111fe447e333f15e6cb54ee5850d869de8d78e68940db0b1500f0f11a413",
+      "Accounts": 23,
+      "Facts": 1259,
+      "OriginMs": 1772804100000
+    },
+    {
+      "Key": "181c2d6f4227f5f8df8c363d8452bb1dd7541b189372aa90e1efe2df781c5163",
+      "Split": "Calibration",
+      "ManifestSha256": "sha256:939f0544327b439c47106714fe173595d6140b3473c1a49d86f17984a51f7b38",
+      "BehaviorSha256": "cedf2247224c6a9bc874256bf9c0cfe4e44932adb088dc7333052ce436b08a9f",
+      "Accounts": 25,
+      "Facts": 1279,
+      "OriginMs": 1771168500000
+    },
+    {
+      "Key": "19a1359082a589ac96665c704e70b9e36e958bfcf09fa239d7399315d476a898",
+      "Split": "Calibration",
+      "ManifestSha256": "sha256:36e258e7c32f04bf38b404919cf96b7c03aef92a2354a45ca35eacc5cb4359cd",
+      "BehaviorSha256": "104a026a8f5f708d19383cb7edebee6a15c03ebdf6c650f79b0c81ff98570aec",
+      "Accounts": 29,
+      "Facts": 1279,
+      "OriginMs": 1771901400000
+    },
+    {
+      "Key": "c2754ec1cac8127a45e65ff5cd8620d04f9855323345a2d440810e8a91493ebe",
+      "Split": "Calibration",
+      "ManifestSha256": "sha256:24d9491acdc167d280d99861af8859a4b92f7a6631fd1e5a81c46cc18748b417",
+      "BehaviorSha256": "630af9303594d7ec18c391be5b710a31eae78016a8d45bbe28ca7aa26777ae85",
+      "Accounts": 27,
+      "Facts": 1304,
+      "OriginMs": 1771146600000
+    },
+    {
+      "Key": "cf2bfde40a9079a4e862c3b4118fa13f5ac61467625563440a1c27818b944c95",
+      "Split": "FinalTest",
+      "ManifestSha256": "sha256:baca40b8a608738d3772da5ab01ebc858759fb4af291ac4be0542eed2607ee5d",
+      "BehaviorSha256": "80901e20fb1b2bbf04e2c1c19b428f3fe0049f0fede60c9cb9307bf3828e27ee",
+      "Accounts": 29,
+      "Facts": 1309,
+      "OriginMs": 1772841600000
+    },
+    {
+      "Key": "8d2a32ecfcfc48569c568a4dfbac037aa5e3df19bae74249f792964635b57319",
+      "Split": "FinalTest",
+      "ManifestSha256": "sha256:99a127334078747fd8314c6d634db786dca1366434d415e9aa899956281e7504",
+      "BehaviorSha256": "81d4d781d8df7ec906b0479e4158e02d4563a5c55bf9fbf8579f00b43c7aacc8",
+      "Accounts": 26,
+      "Facts": 1275,
+      "OriginMs": 1769944200000
+    },
+    {
+      "Key": "5b253ab38c191ec081e1a072fb98d6be08181f05cd9fae737fb987f76a8f6770",
+      "Split": "FinalTest",
+      "ManifestSha256": "sha256:316449d9da9fb7ef6e0ddeb01fcbfd31b8cb8411a09e617b74b7e0033312232e",
+      "BehaviorSha256": "e04fbbdad04103c4ccc6b6d8644946c740d16e56e547d6358d1fac85a0ac3ccf",
+      "Accounts": 23,
+      "Facts": 1269,
+      "OriginMs": 1770346200000
+    },
+    {
+      "Key": "d77f0f30c3984a8c0c78a84b9d107acef8a08f9ac3d8ebbaa4562ce293e586c7",
+      "Split": "FinalTest",
+      "ManifestSha256": "sha256:cf44a38c1825c164ba3e8240d0bdd4ef37f0521f69735bf549b1bd29312bffe6",
+      "BehaviorSha256": "1f27dd83affd044d0ac461b137387985c209e57b040ab43fc57b8c98c3ae51a6",
+      "Accounts": 26,
+      "Facts": 1301,
+      "OriginMs": 1769506500000
+    }
+  ],
+  "Splits": [
+    {
+      "Split": "Train",
+      "Roots": 12,
+      "Legitimate": 1445,
+      "Fraud": 265,
+      "HardNegatives": 662,
+      "FraudScored": 265,
+      "LegitimateScored": 1445,
+      "Anomalies": 420,
+      "AnomalyNegatives": 994,
+      "FullTargets": 61632,
+      "Intake": 1710,
+      "Screened": 1710,
+      "Held": 15,
+      "Rejected": 4,
+      "Settled": 1663,
+      "Returned": 36,
+      "InsufficientSettlement": 28,
+      "FraudPosted": 262,
+      "Attacks": {
+        "Ring": 72,
+        "Takeover": 24,
+        "Dispersal": 61,
+        "CoordinatedBurst": 72,
+        "BeneficiaryAbuse": 36
+      },
+      "Tables": [
+        {
+          "Name": "fraud-asof",
+          "Rows": 1710,
+          "Bytes": 1334899,
+          "Sha256": "c32bd7db77914a07f821b4ed7d8a6e6f3cacd296213e7b4b4cfb8d265db1ff37"
+        },
+        {
+          "Name": "bank",
+          "Rows": 62208,
+          "Bytes": 20093225,
+          "Sha256": "b428ae89615ce189052b78cffa7748f4fa8386ddcf75c41e5b9969cd624a77e3"
+        },
+        {
+          "Name": "account",
+          "Rows": 2880,
+          "Bytes": 2292524,
+          "Sha256": "5418156af82c296d1f8c204aa6a74778f0ee26de895ad674bea99a6c3893a75c"
+        },
+        {
+          "Name": "targets",
+          "Rows": 62208,
+          "Bytes": 54473516,
+          "Sha256": "9a22d599627fd08b97828594aba9d8df748ef13d05cf737a4a5b503c7efe8e1b"
+        },
+        {
+          "Name": "attempt-outcomes",
+          "Rows": 1710,
+          "Bytes": 304643,
+          "Sha256": "5d923ac26759c8493ff2ca7154cefd71d195e2563db4946eb6a774f23443d9f8"
+        },
+        {
+          "Name": "payment-truth",
+          "Rows": 1710,
+          "Bytes": 214360,
+          "Sha256": "ef17af06469428dbec3f467af561b9cabde1aa32f483528070c71a58b06cb1d9"
+        },
+        {
+          "Name": "anomaly-truth",
+          "Rows": 1414,
+          "Bytes": 212150,
+          "Sha256": "068b7f0188041d56226353f3eae873d35df034634c28640e9ba3053d05ef6717"
+        },
+        {
+          "Name": "campaign-truth",
+          "Rows": 60,
+          "Bytes": 19001,
+          "Sha256": "71b766dff7f99817a56aea473a7a0ab67576418e2093dc534b1e0133929234dc"
+        },
+        {
+          "Name": "risk-asof",
+          "Rows": 1710,
+          "Bytes": 920026,
+          "Sha256": "889c65eb6026ac592417f13ab1142d1ff6c14cb2910b2e7c5dda5e9c92e2d378"
+        }
+      ],
+      "ModelSha256": "e7264186f97606dc0e290655a61076effdd117d9c2a44c0501df5ff3bedab29e",
+      "TruthSha256": "c975768dacb78e94e3a376461d24f84e85c11f15127e4fc2ea9e6d09cb77be31"
+    },
+    {
+      "Split": "Validation",
+      "Roots": 4,
+      "Legitimate": 486,
+      "Fraud": 91,
+      "HardNegatives": 231,
+      "FraudScored": 91,
+      "LegitimateScored": 486,
+      "Anomalies": 138,
+      "AnomalyNegatives": 324,
+      "FullTargets": 20544,
+      "Intake": 577,
+      "Screened": 577,
+      "Held": 8,
+      "Rejected": 1,
+      "Settled": 561,
+      "Returned": 12,
+      "InsufficientSettlement": 7,
+      "FraudPosted": 91,
+      "Attacks": {
+        "Ring": 24,
+        "Takeover": 8,
+        "Dispersal": 23,
+        "CoordinatedBurst": 24,
+        "BeneficiaryAbuse": 12
+      },
+      "Tables": [
+        {
+          "Name": "fraud-asof",
+          "Rows": 577,
+          "Bytes": 450485,
+          "Sha256": "40e628527053ce462ae0720f3e03c92351aa780da160543bb1969d5a1e48cab1"
+        },
+        {
+          "Name": "bank",
+          "Rows": 20736,
+          "Bytes": 6697769,
+          "Sha256": "12e7d474d9b3cf296786034f88c310b47da2e47c3c353e56dc228d99d0a53f83"
+        },
+        {
+          "Name": "account",
+          "Rows": 938,
+          "Bytes": 746692,
+          "Sha256": "fb60c07d188db8813f14d172e50fced80dbd52bd3b509d0f137925be63ac8cc6"
+        },
+        {
+          "Name": "targets",
+          "Rows": 20736,
+          "Bytes": 18157868,
+          "Sha256": "df6241d3d8a3c7b23841a65c83eff843838bda0d1354ca4eec9967c8b9dc0191"
+        },
+        {
+          "Name": "attempt-outcomes",
+          "Rows": 577,
+          "Bytes": 102788,
+          "Sha256": "b26f6c09b7a8aa17c77bcb496ac0300531025043c4c8d5b61d74425356cafd4e"
+        },
+        {
+          "Name": "payment-truth",
+          "Rows": 577,
+          "Bytes": 72500,
+          "Sha256": "ad18fbe834149d913950d967664cc043ff69c83a48a481fbfd6412f5a7711f51"
+        },
+        {
+          "Name": "anomaly-truth",
+          "Rows": 462,
+          "Bytes": 69350,
+          "Sha256": "92cca0281c95e53f3466859072d29c15a68af135cf6228b39a3fa9d58fd8c9c0"
+        },
+        {
+          "Name": "campaign-truth",
+          "Rows": 20,
+          "Bytes": 6405,
+          "Sha256": "721427fa22cf54c55689816c90f9c2e9f2931358d066735dcc9457aa5d7663ce"
+        },
+        {
+          "Name": "risk-asof",
+          "Rows": 577,
+          "Bytes": 310472,
+          "Sha256": "c9af16940a78ddc1c61a3705fbe5524d923f2fd85cb069833e3a33ca9fc162d0"
+        }
+      ],
+      "ModelSha256": "0daf1daacaf42eaeb2d0cf0180ea25b20fcb99d77af6472009e64b3cbf4fa1d0",
+      "TruthSha256": "0ff2632d483fca896af49cd8895ee5495f578674f21698acc94d1cd7d88204ae"
+    },
+    {
+      "Split": "Calibration",
+      "Roots": 4,
+      "Legitimate": 469,
+      "Fraud": 85,
+      "HardNegatives": 214,
+      "FraudScored": 85,
+      "LegitimateScored": 469,
+      "Anomalies": 142,
+      "AnomalyNegatives": 323,
+      "FullTargets": 20544,
+      "Intake": 554,
+      "Screened": 554,
+      "Held": 6,
+      "Rejected": 0,
+      "Settled": 513,
+      "Returned": 9,
+      "InsufficientSettlement": 35,
+      "FraudPosted": 82,
+      "Attacks": {
+        "Ring": 24,
+        "Takeover": 8,
+        "Dispersal": 17,
+        "CoordinatedBurst": 24,
+        "BeneficiaryAbuse": 12
+      },
+      "Tables": [
+        {
+          "Name": "fraud-asof",
+          "Rows": 554,
+          "Bytes": 432499,
+          "Sha256": "ee63229c0f63c0d0528cc899f6a92f34cfad807133bbd5f8a75a40eb754e5522"
+        },
+        {
+          "Name": "bank",
+          "Rows": 20736,
+          "Bytes": 6697769,
+          "Sha256": "a02616ac8f1b39e633e1dc7361cf12f8e5ee953acb233ba8d7776511f1f79f71"
+        },
+        {
+          "Name": "account",
+          "Rows": 907,
+          "Bytes": 722016,
+          "Sha256": "dd374a15caebf1f429dc6bc36fdbe6ec27f47b4c510047ee2769dc8a38c5e218"
+        },
+        {
+          "Name": "targets",
+          "Rows": 20736,
+          "Bytes": 18157868,
+          "Sha256": "1aa288b69eac8e76c712b68128569b83fe15c0f58e7704cf1089e46070a74cf9"
+        },
+        {
+          "Name": "attempt-outcomes",
+          "Rows": 554,
+          "Bytes": 98724,
+          "Sha256": "5dd991ff9cb9997c5a869c626f25914a808da33cd58b1b88d346eb68f113fc56"
+        },
+        {
+          "Name": "payment-truth",
+          "Rows": 554,
+          "Bytes": 69408,
+          "Sha256": "78b005c4caf569dd653e7d04b94915ece56368d898f84b505173e465e3c34466"
+        },
+        {
+          "Name": "anomaly-truth",
+          "Rows": 465,
+          "Bytes": 69800,
+          "Sha256": "99853b065abf1fe2110bf5dafd744de78402b98ae6e924f4fa739ac34742a5c2"
+        },
+        {
+          "Name": "campaign-truth",
+          "Rows": 20,
+          "Bytes": 6321,
+          "Sha256": "49a7501693163e7e221fe600a486eb7bbaad053a94abefbfc32fcf251d3f2bf3"
+        },
+        {
+          "Name": "risk-asof",
+          "Rows": 554,
+          "Bytes": 298098,
+          "Sha256": "c9b5cd15824e510f48065cdaa15c41c24cc4180690f3aa206caf32980cc89832"
+        }
+      ],
+      "ModelSha256": "89e6d39a45ed4dcf444d15a563108329ecd57db63f8905884899edc5344743bc",
+      "TruthSha256": "b5ce1ff8420ca62c898de219503357a53ac1116851c1050c4f8f34f40c2c9e64"
+    },
+    {
+      "Split": "FinalTest",
+      "Roots": 4,
+      "Legitimate": 479,
+      "Fraud": 86,
+      "HardNegatives": 227,
+      "FraudScored": 86,
+      "LegitimateScored": 479,
+      "Anomalies": 146,
+      "AnomalyNegatives": 320,
+      "FullTargets": 20544,
+      "Intake": 565,
+      "Screened": 565,
+      "Held": 6,
+      "Rejected": 3,
+      "Settled": 547,
+      "Returned": 12,
+      "InsufficientSettlement": 9,
+      "FraudPosted": 84,
+      "Attacks": {
+        "Ring": 24,
+        "Takeover": 8,
+        "Dispersal": 18,
+        "CoordinatedBurst": 24,
+        "BeneficiaryAbuse": 12
+      },
+      "Tables": [
+        {
+          "Name": "fraud-asof",
+          "Rows": 565,
+          "Bytes": 441117,
+          "Sha256": "97cb9f64bc1c98efb484e1e13ca0b10af3a08d75da2b2f61ac5f901dcccbf3bc"
+        },
+        {
+          "Name": "bank",
+          "Rows": 20736,
+          "Bytes": 6697769,
+          "Sha256": "ecbceb5c3ae17b9cb90cd878a23349da954ded2eedd56ed88657e7f7f63cd438"
+        },
+        {
+          "Name": "account",
+          "Rows": 943,
+          "Bytes": 750672,
+          "Sha256": "b6f5854f7a93b090c8f2b810c45a55c7d0a02031d5e52007e55fefaf7bd77bc8"
+        },
+        {
+          "Name": "targets",
+          "Rows": 20736,
+          "Bytes": 18157868,
+          "Sha256": "870f5cfd8da0efbfd6404889a57ec483a138308f4504d763dc33c63b4f25cf8b"
+        },
+        {
+          "Name": "attempt-outcomes",
+          "Rows": 565,
+          "Bytes": 100662,
+          "Sha256": "f80126ffcd7dce0ae918c024127e15f7dedd4da698139716095a6f628f181568"
+        },
+        {
+          "Name": "payment-truth",
+          "Rows": 565,
+          "Bytes": 70726,
+          "Sha256": "d16278941d6ece83777d62738ef3811f2f52ad590c60818fbff5cd8fc9fc1095"
+        },
+        {
+          "Name": "anomaly-truth",
+          "Rows": 466,
+          "Bytes": 69950,
+          "Sha256": "d9c7bfc4f072f10f15f520d4feeb9f8f9a1ec80ca9bdc23fed090e05f1fd51cf"
+        },
+        {
+          "Name": "campaign-truth",
+          "Rows": 20,
+          "Bytes": 6335,
+          "Sha256": "814151bad4dcbd53cc799e9ca47ad58c2bfc2d7caf74bf24db12aaae9b8e1cc2"
+        },
+        {
+          "Name": "risk-asof",
+          "Rows": 565,
+          "Bytes": 304016,
+          "Sha256": "f9aaa4ff25d9099e41523d99f6f62abf4908d3b3ecabaf4e282a8ba218bd089d"
+        }
+      ],
+      "ModelSha256": "a39e407c5219e8640c0fee3d1ce3d55c2a0edbcf765f406b9a02c9d5342fa6eb",
+      "TruthSha256": "82a007015950c947ee26cee01d812052f00b61c49d1321a1f5d82b2cab24e687"
+    }
+  ],
+  "Sha256": "c1c2b2178ea80946f195d821d848e60059c3607fb10fac506b70d7eddecdf5e9"
+}
