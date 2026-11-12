@@ -206,7 +206,7 @@ jobs:
           --logger "console;verbosity=normal" --logger "trx;LogFileName=revenant.trx"
           --blame-hang-timeout 5m --blame-hang-dump-type mini
           --results-directory TestResults/revenant-integration
-      - name: Require executed Revenant integration and R1 coverage
+      - name: Require executed Revenant integration and recovery coverage
         if: ${{ !cancelled() && steps.revenant-integration.outcome == 'success' }}
         shell: bash
         run: |
@@ -239,12 +239,17 @@ jobs:
               ("ModelInputAdmissionTests", "Incompatible_queue_heads_leave_no_effects_and_do_not_starve_other_runs"): 1,
               ("ModelAwareScreeningTests", "A_learned_score_holds_a_base_clear_payment_in_a_live_V3_run_that_then_settles_after_review_and_verifies_after_crash_and_cold_replay"): 1,
               ("ModelAwareScreeningTests", "Unavailable_models_fail_closed_while_the_worker_screens_V2_and_recovers"): 3,
+              ("V4SimulationPostgresTests", "Boundary_blocking_retry_and_journal_digest_survive_a_fresh_dispatcher"): 1,
+              ("V4SimulationPostgresTests", "Competing_dispatchers_share_one_boundary_while_another_run_advances"): 1,
+              ("V4SimulationPostgresTests", "Failed_commits_and_lost_acknowledgments_do_not_leave_partial_progress"): 1,
+              ("V4SimulationPostgresTests", "Tenant_roles_and_constraints_reject_inconsistent_direct_writes"): 1,
+              ("V4SimulationPostgresTests", "Upgrade_preserves_old_rows_and_produces_the_same_V4_bytes_as_a_fresh_schema"): 1,
           }
           for test, minimum in required.items():
               observed = len(passed[test])
               print(f"{'.'.join(test)}: {observed} passed")
               if observed < minimum:
-                  raise SystemExit(f"Missing executed R1 cases for {'.'.join(test)}")
+                  raise SystemExit(f"Missing executed recovery cases for {'.'.join(test)}")
           PY
       - name: Upload Revenant integration evidence
         if: always()
