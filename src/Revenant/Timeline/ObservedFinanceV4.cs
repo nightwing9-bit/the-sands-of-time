@@ -116,6 +116,7 @@ public sealed record ObservedFinanceState(LedgerFinanceState Ledger, long LastEf
 {
     public ScenarioRunId RunId => Ledger.RunId;
     public long LastFact => Ledger.LastFact;
+    internal V4ReviewCounts ReviewCounts { get; init; }
 }
 
 public static class ObservedFinanceReducer
@@ -166,6 +167,12 @@ public static class ObservedFinanceReducer
             ObservedFinanceInputCodec.Validate(input);
             var boundary = ObservedFinanceVersion.NextBoundary(state.LastSealedBoundaryMs);
             var ledger = state.Ledger;
+            var reviewCounts = state.ReviewCounts;
+            if (context.RiskMode == ObservedRiskMode.ModelRequired ? !V4ModelScreeningEvidence.Supports(context)
+                : reviewCounts != default)
+            {
+                return Fail(LedgerFinanceErrorCode.VersionMismatch, "Unsupported V4 model pins.");
+            }
             if (input.Kind == ObservedFactKind.ObservationSeal)
             {
                 var seal = ObservationSealCodec.Decode(input.Payload.AsSpan());
@@ -181,25 +188,37 @@ public static class ObservedFinanceReducer
                 {
                     return Fail(LedgerFinanceErrorCode.OutOfOrderFact, "V4 financial fact must wait for the intervening seal.");
                 }
-                if (context.RiskMode != ObservedRiskMode.NotRequired || input.EvidenceSchema is not null)
+                if (input.Kind == ObservedFactKind.Screening && context.RiskMode == ObservedRiskMode.ModelRequired)
                 {
-                    return Fail(LedgerFinanceErrorCode.IllegalStep, "Unsupported V4 financial transition.");
+                    var evidence = V4ModelScreeningEvidence.Decode(input);
+                    evidence.Verify(state, context, input);
+                    ledger = ModelLedgerReducer.Screen(ledger, ledger.Payments[evidence.IntentId], evidence.EffectiveReason)
+                        with { LastFact = input.Sequence };
+                    reviewCounts = evidence.NextCounts;
                 }
-                var legacy = context.LegacyContext();
-                if (!legacy.TryGetValue(out var pins))
+                else
                 {
-                    return Result<ObservedFinanceState, LedgerFinanceError>.Failure(legacy.Error);
-                }
-                var result = FinanceLedgerReducer.Apply(ledger,
-                    new FinanceFact((FinanceFactKind)input.Kind, input.Sequence, input.PayloadSchema, input.Payload.ToArray(), null), pins);
-                if (!result.TryGetValue(out ledger!))
-                {
-                    return Result<ObservedFinanceState, LedgerFinanceError>.Failure(result.Error);
+                    if (input.EvidenceSchema is not null)
+                    {
+                        return Fail(LedgerFinanceErrorCode.IllegalStep, "Unsupported V4 financial transition.");
+                    }
+                    var legacy = context.LegacyContext();
+                    if (!legacy.TryGetValue(out var pins))
+                    {
+                        return Result<ObservedFinanceState, LedgerFinanceError>.Failure(legacy.Error);
+                    }
+                    var result = FinanceLedgerReducer.Apply(ledger,
+                        new FinanceFact((FinanceFactKind)input.Kind, input.Sequence, input.PayloadSchema, input.Payload.ToArray(), null), pins);
+                    if (!result.TryGetValue(out ledger!))
+                    {
+                        return Result<ObservedFinanceState, LedgerFinanceError>.Failure(result.Error);
+                    }
                 }
             }
 
             return Ok(new(ledger, input.EffectiveTimeMs,
-                input.Kind == ObservedFactKind.ObservationSeal ? boundary : state.LastSealedBoundaryMs, AppendDigest(state.PrefixDigest, input)));
+                input.Kind == ObservedFactKind.ObservationSeal ? boundary : state.LastSealedBoundaryMs, AppendDigest(state.PrefixDigest, input))
+                { ReviewCounts = reviewCounts });
         }
         catch (Exception ex) when (ex is CanonicalFormatException or OverflowException)
         {

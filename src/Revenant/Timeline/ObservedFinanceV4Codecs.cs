@@ -126,13 +126,19 @@ public sealed class ObservedFinanceContextCodec : IContextCodec<ObservedFinanceC
 
 public sealed class ObservedFinanceStateCodec : IStateCodec<ObservedFinanceState>
 {
+    private const int ClockTrailerBytes = 2 * sizeof(long) + sizeof(int) + 32;
     public static ObservedFinanceStateCodec Instance { get; } = new();
 
     public byte[] EncodeCanonical(ObservedFinanceState s)
     {
         Validate(s);
-        return new CanonicalWriter().WriteInt32(1).WriteBytes(LedgerFinanceStateCodec.Instance.EncodeCanonical(s.Ledger))
-            .WriteInt64(s.LastEffectiveTimeMs).WriteInt64(s.LastSealedBoundaryMs).WriteBytes(Convert.FromHexString(s.PrefixDigest)).ToArray();
+        var w = new CanonicalWriter().WriteInt32(1).WriteBytes(LedgerFinanceStateCodec.Instance.EncodeCanonical(s.Ledger));
+        // PostgreSQL verifies the existing clock and prefix trailer when binding a fork checkpoint.
+        if (s.ReviewCounts != default)
+            w.WriteString(V4ReviewCounts.Policy).WriteInt64(s.ReviewCounts.Eligible)
+                .WriteInt64(s.ReviewCounts.Mandatory).WriteInt64(s.ReviewCounts.Learned);
+        return w.WriteInt64(s.LastEffectiveTimeMs).WriteInt64(s.LastSealedBoundaryMs)
+            .WriteBytes(Convert.FromHexString(s.PrefixDigest)).ToArray();
     }
 
     public ObservedFinanceState Decode(ReadOnlySpan<byte> bytes)
@@ -145,7 +151,19 @@ public sealed class ObservedFinanceStateCodec : IStateCodec<ObservedFinanceState
         {
             throw new CanonicalFormatException("Noncanonical inherited V4 ledger bytes.");
         }
-        var state = new ObservedFinanceState(ledger, r.ReadInt64(), r.ReadInt64(), ObservedFinanceEncoding.ReadHash(ref r));
+        V4ReviewCounts counts = default;
+        if (r.Remaining != ClockTrailerBytes)
+        {
+            if (r.ReadString() != V4ReviewCounts.Policy)
+                throw new CanonicalFormatException("Unknown V4 capacity state extension.");
+            counts = new(r.ReadInt64(), r.ReadInt64(), r.ReadInt64());
+            if (counts == default)
+                throw new CanonicalFormatException("Redundant V4 capacity extension.");
+        }
+        var state = new ObservedFinanceState(ledger, r.ReadInt64(), r.ReadInt64(), ObservedFinanceEncoding.ReadHash(ref r))
+        {
+            ReviewCounts = counts,
+        };
         r.EnsureEnd();
         Validate(state);
         return state;
@@ -154,7 +172,7 @@ public sealed class ObservedFinanceStateCodec : IStateCodec<ObservedFinanceState
     private static void Validate(ObservedFinanceState s)
     {
         if (s.RunId.IsEmpty || !ObservedFinanceEncoding.IsHash(s.PrefixDigest) || !ObservedFinanceEncoding.IsManifestHash(s.Ledger.ManifestContentHash)
-            || s.LastFact < 0 || !ObservedFinanceVersion.IsBoundary(s.LastSealedBoundaryMs)
+            || s.LastFact < 0 || !s.ReviewCounts.Valid || s.ReviewCounts.Eligible > s.LastFact || !ObservedFinanceVersion.IsBoundary(s.LastSealedBoundaryMs)
             || s.LastEffectiveTimeMs < s.LastSealedBoundaryMs
             || (s.LastSealedBoundaryMs <= long.MaxValue - ObservedFinanceVersion.BucketMs
                 && s.LastEffectiveTimeMs >= ObservedFinanceVersion.NextBoundary(s.LastSealedBoundaryMs))

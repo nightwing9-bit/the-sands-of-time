@@ -10,7 +10,8 @@ public sealed partial record LedgerFinanceContext
     internal static Result<LedgerFinanceContext, LedgerFinanceError> FromBehavioralEpisodePins(ObservedFinanceContext context)
     {
         var policy = context.BasePolicy;
-        if (context.ScenarioVersion != BehavioralEpisodeScenario.Version || context.RiskMode != ObservedRiskMode.NotRequired
+        if (context.ScenarioVersion != BehavioralEpisodeScenario.Version
+            || (context.RiskMode == ObservedRiskMode.ModelRequired && !V4ModelScreeningEvidence.Supports(context))
             || (policy != PolicyCatalog.RefOf(PolicyCatalog.V7) && policy != PolicyCatalog.RefOf(PolicyCatalog.V8)))
         {
             return Fail("Unsupported V4 behavioral episode pins.");

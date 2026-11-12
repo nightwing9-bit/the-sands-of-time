@@ -5,6 +5,7 @@ using Marrow.Timeline;
 using Revenant.Cases;
 using Revenant.Contracts;
 using Revenant.Finance;
+using Revenant.Intelligence;
 using Revenant.Observations;
 using Revenant.Payments;
 using Revenant.Scenario;
@@ -17,14 +18,21 @@ internal sealed record V4DispatchBand(int Band, int Commands, TimeSpan DispatchT
 internal sealed record V4EpisodeTiming(TimeSpan Total, TimeSpan Replay, ImmutableArray<V4DispatchBand> Bands);
 internal sealed record V4ExecutedEpisode(V4ProjectionHistory History, ImmutableArray<V4AttemptOutcome> Outcomes, V4EpisodeTiming Timing);
 
-internal sealed class V4EpisodeExecutor(V4SimulationStore store, V4BranchExecution branch, PaymentLedgerStore ledger)
+internal sealed class V4EpisodeExecutor(V4SimulationStore store, V4BranchExecution branch, PaymentLedgerStore ledger,
+    Func<V4ScheduledCommand, long, CancellationToken, Task<V4Step?>>? dispatchOverride = null)
 {
-    internal async Task<V4ExecutedEpisode> ExecuteAsync(string tenant, string owner, V4EpisodePlan plan, CancellationToken ct)
+    internal async Task<V4ExecutedEpisode> ExecuteAsync(string tenant, string owner, V4EpisodePlan plan, CancellationToken ct,
+        ObservedRiskMode riskMode = ObservedRiskMode.NotRequired, bool complete = true, long? sealThrough = null)
     {
         var timer = Stopwatch.StartNew();
         var run = plan.Opening;
         var id = run.RunId;
         var origin = run.Manifest.StartUtcMs;
+        var finalBoundary = sealThrough ?? plan.EndMs;
+        if (!ObservedFinanceVersion.IsBoundary(finalBoundary) || finalBoundary > plan.EndMs || finalBoundary < origin
+            || (sealThrough.HasValue && (complete || plan.Payments.Any(p =>
+                p.Intent.EventTimeUtcMs >= ObservedFinanceVersion.NextBoundary(finalBoundary)))))
+            throw new InvalidOperationException("A partial episode must stop in the requested open interval.");
         if (run.Manifest.V4EpisodeDurationMs is not { } duration || plan.EndMs != checked(origin + duration)
             || plan.Payments.Any(p => p.Intent.RunId != id || p.Intent.Truth != SyntheticTruth.Legitimate
                 || p.Intent.EventTimeUtcMs < origin || p.Intent.EventTimeUtcMs >= plan.EndMs))
@@ -32,7 +40,9 @@ internal sealed class V4EpisodeExecutor(V4SimulationStore store, V4BranchExecuti
             throw new InvalidOperationException("Financial plan does not match the pinned opening or neutral input contract.");
         }
         var context = new ObservedFinanceContext(run.Manifest.ScenarioVersion, run.Manifest.ContentHash, origin,
-            PolicyCatalog.RefOf(PolicyCatalog.V7), ReviewPolicy.Version, ObservedRiskMode.NotRequired, "", null, [], []);
+            PolicyCatalog.RefOf(PolicyCatalog.V7), ReviewPolicy.Version, riskMode,
+            riskMode == ObservedRiskMode.ModelRequired ? BehavioralRiskScorerV2.FeatureSchema : "",
+            riskMode == ObservedRiskMode.ModelRequired ? BehavioralRiskScorerV2.PublishedPin : null, [], []);
         await branch.OpenSourceAsync(tenant, owner, run, context, ct);
         var latest = origin;
         var factCount = 0;
@@ -70,7 +80,7 @@ internal sealed class V4EpisodeExecutor(V4SimulationStore store, V4BranchExecuti
             outcomes.Add(new(p.IntentId, Code(intake), Code(screening), settlement, returned));
         }
 
-        while (latest < plan.EndMs)
+        while (latest < finalBoundary)
         {
             var boundary = ObservedFinanceVersion.NextBoundary(latest);
             var step = await store.SealAsync(tenant, id, boundary, ct);
@@ -78,12 +88,15 @@ internal sealed class V4EpisodeExecutor(V4SimulationStore store, V4BranchExecuti
         }
 
         var replayStart = Stopwatch.GetTimestamp();
-        var completed = await branch.CompleteAsync(tenant, id, ct);
-        if (completed.Status != HistoryStatus.Verified || completed.FinalPosition != factCount)
+        if (complete)
         {
-            throw new InvalidOperationException("Episode completion does not verify its recorded fact count.");
+            var completed = await branch.CompleteAsync(tenant, id, ct);
+            if (completed.Status != HistoryStatus.Verified || completed.FinalPosition != factCount)
+                throw new InvalidOperationException("Episode completion does not verify its recorded fact count.");
         }
         var history = await branch.ReadProjectionHistoryAsync(tenant, id, ct);
+        if (history.Segments[^1].LastFact != factCount)
+            throw new InvalidOperationException("Episode dispatch count does not match the SQL journal.");
         return new(history, outcomes.MoveToImmutable(),
             new(timer.Elapsed, Stopwatch.GetElapsedTime(replayStart),
                 [.. bands.Select(x => new V4DispatchBand(x.Key, x.Value.Count, x.Value.Elapsed))]));
@@ -102,11 +115,12 @@ internal sealed class V4EpisodeExecutor(V4SimulationStore store, V4BranchExecuti
 
         async Task<V4ScheduledCommand> Dispatch(V4CommandRequest request)
         {
-            _ = await store.AdmitAsync(tenant, id, request, ct);
+            var admitted = await store.AdmitAsync(tenant, id, request, ct);
             while (true)
             {
                 var start = Stopwatch.GetTimestamp();
-                var step = await store.AdvanceOneStepAsync(tenant, id, ct);
+                var dispatched = dispatchOverride is null ? null : await dispatchOverride(admitted, factCount, ct);
+                var step = dispatched ?? await store.AdvanceOneStepAsync(tenant, id, ct);
                 if (step.Kind == V4StepKind.Sealed)
                 {
                     AcceptSeal(step);

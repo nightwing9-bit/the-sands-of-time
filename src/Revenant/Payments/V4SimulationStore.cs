@@ -1,6 +1,9 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using Npgsql;
 using Revenant.Contracts;
+using Revenant.Intelligence;
+using Marrow.Kernel.Results;
 using Revenant.Timeline;
 
 namespace Revenant.Payments;
@@ -8,7 +11,8 @@ namespace Revenant.Payments;
 /// <summary>R2's internal dispatcher and journal. A handler can classify only a bounded, no-ledger-effect R2 test operation.
 /// The handler is supplied by the test assembly. The production composition has no V4 handler or public V4 opener.</summary>
 internal sealed partial class V4SimulationStore(NpgsqlDataSource source,
-    Func<V4ScheduledCommand, CancellationToken, Task<V4CommandOutcome?>>? testHandler = null, PaymentLedgerStore? ledger = null)
+    Func<V4ScheduledCommand, CancellationToken, Task<V4CommandOutcome?>>? testHandler = null, PaymentLedgerStore? ledger = null,
+    Lazy<Result<BehavioralRiskScorerV2, BehavioralRiskFailureV2>>? model = null)
 {
     private const string CommandColumns = """
         command_seq, command_key, command_class, command_kind, payload_schema, canonical_payload, payload_sha256,
@@ -147,6 +151,7 @@ internal sealed partial class V4SimulationStore(NpgsqlDataSource source,
 
     private async Task<V4Step> AdvanceAsync(string tenant, ScenarioRunId run, long? requestedBoundary, CancellationToken ct)
     {
+        var started = Stopwatch.GetTimestamp();
         await using var connection = await source.OpenConnectionAsync(ct);
         await using var tx = await BeginAsync(connection, tenant, ct);
         var row = await LockRunAsync(tx, tenant, run, ct);
@@ -197,6 +202,8 @@ internal sealed partial class V4SimulationStore(NpgsqlDataSource source,
                 """, ct, ("status", outcome.Status.ToString()), ("effective", effective.HasValue ? effective.Value : DBNull.Value),
                 ("code", outcome.Code), ("hash", Convert.FromHexString(outcomeHash)), ("run", run.Value), ("seq", command.Sequence));
             await tx.CommitAsync(ct);
+            if (ledger is not null)
+                V4FinanceMetrics.Dispatch.Record(Stopwatch.GetElapsedTime(started).TotalMilliseconds);
             return new(outcome.Status == V4CommandStatus.RetryableBlocked ? V4StepKind.Blocked : V4StepKind.ProcessedCommand,
                 command with { Status = outcome.Status, EffectiveTimeMs = effective, OutcomeCode = outcome.Code, OutcomeSha256 = outcomeHash });
         }

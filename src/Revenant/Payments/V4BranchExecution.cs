@@ -151,9 +151,10 @@ internal sealed partial class V4BranchExecution(V4SimulationStore store,
 
     private static void RequireSourcePolicy(ObservedFinanceContext context)
     {
-        if (context.RiskMode != ObservedRiskMode.NotRequired || context.BasePolicy != PolicyCatalog.RefOf(PolicyCatalog.V7))
+        if (context.BasePolicy != PolicyCatalog.RefOf(PolicyCatalog.V7)
+            || (context.RiskMode == ObservedRiskMode.ModelRequired && !V4ModelScreeningEvidence.Supports(context)))
         {
-            throw new InvalidOperationException("The V4 source requires the rules-only catalog v7 policy.");
+            throw new InvalidOperationException("The V4 source requires catalog v7 and a supported risk configuration.");
         }
     }
 
