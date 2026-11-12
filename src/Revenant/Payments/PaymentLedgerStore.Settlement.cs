@@ -79,7 +79,8 @@ public sealed partial class PaymentLedgerStore
                    p.status
               FROM revenant.payment p
               JOIN revenant.finance_fact f ON f.payment_id = p.id AND f.kind = 'PaymentIntent'
-             WHERE p.status IN ('Cleared', 'Approved')
+             WHERE p.status IN ('Cleared', 'Approved') AND NOT EXISTS (SELECT 1 FROM revenant.scenario_run r
+                 WHERE r.id = p.scenario_run_id AND r.finance_version = 'revenant-finance-reducer/4')
              ORDER BY p.scenario_run_id, f.fact_seq
              LIMIT @n
                FOR UPDATE OF p SKIP LOCKED
@@ -116,54 +117,63 @@ public sealed partial class PaymentLedgerStore
         var outcomes = new List<SettlementOutcome>(claimed.Count);
         foreach (var payment in claimed)
         {
-            var own = reserved.GetValueOrDefault(payment.Id);
-            var next = checked(payment.Version + 1);
-            var key = $"settlement:{payment.Id:N}";
-            if (payment.Status == PaymentStatus.Approved)
-            {
-                // A released payment clears in the same transaction that settles it (task 7.5), so release never waits on a second
-                // manual step and the settlement fact covers both.
-                await AppendStepAsync(connection, tx, outbox, tenantId, payment.RunId, payment.Id, payment.IntentId,
-                    PaymentStatus.Approved, PaymentStatus.Cleared, next, null, key, actor, correlationId, ct);
-                next = checked(next + 1);
-            }
-            if (own > 0)
-            {
-                // The reservation is resolved first so the credit leg's RV005 check sees the funds it protected.
-                available[payment.SourceAccountId] = checked(available[payment.SourceAccountId] + own);
-            }
-            if (available[payment.SourceAccountId] >= payment.AmountMinor)
-            {
-                if (own > 0)
-                {
-                    await ResolveHoldAsync(connection, tx, outbox, payment.RunId, payment.Id, "Consumed", correlationId, ct);
-                }
-                var group = await PostGroupAsync(connection, tx, outbox, tenantId, payment.RunId, payment.Id, payment.Currency,
-                    "Settlement", null, credit: payment.SourceAccountId, debit: payment.DestAccountId, payment.AmountMinor, correlationId, ct);
-                available[payment.SourceAccountId] -= payment.AmountMinor;
-                available[payment.DestAccountId] = checked(available[payment.DestAccountId] + payment.AmountMinor);
-                await AppendStepAsync(connection, tx, outbox, tenantId, payment.RunId, payment.Id, payment.IntentId,
-                    PaymentStatus.Cleared, PaymentStatus.Settled, next, null, key, actor, correlationId, ct);
-                outcomes.Add(new SettlementOutcome(new ScenarioRunId(payment.RunId), payment.IntentId, payment.Id, PaymentStatus.Settled, next, group));
-            }
-            else
-            {
-                if (own > 0)
-                {
-                    await ResolveHoldAsync(connection, tx, outbox, payment.RunId, payment.Id, "Released", correlationId, ct);
-                }
-                await AppendStepAsync(connection, tx, outbox, tenantId, payment.RunId, payment.Id, payment.IntentId,
-                    PaymentStatus.Cleared, PaymentStatus.Returned, next, ReasonInsufficientAvailable, key, actor, correlationId, ct);
-                outcomes.Add(new SettlementOutcome(new ScenarioRunId(payment.RunId), payment.IntentId, payment.Id, PaymentStatus.Returned, next, null));
-            }
-            // The commit order of settlements is decided here, by whichever worker holds these rows; the ordered Settlement fact
-            // records it so the V2 projection replays outcomes in their authoritative order (never input or claim order).
-            await AppendFactAsync(connection, tx, tenantId, payment.RunId, payment.Id, FinanceFactKind.Settlement, PaymentStepCodec.SettlementSchema,
-                PaymentStepCodec.Encode(payment.IntentId), actor, correlationId, next, ct);
+            outcomes.Add(await ApplySettlementAsync(connection, tx, outbox, tenantId, actor, payment, available,
+                reserved.GetValueOrDefault(payment.Id), correlationId, ct));
         }
 
         await tx.CommitAsync(ct);
         return new SettlementBatch(outcomes);
+    }
+
+    private async Task<SettlementOutcome> ApplySettlementAsync(NpgsqlConnection connection, NpgsqlTransaction tx,
+        IOutboxWriter outbox, string tenantId, string actor, Claimed payment, Dictionary<Guid, long> available,
+        long own, string correlationId, CancellationToken ct, V4FinanceDispatch? dispatch = null)
+    {
+        SettlementOutcome outcome;
+        var next = checked(payment.Version + 1);
+        var key = $"settlement:{payment.Id:N}";
+        if (payment.Status == PaymentStatus.Approved)
+        {
+            // A released payment clears in the same transaction that settles it (task 7.5), so release never waits on a second
+            // manual step and the settlement fact covers both.
+            await AppendStepAsync(connection, tx, outbox, tenantId, payment.RunId, payment.Id, payment.IntentId,
+                PaymentStatus.Approved, PaymentStatus.Cleared, next, null, key, actor, correlationId, ct);
+            next = checked(next + 1);
+        }
+        if (own > 0)
+        {
+            // The reservation is resolved first so the credit leg's RV005 check sees the funds it protected.
+            available[payment.SourceAccountId] = checked(available[payment.SourceAccountId] + own);
+        }
+        if (available[payment.SourceAccountId] >= payment.AmountMinor)
+        {
+            if (own > 0)
+            {
+                await ResolveHoldAsync(connection, tx, outbox, payment.RunId, payment.Id, "Consumed", correlationId, ct);
+            }
+            var group = await PostGroupAsync(connection, tx, outbox, tenantId, payment.RunId, payment.Id, payment.Currency,
+                "Settlement", null, credit: payment.SourceAccountId, debit: payment.DestAccountId, payment.AmountMinor, correlationId, ct);
+            available[payment.SourceAccountId] -= payment.AmountMinor;
+            available[payment.DestAccountId] = checked(available[payment.DestAccountId] + payment.AmountMinor);
+            await AppendStepAsync(connection, tx, outbox, tenantId, payment.RunId, payment.Id, payment.IntentId,
+                PaymentStatus.Cleared, PaymentStatus.Settled, next, null, key, actor, correlationId, ct);
+            outcome = new SettlementOutcome(new ScenarioRunId(payment.RunId), payment.IntentId, payment.Id, PaymentStatus.Settled, next, group);
+        }
+        else
+        {
+            if (own > 0)
+            {
+                await ResolveHoldAsync(connection, tx, outbox, payment.RunId, payment.Id, "Released", correlationId, ct);
+            }
+            await AppendStepAsync(connection, tx, outbox, tenantId, payment.RunId, payment.Id, payment.IntentId,
+                PaymentStatus.Cleared, PaymentStatus.Returned, next, ReasonInsufficientAvailable, key, actor, correlationId, ct);
+            outcome = new SettlementOutcome(new ScenarioRunId(payment.RunId), payment.IntentId, payment.Id, PaymentStatus.Returned, next, null);
+        }
+        // The commit order of settlements is decided here, by whichever worker holds these rows; the ordered Settlement fact
+        // records it so the V2 projection replays outcomes in their authoritative order (never input or claim order).
+        await AppendFactAsync(connection, tx, tenantId, payment.RunId, payment.Id, FinanceFactKind.Settlement, PaymentStepCodec.SettlementSchema,
+            PaymentStepCodec.Encode(payment.IntentId), actor, correlationId, next, ct, dispatch: dispatch);
+        return outcome;
     }
 
     // ---------------------------------------------------------------------------------------------------------
@@ -202,16 +212,29 @@ public sealed partial class PaymentLedgerStore
         {
             return Fail<TransitionReceipt>(PaymentFailureCode.InvalidRequest, "The return command is malformed.");
         }
+        await using var connection = await dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+        await SetTenantAsync(connection, tx, tenantId, ct);
+        if (await IsV4RunAsync(connection, tx, command.RunId.Value, ct))
+        {
+            return Fail<TransitionReceipt>(PaymentFailureCode.InvalidRequest, "V4 requires its scheduler transaction.");
+        }
+
+        var result = await ApplyReturnAsync(connection, tx, tenantId, actor, command, correlationId, ct);
+        await tx.CommitAsync(ct);
+        return result;
+    }
+
+    private async Task<Result<TransitionReceipt, PaymentFailure>> ApplyReturnAsync(NpgsqlConnection connection,
+        NpgsqlTransaction tx, string tenantId, string actor, ReturnCommand command, string correlationId,
+        CancellationToken ct, V4FinanceDispatch? dispatch = null)
+    {
         var run = command.RunId.Value;
         var commandKey = $"transition:{command.CommandId}";
         // Same request digest as a transition to Returned, so one command id names one request in either entry point.
         var hash = SHA256.HashData(new CanonicalWriter()
             .WriteGuid(run).WriteString(command.IntentId).WriteByte((byte)PaymentStatus.Returned)
             .WriteInt64(command.ExpectedVersion).WriteString(command.Reason ?? "").ToArray());
-
-        await using var connection = await dataSource.OpenConnectionAsync(ct);
-        await using var tx = await connection.BeginTransactionAsync(ct);
-        await SetTenantAsync(connection, tx, tenantId, ct);
 
         var locked = await ReadPaymentForUpdateAsync(connection, tx, run, command.IntentId, ct);
         if (locked is null)
@@ -245,7 +268,6 @@ public sealed partial class PaymentLedgerStore
         {
             await InsertCommandAsync(connection, tx, tenantId, run, commandKey, "Transition", locked.Id, hash, "Rejected",
                 locked.Status, locked.Version, code.ToString(), actor, ct);
-            await tx.CommitAsync(ct);
             return Fail<TransitionReceipt>(code, message);
         }
 
@@ -272,12 +294,11 @@ public sealed partial class PaymentLedgerStore
         // The return instruction is an externally committed fact (task 7.4): ordered under the run cursor, in this transaction.
         await AppendFactAsync(connection, tx, tenantId, run, locked.Id, FinanceFactKind.ReturnInstruction, ReturnInstructionCodec.SchemaVersion,
             ReturnInstructionCodec.Encode(new ReturnInstructionFact(command.IntentId, command.Reason ?? "unspecified")), actor, correlationId,
-            next, ct);
+            next, ct, dispatch: dispatch);
         await InsertCommandAsync(connection, tx, tenantId, run, commandKey, "Transition", locked.Id, hash, "Accepted",
             PaymentStatus.Returned, next, null, actor, ct);
         var view = await ReadPaymentByIdAsync(connection, tx, locked.Id, ct)
             ?? throw new InvalidOperationException("A just-returned payment is not readable.");
-        await tx.CommitAsync(ct);
         return Result<TransitionReceipt, PaymentFailure>.Success(new TransitionReceipt(view, PaymentStatus.Returned, next, IsReplay: false));
     }
 

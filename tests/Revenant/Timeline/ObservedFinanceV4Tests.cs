@@ -3,6 +3,7 @@ using Marrow.Kernel.Canonical;
 using Revenant.Cases;
 using Revenant.Contracts;
 using Revenant.Finance;
+using Revenant.Payments;
 using Revenant.Scenario;
 using Revenant.Timeline;
 using Xunit;
@@ -108,8 +109,8 @@ public sealed class ObservedFinanceV4Tests
             (state.LastEffectiveTimeMs, state.LastFact, seal.EffectiveTimeMs, seal.Sequence, after.LastEffectiveTimeMs, after.LastFact));
         Assert.Equal(4, after.Ledger.Payments[run.Intents[1].IntentId].IntentFact);
         Assert.Equal(5, Apply(after, Payment(run.Intents[2], 5, Nine), context).LastFact);
-        Assert.Equal(LedgerFinanceErrorCode.IllegalStep, ObservedFinanceReducer.Apply(after,
-            new(RunId, 5, Nine, ObservedFactKind.Screening, PaymentStepCodec.ScreeningSchema, [.. PaymentStepCodec.Encode(run.Intents[1].IntentId)]), context).Error.Code);
+        Assert.Equal(5, Apply(after,
+            new(RunId, 5, Nine, ObservedFactKind.Screening, PaymentStepCodec.ScreeningSchema, [.. PaymentStepCodec.Encode(run.Intents[1].IntentId)]), context).LastFact);
     }
 
     [Fact]
@@ -132,6 +133,39 @@ public sealed class ObservedFinanceV4Tests
         Assert.All(state.Ledger.Accounts.Values, a => Assert.Equal(0, a.ReservedMinor));
         Assert.Equal(ObservedFinanceStateCodec.Instance.EncodeCanonical(state), ObservedFinanceStateCodec.Instance.EncodeCanonical(replay));
     }
+
+    [Fact]
+    public void Fork_context_preserves_opening_and_uses_the_catalog_v8_pin()
+    {
+        var (run, source, opening) = Start();
+        var child = ChildContext(source);
+        V4BranchExecution.ValidateChildContext(source, child);
+        Assert.NotEqual(source.BasePolicy, child.BasePolicy);
+        Assert.Equal(ObservedFinanceStateCodec.Instance.EncodeCanonical(opening),
+            ObservedFinanceStateCodec.Instance.EncodeCanonical(ObservedFinanceReducer.Initial(run, child).Value));
+
+        var beforeFork = Apply(opening, Seal(opening), source);
+        var fork = Apply(beforeFork, Seal(beforeFork), source);
+        var first = Payment(run.Intents[0], fork.LastFact + 1, Nine);
+        var second = Payment(run.Intents[1], first.Sequence + 1, Nine);
+        Assert.Equal(LedgerFinanceErrorCode.OutOfOrderFact,
+            ObservedFinanceReducer.Apply(beforeFork, first with { Sequence = beforeFork.LastFact + 1 }, child).Error.Code);
+        var afterFirst = Apply(fork, first, child);
+        var afterSecond = Apply(afterFirst, second, child);
+        Assert.Equal((Nine, fork.LastFact + 2), (afterSecond.LastEffectiveTimeMs, afterSecond.LastFact));
+        Assert.Equal(ObservedFinanceReducer.AppendDigest(ObservedFinanceReducer.AppendDigest(fork.PrefixDigest, first), second),
+            afterSecond.PrefixDigest);
+        Assert.Equal(Nine + 300_000, Seal(afterSecond).EffectiveTimeMs);
+
+        var changedOrigin = new ObservedFinanceContext(source.ScenarioVersion, source.ManifestSha256, source.OriginMs + 300_000,
+            child.BasePolicy, source.ReviewPolicy, source.RiskMode, source.RiskFeatureSchema, null, [], []);
+        Assert.Throws<InvalidOperationException>(() => V4BranchExecution.ValidateChildContext(source, changedOrigin));
+        Assert.Throws<InvalidOperationException>(() => V4BranchExecution.ValidateChildContext(source, source));
+    }
+
+    internal static ObservedFinanceContext ChildContext(ObservedFinanceContext source) =>
+        new(source.ScenarioVersion, source.ManifestSha256, source.OriginMs, PolicyCatalog.RefOf(PolicyCatalog.V8),
+            source.ReviewPolicy, source.RiskMode, source.RiskFeatureSchema, source.RiskModel, source.AnomalyModels, source.LiquidityModels);
 
     internal static (ScenarioRun Run, ObservedFinanceContext Context, ObservedFinanceState State) Start(ScenarioRunId? id = null, long origin = Origin)
     {

@@ -105,15 +105,31 @@ public sealed partial class PaymentLedgerStore
         {
             return Fail<CaseReceipt>(PaymentFailureCode.InvalidRequest, "The case command is malformed.");
         }
+        await using var connection = await dataSource.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+        await SetTenantAsync(connection, tx, tenantId, ct);
+        if (await IsV4RunAsync(connection, tx, command.RunId.Value, ct))
+        {
+            return Fail<CaseReceipt>(PaymentFailureCode.InvalidRequest, "V4 requires its scheduler transaction.");
+        }
+
+        var result = await ApplyCaseActionAsync(connection, tx, tenantId, actor, command, correlationId, ct);
+        if (result.IsSuccess)
+        {
+            await tx.CommitAsync(ct);
+        }
+        return result;
+    }
+
+    private async Task<Result<CaseReceipt, PaymentFailure>> ApplyCaseActionAsync(NpgsqlConnection connection,
+        NpgsqlTransaction tx, string tenantId, CaseActor actor, CaseCommand command, string correlationId,
+        CancellationToken ct, V4FinanceDispatch? dispatch = null)
+    {
         var run = command.RunId.Value;
         var commandKey = $"review:{command.CommandId}";
         var hash = SHA256.HashData(new CanonicalWriter()
             .WriteGuid(run).WriteString(command.IntentId).WriteByte((byte)command.Action)
             .WriteInt64(command.ExpectedVersion).WriteString(command.Reason ?? "").ToArray());
-
-        await using var connection = await dataSource.OpenConnectionAsync(ct);
-        await using var tx = await connection.BeginTransactionAsync(ct);
-        await SetTenantAsync(connection, tx, tenantId, ct);
 
         var payment = await ReadPaymentForUpdateAsync(connection, tx, run, command.IntentId, ct);
         if (payment is null)
@@ -213,7 +229,7 @@ public sealed partial class PaymentLedgerStore
                     ReviewDecisionCodec.SchemaVersion,
                     ReviewDecisionCodec.Encode(new ReviewDecisionFact(command.IntentId, ReviewDecisionAction.Approve, decision.ApprovalOrder,
                         snapshot.RequiredApprovals, decision.NextStatus.ToString(), ReviewPolicy.Version)), actor.SubjectId, correlationId,
-                    paymentVersion, ct);
+                    paymentVersion, ct, dispatch: dispatch);
                 break;
 
             case CaseAction.Reject:
@@ -230,7 +246,7 @@ public sealed partial class PaymentLedgerStore
                     ReviewDecisionCodec.SchemaVersion,
                     ReviewDecisionCodec.Encode(new ReviewDecisionFact(command.IntentId, ReviewDecisionAction.Reject, 0,
                         snapshot.RequiredApprovals, decision.NextStatus.ToString(), ReviewPolicy.Version)), actor.SubjectId, correlationId,
-                    paymentVersion, ct);
+                    paymentVersion, ct, dispatch: dispatch);
                 break;
         }
 
@@ -239,7 +255,6 @@ public sealed partial class PaymentLedgerStore
         await outbox.EnqueueAsync(CaseEvent(EventCaseUpdated, run, caseId, payment.Id, decision.NextStatus.ToString(), decision.NextVersion,
             command.Action.ToString(), factSequence, correlationId, $"v{decision.NextVersion}"), ct);
         var view = await ReadCaseAsync(connection, tx, caseId, ct) ?? throw new InvalidOperationException("A just-updated case is not readable.");
-        await tx.CommitAsync(ct);
         return Result<CaseReceipt, PaymentFailure>.Success(new CaseReceipt(view, IsReplay: false, factSequence));
     }
 
@@ -392,9 +407,11 @@ public sealed partial class PaymentLedgerStore
     private static async Task<long> AppendFactAsync(
         NpgsqlConnection connection, NpgsqlTransaction tx, string tenantId, Guid run, Guid paymentId, FinanceFactKind kind,
         string schema, byte[] payload, string actor, string correlationId, long paymentVersion, CancellationToken ct,
-        FactEvidenceRef? evidence = null)
+        FactEvidenceRef? evidence = null, V4FinanceDispatch? dispatch = null)
     {
-        var sequence = await AppendFactCoreAsync(connection, tx, tenantId, run, paymentId, kind, schema, payload, ct, evidence);
+        var sequence = dispatch is null
+            ? await AppendFactCoreAsync(connection, tx, tenantId, run, paymentId, kind, schema, payload, ct, evidence)
+            : await AppendV4FactAsync(connection, tx, tenantId, paymentId, kind, schema, payload, dispatch, null, ct);
         // Task 7.5: every committed fact is also a link of the run's audit chain, in the same transaction.
         await AppendAuditAsync(connection, tx, tenantId, run, $"fact.{kind.ToString().ToLowerInvariant()}", actor, correlationId,
             $"fact:{sequence}", paymentVersion, FinanceFactCodec.PayloadHash(payload), ct);

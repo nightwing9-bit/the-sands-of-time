@@ -144,7 +144,7 @@ public sealed class LedgerDatabase : IAsyncLifetime
             await create.ExecuteNonQueryAsync();
         }
         var copy = await _container.ExecAsync(["sh", "-ec",
-            "cp -R /sands/db/migrations /tmp/pre-v4-migrations && rm /tmp/pre-v4-migrations/revenant/0009_v4_causal_scheduler.sql"]);
+            "cp -R /sands/db/migrations /tmp/pre-v4-migrations && rm /tmp/pre-v4-migrations/revenant/0009_v4_causal_scheduler.sql /tmp/pre-v4-migrations/revenant/0010_v4_branch_execution.sql"]);
         if (copy.ExitCode != 0)
         {
             throw new InvalidOperationException(copy.Stderr);
@@ -157,6 +157,18 @@ public sealed class LedgerDatabase : IAsyncLifetime
             Username = WriterUser,
             Password = WriterPassword,
         }.ConnectionString);
+    }
+
+    internal async Task<string> MigrateToR2Async()
+    {
+        const string directory = "/tmp/pre-r3-migrations";
+        var copy = await _container.ExecAsync(["sh", "-ec",
+            $"cp -R /sands/db/migrations {directory} && rm {directory}/revenant/0010_v4_branch_execution.sql"]);
+        if (copy.ExitCode != 0)
+        {
+            throw new InvalidOperationException(copy.Stderr);
+        }
+        return await MigrateV4UpgradeDatabaseAsync(directory);
     }
 
     internal async Task<string> MigrateV4UpgradeDatabaseAsync(string migrations = "/sands/db/migrations")

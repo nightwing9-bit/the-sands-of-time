@@ -298,9 +298,42 @@ public sealed class V4SimulationPostgresTests(LedgerDatabase db)
                 historical.Add((id, closed, await LegacyFingerprintAsync(upgraded, id)));
             }
         }
+        var r2Output = await db.MigrateToR2Async();
+        Assert.Contains("module revenant: applying 0009_v4_causal_scheduler", r2Output);
+        Assert.Contains("done: 1 applied", r2Output);
+        var r2 = ObservedFinanceV4Tests.Start(new(Guid.Parse("00000000-0000-0000-0000-000000009008")));
+        var r2Store = new V4SimulationStore(upgraded, (_, _) => Reply(V4CommandStatus.Completed));
+        await r2Store.OpenTestRunAsync(Tenant, Owner, r2.Run, r2.Context, Ct);
+        var boundary = Origin + 300_000;
+        var request = Request("before-r3", boundary - 1);
+        _ = await r2Store.AdmitAsync(Tenant, r2.Run.RunId, request, Ct);
+        Assert.Equal(V4StepKind.ProcessedCommand, (await r2Store.AdvanceOneStepAsync(Tenant, r2.Run.RunId, Ct)).Kind);
+        var journal = await r2Store.ReadJournalAsync(Tenant, r2.Run.RunId, Ct);
+        var commandDigest = V4SimulationScheduler.RecomputeCommandDigest(r2.Run.RunId, boundary, journal);
+        var r2Seal = ObservedFinanceInput.Seal(new(r2.Run.RunId, boundary, Origin, 0, r2.State.PrefixDigest, commandDigest));
+        // Append through the original 0009 SQL guards before the branch table exists.
+        await using (var conn = await upgraded.OpenConnectionAsync(Ct))
+        await using (var tx = await LedgerSql.BeginTenantAsync(conn, Tenant))
+        {
+            await AdvanceCursorAsync(conn, r2.Run.RunId, 1, boundary);
+            await InsertSealAsync(conn, r2Seal, null);
+            await LedgerSql.ExecAsync(conn, """
+                UPDATE revenant.v4_scheduler_run SET watermark_exclusive_ms = @time, clock_ms = @time WHERE run_id = @run
+                """, ("time", boundary), ("run", r2.Run.RunId.Value));
+            await tx.CommitAsync(Ct);
+        }
+        var r2Fingerprint = await LegacyFingerprintAsync(upgraded, r2.Run.RunId);
+
         var output = await db.MigrateV4UpgradeDatabaseAsync();
-        Assert.Contains("module revenant: applying 0009_v4_causal_scheduler", output);
-        Assert.Contains("1 applied", output);
+        Assert.Contains("module revenant: applying 0010_v4_branch_execution", output);
+        Assert.Contains("done: 1 applied", output);
+        Assert.Equal(r2Fingerprint, await LegacyFingerprintAsync(upgraded, r2.Run.RunId));
+        var preserved = RequireSeal(await r2Store.SealAsync(Tenant, r2.Run.RunId, boundary, Ct), 1, boundary);
+        Assert.Equal(ObservedFinanceInputCodec.Instance.EncodeCanonical(r2Seal), ObservedFinanceInputCodec.Instance.EncodeCanonical(preserved));
+        Assert.Equal(V4CommandStatus.Completed, (await r2Store.AdmitAsync(Tenant, r2.Run.RunId, request, Ct)).Status);
+        var nextBoundary = boundary + 300_000;
+        RequireSeal(await r2Store.SealAsync(Tenant, r2.Run.RunId, nextBoundary, Ct), 2, nextBoundary);
+
         foreach (var snapshot in historical)
         {
             Assert.Equal(snapshot.Fingerprint, await LegacyFingerprintAsync(upgraded, snapshot.Id));
