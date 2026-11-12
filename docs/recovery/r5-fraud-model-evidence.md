@@ -52,11 +52,11 @@ The monotonic Calibration mapping is `sigmoid(0.1647929876432001 × rawScore + 0
 
 ## Frozen independent evaluation
 
-[Independent evaluation](https://github.com/nightwing9-bit/the-sands-of-time/actions/runs/43223488498) tested the same selection head and merge. All seven jobs passed. Its [evidence](https://github.com/nightwing9-bit/the-sands-of-time/actions/runs/43223488498/artifacts/13946722635) contains one executed and passed financial challenge case (1m 39s) and one executed and passed frozen evaluation case. Report SHA-256: `542d2d551e183a60e677fe6b9dd2200ffddb777b2128424c2cdfb9aec2b9b432`. Challenge manifest SHA-256: `3f4daa236769240a69891aa6cbe1ed1de089b0ae12710baa0c188a16a5b1da5d`. The [qualified cohort manifest](r5-qualified-dataset-manifest.json) records the four original split hashes, stream counts and finance outcomes.
+[Independent evaluation](https://github.com/nightwing9-bit/the-sands-of-time/actions/runs/43223488498) tested the same selection head and merge. All seven jobs passed. Its [evidence](https://github.com/nightwing9-bit/the-sands-of-time/actions/runs/43223488498/artifacts/13946722635) contains one executed and passed financial challenge case (1m 39s) and one executed and passed frozen evaluation case. Report SHA-256: `542d2d551e183a60e677fe6b9dd2200ffddb777b2128424c2cdfb9aec2b9b432`. The [challenge manifest](r5-ring-challenge-manifest.json) has canonical SHA-256 `3f4daa236769240a69891aa6cbe1ed1de089b0ae12710baa0c188a16a5b1da5d`. The [qualified cohort manifest](r5-qualified-dataset-manifest.json) records the four original split hashes, stream counts and finance outcomes.
 
 | Split | Eligible | Malicious | Legitimate | v7 holds | Screening rejections |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Train | 1,317 | 265 | 1,052 | 10 | 4 |
+| Train | 1,317 | 265 | 1,052 | 10 | 2 |
 | Validation | 441 | 91 | 350 | 4 | 1 |
 | Calibration | 426 | 85 | 341 | 2 | 0 |
 | FinalTest | 435 | 86 | 349 | 2 | 3 |
@@ -77,6 +77,8 @@ FinalTest average precision (step-integrated PR-AUC) was 0.6353 and ROC-AUC 0.83
 
 The independent challenge identified 15/24 Ring attempts and six legitimate payments (all hard negatives) in 21 reviews. Ring detections by root were 4, 2, 4 and 5 out of six. The matched v7-plus-heuristic policy found two malicious attempts total and reviewed 19 legitimate attempts. Challenge AP was 0.6072 and ROC-AUC 0.8315; the root-bootstrap recall delta percentiles were +9.8/+14.3/+17.8 points. The challenge varies timing and participants but shares the simulated motifs and enriched synthetic prevalence; this does not establish sensitivity to other real-world rings.
 
+Intrinsic FastTree ranking, without mandatory holds taking slots, identified 7/8, 20/21 and 32/43 malicious reviews at 2%, 5% and 10% on FinalTest. It identified 7/8, 18/21 and 27/42 in the challenge. The combined policy rows above are the comparisons that preserve the existing v7 workload.
+
 The fixed threshold requested 25/435 (5.75%) reviews on FinalTest, four above the nominal budget, with 21 malicious, four legitimate, F1 0.3784, Brier 0.1134, and log loss 0.3672. It requested 25/425 (5.88%) in the challenge, also four above budget, with 18 malicious, seven legitimate, F1 0.3103, Brier 0.1272, and log loss 0.4010. Peak five-minute demand was five on FinalTest and two in the challenge. The evidence report contains bank and episode-day demand. R6 must enforce capacity and preserve mandatory v7 reviews; the threshold alone does not enforce the budget.
 
 ## Artifact and reference vectors
@@ -92,3 +94,5 @@ The packed ZIP is the unchanged selected ZIP; no retraining occurred during pack
 | Rapid ring forwarding | 16.032776 | 937,008 | Yes |
 | Missing history | -5.137154 | 312,391 | No |
 | Zero available | 5.92906 | 737,820 | No |
+
+The [native artifact run](https://github.com/nightwing9-bit/the-sands-of-time/actions/runs/43225461324) tested implementation `88eb898d289233739706961da612c65d9934cfb3` at synthetic merge `9ff1b0c777913130f996eadb303cd782e658adfa`. All seven jobs passed; the [native integration TRX](https://github.com/nightwing9-bit/the-sands-of-time/actions/runs/43225461324/artifacts/13947128600) records 89 executed and passed Revenant cases, zero skips. The [platform evidence](https://github.com/nightwing9-bit/the-sands-of-time/actions/runs/43225461324/artifacts/13947542793) contains one executed and passed R5 artifact case (zero skips, TRX SHA-256 `e7d30e8b65a61b15d2e5d522bf444136592f4f88e42fddbdd04c2a4d1afb05de`). It tested exact seven-vector parity, 56 concurrent predictions, missing/corrupt ZIP, wrong schema/order, malformed vector, altered calibration and wrong threshold. The published Linux AMD64 Worker ran without network access and reported PASS on .NET 10.0.14 with all seven references, the same model ID and ZIP hash, and threshold 852,469 (report SHA-256 `e15a5648362a2ccf755efbd91eadc7f6e7e78e633167e55ff82009ed9eca76e1`). No claim is made that retraining would reproduce ZIP bytes; the evaluated ZIP itself was retained and pinned.

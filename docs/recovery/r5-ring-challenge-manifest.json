@@ -1,0 +1,141 @@
+{
+  "Schema": "dataset-manifest/2",
+  "CodeRevision": "15f3a0b8181669f0d33607051982c849b66dc368",
+  "Configuration": {
+    "MasterSeed": 4814623101,
+    "OriginMs": 1768176000000,
+    "Hours": 72,
+    "Train": 0,
+    "Validation": 0,
+    "Calibration": 0,
+    "FinalTest": 4,
+    "Generator": "revenant-episode-generator/2",
+    "ShiftedRing": true
+  },
+  "Roots": [
+    {
+      "Key": "3f2531050e2ede4e6a367acb026f38417c2b4d553a0c71cdff98359216334bd9",
+      "Split": "FinalTest",
+      "ManifestSha256": "sha256:036a5dae3723051899bb25de63776932f01ba856dff6f6f0e8c409447209c229",
+      "BehaviorSha256": "226140836fdf1abd6b781ded2dd666434fae5b090b4140ca619689353d8e2ea5",
+      "Accounts": 28,
+      "Facts": 1283,
+      "OriginMs": 1771857000000
+    },
+    {
+      "Key": "5ab4608dbe6f9fbdfb348813d926cf58344895a3b2c3986b4004a740b35c7a21",
+      "Split": "FinalTest",
+      "ManifestSha256": "sha256:1040237a76833cb3b04ce627e42a4458f93f56d5225f7cf380df4210e92e3cfb",
+      "BehaviorSha256": "cf215e1bed5ed94955d15a7528acd6206374091c600455ab521fabe25849f72b",
+      "Accounts": 27,
+      "Facts": 1291,
+      "OriginMs": 1771140600000
+    },
+    {
+      "Key": "11e3e71de6a15a9d39af16e7812fa168af5595f37463607e7251242c7dca2cde",
+      "Split": "FinalTest",
+      "ManifestSha256": "sha256:d62f1ab3f1e9adbfc178964efe9eda6e227f6b7f3790c72761db6e3956e78a85",
+      "BehaviorSha256": "28f072a4efe9456ef582de6f3381ab1a32c33e1a51c260e9b06ff6fc06b80897",
+      "Accounts": 23,
+      "Facts": 1221,
+      "OriginMs": 1770305100000
+    },
+    {
+      "Key": "f1f625b4a56f730bc7777b17f299127cf4ffcd143eb36a3cfde310d305a69a6e",
+      "Split": "FinalTest",
+      "ManifestSha256": "sha256:a442c356c2e1dcbd867e74f6c703b57b30b55def713dbb15c5fe4b3205014cd6",
+      "BehaviorSha256": "a241fcf948e9f5e08ff8716dcfa198857695355e6b213e44ed44495bf27f8184",
+      "Accounts": 26,
+      "Facts": 1298,
+      "OriginMs": 1771499400000
+    }
+  ],
+  "Splits": [
+    {
+      "Split": "FinalTest",
+      "Roots": 4,
+      "Legitimate": 453,
+      "Fraud": 91,
+      "HardNegatives": 198,
+      "FraudScored": 91,
+      "LegitimateScored": 453,
+      "Anomalies": 143,
+      "AnomalyNegatives": 329,
+      "FullTargets": 20544,
+      "Intake": 544,
+      "Screened": 544,
+      "Held": 6,
+      "Rejected": 1,
+      "Settled": 532,
+      "Returned": 12,
+      "InsufficientSettlement": 5,
+      "FraudPosted": 91,
+      "Attacks": {
+        "Ring": 24,
+        "Takeover": 8,
+        "Dispersal": 23,
+        "CoordinatedBurst": 24,
+        "BeneficiaryAbuse": 12
+      },
+      "Tables": [
+        {
+          "Name": "fraud-asof",
+          "Rows": 544,
+          "Bytes": 424687,
+          "Sha256": "3d23477e80fff23ccb256d1fee5bef34309cff39fc67a8070cbca1581ccef3e7"
+        },
+        {
+          "Name": "bank",
+          "Rows": 20736,
+          "Bytes": 6697769,
+          "Sha256": "a043751cc2d87c3667371c4016a83e7c03b6afaa70fa61b7e53f72344c9ea127"
+        },
+        {
+          "Name": "account",
+          "Rows": 954,
+          "Bytes": 759428,
+          "Sha256": "18ad5a411172f21a065240f763752b90b2d9e32d6bb2657c30d541644ad5f46e"
+        },
+        {
+          "Name": "targets",
+          "Rows": 20736,
+          "Bytes": 18157868,
+          "Sha256": "710212005c2d4e8048661f4336e8a6cd3f4b0c8fcba467af1205525d6d6ad405"
+        },
+        {
+          "Name": "attempt-outcomes",
+          "Rows": 544,
+          "Bytes": 96940,
+          "Sha256": "ad261e0a90973645b1c57ce02dcb3b2b8723216c5f47221f47a550653b9b7adc"
+        },
+        {
+          "Name": "payment-truth",
+          "Rows": 544,
+          "Bytes": 68804,
+          "Sha256": "cc59e335bf42f16f7e1d89bc5c6e57c2f1446934ac1401f72a3155de86e6df49"
+        },
+        {
+          "Name": "anomaly-truth",
+          "Rows": 472,
+          "Bytes": 70850,
+          "Sha256": "f5f5ea06ba0a310dcc77e583112d98c5c5a99694f944422295fc310ccccd303f"
+        },
+        {
+          "Name": "campaign-truth",
+          "Rows": 20,
+          "Bytes": 6405,
+          "Sha256": "a355aaf2e08545b5823babd8a525255c269924d382076b2fe58efbcf95c2d99c"
+        },
+        {
+          "Name": "risk-asof",
+          "Rows": 544,
+          "Bytes": 292718,
+          "Sha256": "205ce3f11c0999f696beab9e08fe0f24c8031d324e5cbeeed9a439725e133edb"
+        }
+      ],
+      "ModelSha256": "3db75eaf19dca8f230f17f3dbe0867ec9352decf19cc7ba6b66573b32a875e68",
+      "TruthSha256": "aa8127fae668f207ab1de0dc193ae2d7b5d9edb1adbf5a8a94d9479aac71b684"
+    }
+  ],
+  "Sha256": "3f4daa236769240a69891aa6cbe1ed1de089b0ae12710baa0c188a16a5b1da5d"
+}
