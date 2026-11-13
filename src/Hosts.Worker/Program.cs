@@ -19,8 +19,10 @@ if (args is ["--r5-risk-selftest"])
 }
 
 var v4Dispatch = args.Length > 0 && args[0] == "--v4-dispatch";
+var v4Advisory = args.Length > 0 && args[0] == "--v4-advisory";
 Guid execution = default;
 int steps = 0;
+long boundary = 0;
 if (v4Dispatch && (args.Length != 3 || !Guid.TryParse(args[1], out execution) || execution == Guid.Empty
     || !int.TryParse(args[2], NumberStyles.None, CultureInfo.InvariantCulture, out steps)
     || steps > RevenantV4Worker.MaxStepsPerInvocation))
@@ -28,8 +30,15 @@ if (v4Dispatch && (args.Length != 3 || !Guid.TryParse(args[1], out execution) ||
     Console.Error.WriteLine("Usage: --v4-dispatch <execution-uuid> <step-count>");
     return 1;
 }
+if (v4Advisory && (args.Length is < 3 or > 4 || !Guid.TryParse(args[1], out execution) || execution == Guid.Empty
+    || !long.TryParse(args[2], NumberStyles.None, CultureInfo.InvariantCulture, out boundary)
+    || !ObservedFinanceVersion.IsBoundary(boundary) || (args.Length == 4 && string.IsNullOrWhiteSpace(args[3]))))
+{
+    Console.Error.WriteLine("Usage: --v4-advisory <execution-uuid> <completed-boundary-ms> [account-id]");
+    return 1;
+}
 
-var builder = WebApplication.CreateBuilder(v4Dispatch ? [] : args);
+var builder = WebApplication.CreateBuilder(v4Dispatch || v4Advisory ? [] : args);
 builder.AddMarrowHostDefaults();
 builder.Services.AddMarrowDependencies(builder.Configuration);
 
@@ -54,8 +63,22 @@ builder.Services
     // (revenant_read_projector writes only payment_view/hold_view/posting_view and the inbox). Section Revenant:ReadProjection.
     .AddMarrowInboxConsumerService(builder.Configuration, "Revenant:ReadProjection", new MessagingTables("revenant"),
         RevenantEventProjection.ConsumerId, RevenantEventProjection.ApplyAsync);
+builder.Services.AddSingleton<RevenantAdvisoryWorker>();
 
 await using var app = builder.Build();
+if (v4Advisory)
+{
+    var worker = app.Services.GetRequiredService<RevenantAdvisoryWorker>();
+    using var stopping = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, evt) =>
+    {
+        evt.Cancel = true;
+        stopping.Cancel();
+    };
+    var receipt = await worker.ScoreAsync(new(execution), boundary, args.Length == 4 ? args[3] : null, stopping.Token);
+    Console.WriteLine(JsonSerializer.Serialize(receipt));
+    return 0;
+}
 if (v4Dispatch)
 {
     var worker = app.Services.GetRequiredService<RevenantV4Worker>();

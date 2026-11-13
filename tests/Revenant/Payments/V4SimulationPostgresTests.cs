@@ -328,7 +328,8 @@ public sealed class V4SimulationPostgresTests(LedgerDatabase db)
         Assert.Contains("module revenant: applying 0010_v4_branch_execution", output);
         Assert.Contains("module revenant: applying 0011_v4_observation_projections", output);
         Assert.Contains("module revenant: applying 0012_v4_model_screening", output);
-        Assert.Contains("done: 3 applied", output);
+        Assert.Contains("module revenant: applying 0013_v4_advisory_evidence", output);
+        Assert.Contains("done: 4 applied", output);
         Assert.Equal(r2Fingerprint, await LegacyFingerprintAsync(upgraded, r2.Run.RunId));
         var preserved = RequireSeal(await r2Store.SealAsync(Tenant, r2.Run.RunId, boundary, Ct), 1, boundary);
         Assert.Equal(ObservedFinanceInputCodec.Instance.EncodeCanonical(r2Seal), ObservedFinanceInputCodec.Instance.EncodeCanonical(preserved));

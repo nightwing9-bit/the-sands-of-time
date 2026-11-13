@@ -23,7 +23,8 @@ internal sealed class V4EpisodeExecutor(V4SimulationStore store, V4BranchExecuti
 {
     internal async Task<V4ExecutedEpisode> ExecuteAsync(string tenant, string owner, V4EpisodePlan plan, CancellationToken ct,
         ObservedRiskMode riskMode = ObservedRiskMode.NotRequired, bool complete = true, long? sealThrough = null,
-        IReadOnlyDictionary<string, long>? reviewTimes = null)
+        IReadOnlyDictionary<string, long>? reviewTimes = null, ImmutableArray<ObservedModelPin> anomalyModels = default,
+        ImmutableArray<ObservedModelPin> liquidityModels = default)
     {
         var timer = Stopwatch.StartNew();
         var run = plan.Opening;
@@ -43,7 +44,8 @@ internal sealed class V4EpisodeExecutor(V4SimulationStore store, V4BranchExecuti
         var context = new ObservedFinanceContext(run.Manifest.ScenarioVersion, run.Manifest.ContentHash, origin,
             PolicyCatalog.RefOf(PolicyCatalog.V7), ReviewPolicy.Version, riskMode,
             riskMode == ObservedRiskMode.ModelRequired ? BehavioralRiskScorerV2.FeatureSchema : "",
-            riskMode == ObservedRiskMode.ModelRequired ? BehavioralRiskScorerV2.PublishedPin : null, [], []);
+            riskMode == ObservedRiskMode.ModelRequired ? BehavioralRiskScorerV2.PublishedPin : null,
+            anomalyModels.IsDefault ? [] : anomalyModels, liquidityModels.IsDefault ? [] : liquidityModels);
         await branch.OpenSourceAsync(tenant, owner, run, context, ct);
         var latest = origin;
         var factCount = 0;
