@@ -14,18 +14,18 @@ internal static class SsaTrailingRate
     // A[-1] is the opening balance. A[11] is the first seal with twelve observed intervals.
     internal const int FirstRate = Window - 1;
 
-    internal static double Rate(long lagged, long current, long scale)
+    internal static double Rate(long lagged, long current, long scale, int window = Window)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(scale);
-        return checked(current - lagged) / (Window * (double)scale);
+        return checked(current - lagged) / (window * (double)scale);
     }
 
-    internal static float Input(IReadOnlyList<long> balances, long opening, long scale, int bucket)
+    internal static float Input(IReadOnlyList<long> balances, long opening, long scale, int bucket, int window = Window)
     {
-        if (bucket < FirstRate || bucket >= balances.Count)
+        if (bucket < window - 1 || bucket >= balances.Count)
             throw new ArgumentOutOfRangeException(nameof(bucket));
-        var lagged = bucket == FirstRate ? opening : balances[bucket - Window];
-        return (float)Rate(lagged, balances[bucket], scale);
+        var lagged = bucket == window - 1 ? opening : balances[bucket - window];
+        return (float)Rate(lagged, balances[bucket], scale, window);
     }
 
     internal static double ZeroInnovationRate(IReadOnlyList<long> balances, long scale, int origin, int horizon)
@@ -37,9 +37,10 @@ internal static class SsaTrailingRate
     }
 
     internal static long[] Decode(SsaTrailingRateDecoder decoder, IReadOnlyList<long> balances, long scale, int origin,
-        ReadOnlySpan<float> rates)
+        ReadOnlySpan<float> rates, int window = Window)
     {
-        ValidateOrigin(balances, origin);
+        if (window is not (3 or Window)) throw new ArgumentOutOfRangeException(nameof(window));
+        if (origin < window - 1 || origin >= balances.Count) throw new ArgumentOutOfRangeException(nameof(origin));
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(scale);
         if (rates.Length != SsaAdvisory.Horizon)
             throw new InvalidDataException("Expected eight finite trailing-rate forecasts.");
@@ -50,10 +51,11 @@ internal static class SsaTrailingRate
             if (!float.IsFinite(rates[i]))
                 throw new InvalidDataException("Nonfinite trailing-rate forecast.");
             cumulative += rates[i];
+            var anchor = origin + i + 1 - window;
             levels[i] = decoder switch
             {
                 SsaTrailingRateDecoder.TrailingRateExactInverse =>
-                    AddMovement(balances[origin + i + 1 - Window], rates[i] * (Window * (double)scale)),
+                    AddMovement(anchor <= origin ? balances[anchor] : levels[i - window], rates[i] * (window * (double)scale)),
                 SsaTrailingRateDecoder.TrailingRateIntegratedExtrapolation =>
                     AddMovement(balances[origin], cumulative * scale),
                 _ => throw new ArgumentOutOfRangeException(nameof(decoder)),

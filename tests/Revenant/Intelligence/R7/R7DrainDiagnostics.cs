@@ -96,6 +96,67 @@ public sealed partial class R7Generator4DevelopmentTests
         R7RetainedPilotDiagnosticsTests.Write(output, "d1-gated-ssa.json", new { ManifestSha256 = manifest, Rotations = result });
     }
 
+    [Fact]
+    public void Three_bucket_oracle_uses_predicted_anchors_beyond_three_horizons()
+    {
+        const int origin = 6;
+        long[] balances = [1000, 1000, 1000, 1000, 1000, 1000, 880, 760, 760, 1000, 1000, 1000, 880, 880, 880];
+        var rates = Enumerable.Range(origin + 1, 8).Select(i => SsaTrailingRate.Input(balances, 1000, 1, i, 3)).ToArray();
+        Assert.Equal(balances[(origin + 1)..], SsaTrailingRate.Decode(SsaTrailingRateDecoder.TrailingRateExactInverse,
+            balances[..(origin + 1)], 1, origin, rates, 3));
+    }
+
+    [Fact]
+    [Trait("Category", "R7DiagnosticsNative")]
+    public void Measure_three_bucket_flow_SSA_on_executed_G4()
+    {
+        Assert.True(OperatingSystem.IsLinux() && RuntimeInformation.ProcessArchitecture == Architecture.X64);
+        var (roots, output, manifest) = DiagnosticInput();
+        var evidence = Environment.GetEnvironmentVariable("REVENANT_R7_CORE_EVIDENCE")
+            ?? throw new InvalidOperationException("Set REVENANT_R7_CORE_EVIDENCE to the retained Gate D run.");
+        var prior = ReadExistingRotations(evidence, manifest);
+        var ml = new MLContext(seed: 7);
+        const int window = 3;
+        var rotations = Enumerable.Range(0, 3).Select(i =>
+        {
+            var train = roots[i];
+            var trainingBank = prior[i].GetProperty("TrainingBank").GetString()!;
+            var bank = train.Banks.Single(b => b.SubjectId == trainingBank);
+            var spec = R7QualificationEvaluationTests.ForecastCandidates[0].Spec with { TrainSize = bank.Points.Length - window + 1 };
+            var zip = RevenantSsaInference.FitTrailingRate(ml, spec, bank.ReferenceMinor!.Value, Values(bank), window);
+            File.WriteAllBytes(Path.Combine(output, $"d2-root-{i}.zip"), zip);
+            var (drain, recovery, shock) = StressWindows(train, trainingBank);
+            return new
+            {
+                TrainingSeriesSha256 = bank.Digest, Spec = spec,
+                TrainingCoverage = new
+                {
+                    Seals = bank.Points.Length, NonzeroChanges = Values(bank).Zip(Values(bank).Skip(1)).Count(x => x.First != x.Second),
+                    Drain = drain.Select(e => new { e.Start, e.End, Minimum = bank.Points.Skip(e.Start).Take(e.End - e.Start + 1).Min(p => p.Value) }),
+                    Recovery = recovery.Length, Shock = shock.Length,
+                },
+                Results = GatedRotation(train, roots[(i + 1) % 3], roots[(i + 2) % 3], (_, subject) =>
+                {
+                    var opening = subject.ReferenceMinor!.Value;
+                    var levels = Values(subject);
+                    var forecasts = RevenantSsaInference.ForecastTrailingRate(ml, zip, spec, opening, levels, window);
+                    var prefix = RevenantSsaInference.ForecastTrailingRate(ml, zip, spec, opening, levels[..(CoreOrigin + 1)], window)[^1];
+                    Assert.Equal(forecasts.Single(s => s.Bucket == CoreOrigin).ExactInverse, prefix.ExactInverse);
+                    var altered = levels[..(CoreOrigin + 1)];
+                    altered[0] = checked(altered[0] + 123_457);
+                    Assert.Equal(prefix.Rates, RevenantSsaInference.ForecastTrailingRate(ml, zip, spec, opening, altered, window)[^1].Rates);
+                    return forecasts.Where(s => s.Bucket >= CoreOrigin)
+                        .ToDictionary(s => s.Bucket, s => new ForecastPaths(s.ExactInverse, s.ExactInverse));
+                }, ObservationEncoding.Hash(zip), trainingBank),
+            };
+        }).ToArray();
+        R7RetainedPilotDiagnosticsTests.Write(output, "d2-three-bucket-ssa.json", new
+        {
+            ManifestSha256 = manifest, Representation = "three-completed-interval-net-flow/1", Runtime = RuntimeInformation.FrameworkDescription,
+            Platform = RuntimeInformation.RuntimeIdentifier, Rotations = rotations,
+        });
+    }
+
     private sealed record ForecastPaths(long[] Raw, long[] Ungated);
 
     private static JsonElement[] ReadExistingRotations(string evidence, string manifest)
