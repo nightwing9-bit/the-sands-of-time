@@ -182,6 +182,23 @@ public sealed partial class R7Generator4DevelopmentTests
         string[] methods = [.. D1Methods, "DriftWithSsaWeights", "TrailingMedian", "SeasonalNaive"];
         var levels = measure.Banks.ToDictionary(b => b.SubjectId, Values);
         var overall = ReportScores(eval, methods, Predict);
+        double MeanMae(int method, bool drainsOnly = false) => Enumerable.Range(0, SsaAdvisory.Horizon).Average(h =>
+            Score(drainsOnly ? eval.Where(r => r.State.Active && InWindow(r, r.Drain)) : eval, h, method, Predict).Mae
+                ?? throw new InvalidDataException("A rotation lacks eligible drain targets."));
+        var persistenceDrain = MeanMae(0, drainsOnly: true);
+        var ssaDrain = MeanMae(2, drainsOnly: true);
+        var ssaOverall = MeanMae(2);
+        var bestBaseline = new[] { 0, 3, 4, 5, 6, 7 }.Min(m => MeanMae(m));
+        var driftDrain = MeanMae(3, drainsOnly: true);
+        var medianDrain = MeanMae(4, drainsOnly: true);
+        var gate = new
+        {
+            OverallMae = ssaOverall, StrongestBaselineMae = bestBaseline, OverallRatio = ssaOverall / bestBaseline,
+            PersistenceDrainMae = persistenceDrain, SsaDrainMae = ssaDrain, DriftDrainMae = driftDrain, MedianDrainMae = medianDrain,
+            DrainSkill = 1 - ssaDrain / persistenceDrain,
+            Pass = ssaOverall <= bestBaseline && ssaDrain <= .9 * persistenceDrain
+                && ssaDrain < driftDrain && ssaDrain < medianDrain && ssaWeights.Any(w => w > 0),
+        };
         var episodeScores = eval.GroupBy(r => r.Bank).SelectMany(group => group.First().Drain.Select(episode =>
         {
             var bank = group.Key;
@@ -201,7 +218,7 @@ public sealed partial class R7Generator4DevelopmentTests
         {
             Train = train.Manifest.Root.Key, Calibration = calibrate.Manifest.Root.Key, Measurement = measure.Manifest.Root.Key,
             TrainingBank = trainingBank, Artifact = artifact, Materiality = threshold, SsaWeights = ssaWeights, DriftWeights = driftWeights,
-            MeasurementStates = CountStates(eval), CalibrationStates = CountStates(calibration), Overall = overall,
+            MeasurementStates = CountStates(eval), CalibrationStates = CountStates(calibration), Overall = overall, Gate = gate,
             ByBank = eval.GroupBy(r => r.Bank).Select(g => new { Bank = g.Key, Scores = ReportScores(g.ToArray(), methods, Predict) }),
             ByDevelopingEpisode = episodeScores,
             ChangedEligibleTargets = eval.Where(r => r.State.Active).Sum(r => Enumerable.Range(0, SsaAdvisory.Horizon)
