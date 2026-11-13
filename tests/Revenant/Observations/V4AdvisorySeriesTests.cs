@@ -1,6 +1,7 @@
 using Revenant.Finance;
 using Revenant.Intelligence;
 using Revenant.Observations;
+using Revenant.Scenario;
 using Revenant.Tests.Scenario;
 using Revenant.Timeline;
 using Xunit;
@@ -10,6 +11,38 @@ namespace Revenant.Tests.Observations;
 public sealed class V4AdvisorySeriesTests
 {
     private const long Bucket = ObservedFinanceVersion.BucketMs;
+
+    [Fact]
+    public void Committed_intake_counts_match_offline_series_and_live_seal_prefixes()
+    {
+        var fixture = new ObservationFixture();
+        _ = fixture.Intent("first", fixture.Origin);
+        _ = fixture.Intent("second", fixture.Origin + Bucket - 1, payer: 2, payee: 3);
+        fixture.Seal();
+        var firstLive = V4ObservationProjector.Project(fixture.History());
+        _ = fixture.Intent("next", fixture.Origin + Bucket, payer: 2, payee: 3);
+        fixture.Seal();
+        var secondLive = V4ObservationProjector.Project(fixture.History());
+        _ = fixture.Intent("unsealed", fixture.Origin + 2 * Bucket);
+
+        var history = fixture.History();
+        var accepted = history.Segments.SelectMany(s => s.Facts)
+            .Where(f => f.Input.Kind == ObservedFactKind.PaymentIntent)
+            .Select(f => PaymentIntentCodec.Instance.Decode(f.Input.Payload.AsSpan()))
+            .ToLookup(p => (p.SourceAccountId, (p.EventTimeUtcMs - fixture.Origin) / Bucket));
+        var offline = V4ObservationProjector.Project(history);
+        foreach (var (live, bucketIndex) in new[] { firstLive, secondLive }.Select((p, i) => (p, i)))
+        {
+            var boundary = fixture.Origin + (bucketIndex + 1) * Bucket;
+            foreach (var account in fixture.Run.Manifest.Accounts)
+            {
+                var accountId = account.AccountId;
+                var liveSeries = live.AccountOutgoingSeries(accountId, boundary);
+                Assert.Equal(accepted[(accountId, bucketIndex)].LongCount(), liveSeries.Points[^1].Value);
+                Assert.Equal(liveSeries.Encode(), offline.AccountOutgoingSeries(accountId, boundary).Encode());
+            }
+        }
+    }
 
     [Fact]
     public void Account_series_counts_committed_intakes_and_distinguishes_covered_zero_from_missing()
