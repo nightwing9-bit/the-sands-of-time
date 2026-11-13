@@ -71,6 +71,13 @@ public sealed partial class R7Generator4DevelopmentTests
         Assert.Equal(V4LongitudinalPlannerG5.Version, manifest.Generator);
         Assert.Equal(V4LongitudinalPlannerG5.Roots(), manifest.Roots.Select(r => r.Root));
         var roots = manifest.Roots.Select(r => LongitudinalSample.Read(input, r, requirePilotTargets: true, readFlows: true)).ToArray();
+        foreach (var root in roots)
+        {
+            var total = root.Banks.Sum(b => b.ReferenceMinor!.Value);
+            Assert.Equal(root.Manifest.Accepted, root.Accounts.Sum(a => a.Points.Sum(p => p.Value)));
+            for (var bucket = 1; bucket < root.Manifest.Seals; bucket++)
+                Assert.Equal(total, root.Flows!.Values.Sum(flows => flows[bucket]!.Balance.Posted));
+        }
         var ml = new MLContext(seed: 7);
         const int window = 3;
         var rotations = Enumerable.Range(0, roots.Length).Select(i =>

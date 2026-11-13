@@ -17,11 +17,13 @@ internal static class SsaTrailingRate
     internal static double Rate(long lagged, long current, long scale, int window = Window)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(scale);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(window);
         return checked(current - lagged) / (window * (double)scale);
     }
 
     internal static float Input(IReadOnlyList<long> balances, long opening, long scale, int bucket, int window = Window)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(window);
         if (bucket < window - 1 || bucket >= balances.Count)
             throw new ArgumentOutOfRangeException(nameof(bucket));
         var lagged = bucket == window - 1 ? opening : balances[bucket - window];

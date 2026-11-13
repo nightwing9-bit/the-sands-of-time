@@ -182,12 +182,28 @@ public sealed partial class R7Generator4DevelopmentTests
         string[] methods = [.. D1Methods, "DriftWithSsaWeights", "TrailingMedian", "SeasonalNaive"];
         var levels = measure.Banks.ToDictionary(b => b.SubjectId, Values);
         var overall = ReportScores(eval, methods, Predict);
+        var episodeScores = eval.GroupBy(r => r.Bank).SelectMany(group => group.First().Drain.Select(episode =>
+        {
+            var bank = group.Key;
+            var opening = group.First().Opening;
+            var minimum = levels[bank][episode.Start..(episode.End + 1)].Min();
+            var eligible = group.Where(r => r.State.Active && r.Bucket >= episode.Start && r.Bucket < episode.End).ToArray();
+            return new
+            {
+                Bank = bank, episode.Start, episode.End, Minimum = minimum,
+                ReachedBelowFloor = minimum < opening / 10,
+                NearMiss = minimum >= opening / 10 && minimum <= opening * 13 / 100,
+                EligibleOrigins = eligible.Length,
+                Scores = ReportScores(eligible, methods, Predict),
+            };
+        }));
         return new
         {
             Train = train.Manifest.Root.Key, Calibration = calibrate.Manifest.Root.Key, Measurement = measure.Manifest.Root.Key,
             TrainingBank = trainingBank, Artifact = artifact, Materiality = threshold, SsaWeights = ssaWeights, DriftWeights = driftWeights,
             MeasurementStates = CountStates(eval), CalibrationStates = CountStates(calibration), Overall = overall,
             ByBank = eval.GroupBy(r => r.Bank).Select(g => new { Bank = g.Key, Scores = ReportScores(g.ToArray(), methods, Predict) }),
+            ByDevelopingEpisode = episodeScores,
             ChangedEligibleTargets = eval.Where(r => r.State.Active).Sum(r => Enumerable.Range(0, SsaAdvisory.Horizon)
                 .Count(h => r.Future[h].HasValue && Predict(r, 2, h) != r.Current)),
             FalseNegativeMovementPredictions = new[] { 1, 2, 3 }.Select(m => new
