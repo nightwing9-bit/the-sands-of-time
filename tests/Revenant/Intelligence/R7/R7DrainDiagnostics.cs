@@ -62,6 +62,101 @@ public sealed partial class R7Generator4DevelopmentTests
         R7RetainedPilotDiagnosticsTests.Write(output, "d0-continuation.json", new { ManifestSha256 = manifest, Rotations = rotations });
     }
 
+    [Fact]
+    [Trait("Category", "R7DiagnosticsNative")]
+    public void Measure_gated_SSA_on_executed_G4()
+    {
+        Assert.True(OperatingSystem.IsLinux() && RuntimeInformation.ProcessArchitecture == Architecture.X64);
+        var (roots, output, manifest) = DiagnosticInput();
+        var evidence = Environment.GetEnvironmentVariable("REVENANT_R7_CORE_EVIDENCE")
+            ?? throw new InvalidOperationException("Set REVENANT_R7_CORE_EVIDENCE to the retained Gate D run.");
+        var ml = new MLContext(seed: 7);
+        var rotations = ReadExistingRotations(evidence, manifest);
+        var result = Enumerable.Range(0, 3).Select(i =>
+        {
+            var prior = rotations[i];
+            var spec = new SsaForecastSpec(SsaForecastRepresentation.CompletedIntervalChange, 24, 96, 2005, null, CoreWarmup, 1_000);
+            var zip = File.ReadAllBytes(Path.Combine(evidence, "research-zips", $"train-{i}", "trailing-rate.zip"));
+            ObservationEncoding.RequireDigest(zip, prior.GetProperty("ArtifactSha256").GetString()!);
+            var oldEdges = prior.GetProperty("Edges").Deserialize<double[]>()!;
+            var oldWeights = prior.GetProperty("Weights").Deserialize<double[][][]>()![ExactIndex];
+            return GatedRotation(roots[i], roots[(i + 1) % 3], roots[(i + 2) % 3],
+                (root, bank) => RevenantSsaInference.ForecastTrailingRate(ml, zip, spec, bank.ReferenceMinor!.Value, Values(bank))
+                    .ToDictionary(s => s.Bucket, s =>
+                    {
+                        var opening = bank.ReferenceMinor!.Value;
+                        var scale = SsaAdvisory.Scale(opening, spec.ScaleDivisor);
+                        var sigma = s.Sigma / (double)scale;
+                        var group = sigma <= oldEdges[0] ? 0 : sigma <= oldEdges[1] ? 1 : 2;
+                        var balance = bank.Points[s.Bucket].Value;
+                        return new ForecastPaths(s.ExactInverse,
+                            s.ExactInverse.Select((level, h) => SsaTrailingRate.Shrink(balance, level, oldWeights[group][h])).ToArray());
+                    }), ObservationEncoding.Hash(zip), prior.GetProperty("TrainingBank").GetString()!);
+        }).ToArray();
+        R7RetainedPilotDiagnosticsTests.Write(output, "d1-gated-ssa.json", new { ManifestSha256 = manifest, Rotations = result });
+    }
+
+    private sealed record ForecastPaths(long[] Raw, long[] Ungated);
+
+    private static JsonElement[] ReadExistingRotations(string evidence, string manifest)
+    {
+        using var report = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(evidence, "gate-d-rotations.json")));
+        Assert.Equal(manifest, report.RootElement.GetProperty("ManifestSha256").GetString());
+        var rotations = report.RootElement.GetProperty("Rotations").EnumerateArray().Select(r => r.Clone()).ToArray();
+        Assert.Equal(new[] { 0, 1, 2 }, rotations.Select(r => r.GetProperty("Train").GetInt32()));
+        return rotations;
+    }
+
+    private static object GatedRotation(LongitudinalSample train, LongitudinalSample calibrate, LongitudinalSample measure,
+        Func<LongitudinalSample, V4AdvisorySeries, Dictionary<int, ForecastPaths>> predictBank, string artifact, string trainingBank)
+    {
+        var threshold = Materiality(train);
+        var medians = FitMedian(DrainRows(train, threshold));
+        var calibration = DrainRows(calibrate, threshold);
+        var eval = DrainRows(measure, threshold);
+        var calibrationPaths = Paths(calibrate);
+        var evalPaths = Paths(measure);
+        var ssaWeights = Weights((r, h) => calibrationPaths[r.Bank][r.Bucket].Raw[h]);
+        var driftWeights = Weights((r, h) => r.Drift[h]);
+        string[] methods = [.. D1Methods, "DriftWithSsaWeights", "TrailingMedian", "SeasonalNaive"];
+        var levels = measure.Banks.ToDictionary(b => b.SubjectId, Values);
+        var overall = ReportScores(eval, methods, Predict);
+        return new
+        {
+            Train = train.Manifest.Root.Key, Calibration = calibrate.Manifest.Root.Key, Measurement = measure.Manifest.Root.Key,
+            TrainingBank = trainingBank, Artifact = artifact, Materiality = threshold, SsaWeights = ssaWeights, DriftWeights = driftWeights,
+            MeasurementStates = CountStates(eval), CalibrationStates = CountStates(calibration), Overall = overall,
+            ByBank = eval.GroupBy(r => r.Bank).Select(g => new { Bank = g.Key, Scores = ReportScores(g.ToArray(), methods, Predict) }),
+            ChangedEligibleTargets = eval.Where(r => r.State.Active).Sum(r => Enumerable.Range(0, SsaAdvisory.Horizon)
+                .Count(h => r.Future[h].HasValue && Predict(r, 2, h) != r.Current)),
+            FalseNegativeMovementPredictions = new[] { 1, 2, 3 }.Select(m => new
+            {
+                Method = methods[m], ByHorizon = Enumerable.Range(0, SsaAdvisory.Horizon).Select(h => eval.Count(r => r.State.Active
+                    && !InWindow(r, r.Drain) && r.Future[h] >= r.Current && Predict(r, m, h) < r.Current)),
+            }),
+        };
+
+        Dictionary<string, Dictionary<int, ForecastPaths>> Paths(LongitudinalSample root) =>
+            root.Banks.ToDictionary(b => b.SubjectId, b => predictBank(root, b));
+
+        double[] Weights(Func<DrainRow, int, long> raw) => Enumerable.Range(0, SsaAdvisory.Horizon).Select(h =>
+            SsaTrailingRate.FitWeight(calibration.Where(r => r.State.Active && r.Future[h].HasValue)
+                .Select(r => (checked(r.Future[h]!.Value - r.Current), checked(raw(r, h) - r.Current))))).ToArray();
+
+        long Predict(DrainRow r, int m, int h) => m switch
+        {
+            0 => r.Current,
+            1 => evalPaths[r.Bank][r.Bucket].Ungated[h],
+            2 => r.State.Active ? SsaTrailingRate.Shrink(r.Current, evalPaths[r.Bank][r.Bucket].Raw[h], ssaWeights[h]) : r.Current,
+            3 => r.State.Active ? SsaTrailingRate.Shrink(r.Current, r.Drift[h], driftWeights[h]) : r.Current,
+            4 => MedianPrediction(r, h, medians),
+            5 => r.State.Active ? SsaTrailingRate.Shrink(r.Current, r.Drift[h], ssaWeights[h]) : r.Current,
+            6 => R7Evaluation.TrailingMedian(levels[r.Bank], r.Bucket),
+            7 => checked(r.Current + checked(levels[r.Bank][r.Bucket + h + 1 - DailyBuckets] - levels[r.Bank][r.Bucket - DailyBuckets])),
+            _ => throw new ArgumentOutOfRangeException(nameof(m)),
+        };
+    }
+
     private static double Materiality(LongitudinalSample root)
     {
         var ordinaryDebits = root.Banks.SelectMany(bank =>
