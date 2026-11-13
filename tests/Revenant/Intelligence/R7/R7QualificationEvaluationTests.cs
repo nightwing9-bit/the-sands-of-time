@@ -264,8 +264,12 @@ public sealed class R7QualificationEvaluationTests
                 Comparator = R7Evaluation.Evaluate(accounts, R7Evaluation.Scorer.TrailingRank, null, baselineThresholds[Key(b)]),
             }),
             horizons, warnings, skill, ratio,
-            PromoteAnomaly: ssa.FalseAlertsPerNormalDay is <= R7Evaluation.FalseAlertBudget && ssa.Detected > comparator.Detected
-                && ssa.FalseAlertsPerNormalDay <= comparator.FalseAlertsPerNormalDay,
+            // A comparator that never alerts has zero false alerts, so "SSA burden <= comparator burden" penalizes any useful
+            // detector. Compare at equal realized burden instead: each comparator gets its best threshold on these same cases with
+            // no more false alerts per normal day than the SSA realized. Choosing that threshold with test labels favors the comparator.
+            PromoteAnomaly: ssa.FalseAlertsPerNormalDay is <= R7Evaluation.FalseAlertBudget
+                && new[] { R7Evaluation.Scorer.TrailingRank, R7Evaluation.Scorer.SeasonalExcess }.All(scorer =>
+                    ssa.Detected > R7Evaluation.Calibrate(accounts, scorer, null, ssa.FalseAlertsPerNormalDay ?? 0).Metrics.Detected),
             PromoteForecast: skill >= .05 && ratio <= 1.05 && horizons.All(h => h.CalibratedCoverage is >= .90)
                 && warnings.DevelopingCrossings > 0 && warnings.WarnedDeveloping * 2 >= warnings.DevelopingCrossings
                 && warnings.Precision is >= .5,
