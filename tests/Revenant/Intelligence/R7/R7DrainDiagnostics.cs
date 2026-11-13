@@ -91,7 +91,7 @@ public sealed partial class R7Generator4DevelopmentTests
                         var balance = bank.Points[s.Bucket].Value;
                         return new ForecastPaths(s.ExactInverse,
                             s.ExactInverse.Select((level, h) => SsaTrailingRate.Shrink(balance, level, oldWeights[group][h])).ToArray());
-                    }), ObservationEncoding.Hash(zip), prior.GetProperty("TrainingBank").GetString()!);
+                    }), ObservationEncoding.Hash(zip), prior.GetProperty("TrainingBank").GetString()!).Report;
         }).ToArray();
         R7RetainedPilotDiagnosticsTests.Write(output, "d1-gated-ssa.json", new { ManifestSha256 = manifest, Rotations = result });
     }
@@ -147,7 +147,7 @@ public sealed partial class R7Generator4DevelopmentTests
                     Assert.Equal(prefix.Rates, RevenantSsaInference.ForecastTrailingRate(ml, zip, spec, opening, altered, window)[^1].Rates);
                     return forecasts.Where(s => s.Bucket >= CoreOrigin)
                         .ToDictionary(s => s.Bucket, s => new ForecastPaths(s.ExactInverse, s.ExactInverse));
-                }, ObservationEncoding.Hash(zip), trainingBank),
+                }, ObservationEncoding.Hash(zip), trainingBank).Report,
             };
         }).ToArray();
         R7RetainedPilotDiagnosticsTests.Write(output, "d2-three-bucket-ssa.json", new
@@ -168,7 +168,7 @@ public sealed partial class R7Generator4DevelopmentTests
         return rotations;
     }
 
-    private static object GatedRotation(LongitudinalSample train, LongitudinalSample calibrate, LongitudinalSample measure,
+    private static (object Report, bool Pass) GatedRotation(LongitudinalSample train, LongitudinalSample calibrate, LongitudinalSample measure,
         Func<LongitudinalSample, V4AdvisorySeries, Dictionary<int, ForecastPaths>> predictBank, string artifact, string trainingBank)
     {
         var threshold = Materiality(train);
@@ -214,7 +214,7 @@ public sealed partial class R7Generator4DevelopmentTests
                 Scores = ReportScores(eligible, methods, Predict),
             };
         }));
-        return new
+        return (new
         {
             Train = train.Manifest.Root.Key, Calibration = calibrate.Manifest.Root.Key, Measurement = measure.Manifest.Root.Key,
             TrainingBank = trainingBank, Artifact = artifact, Materiality = threshold, SsaWeights = ssaWeights, DriftWeights = driftWeights,
@@ -228,7 +228,7 @@ public sealed partial class R7Generator4DevelopmentTests
                 Method = methods[m], ByHorizon = Enumerable.Range(0, SsaAdvisory.Horizon).Select(h => eval.Count(r => r.State.Active
                     && !InWindow(r, r.Drain) && r.Future[h] >= r.Current && Predict(r, m, h) < r.Current)),
             }),
-        };
+        }, gate.Pass);
 
         Dictionary<string, Dictionary<int, ForecastPaths>> Paths(LongitudinalSample root) =>
             root.Banks.ToDictionary(b => b.SubjectId, b => predictBank(root, b));

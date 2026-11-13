@@ -91,11 +91,7 @@ public sealed partial class R7Generator4DevelopmentTests
             var spec = R7QualificationEvaluationTests.ForecastCandidates[0].Spec with { TrainSize = training.Points.Length - window + 1 };
             var zip = RevenantSsaInference.FitTrailingRate(ml, spec, training.ReferenceMinor!.Value, Values(training), window);
             File.WriteAllBytes(Path.Combine(output, $"g5-root-{i}-three-bucket.zip"), zip);
-            return new
-            {
-                TrainingSeriesSha256 = training.Digest, Spec = spec,
-                Episodes = AuditEpisodes(measure, Materiality(train), DrainRows(measure, Materiality(train))),
-                Results = GatedRotation(train, roots[(i + 1) % 3], measure, (_, bank) =>
+            var comparison = GatedRotation(train, roots[(i + 1) % 3], measure, (_, bank) =>
                 {
                     var levels = Values(bank);
                     var forecasts = RevenantSsaInference.ForecastTrailingRate(ml, zip, spec, bank.ReferenceMinor!.Value, levels, window);
@@ -103,13 +99,19 @@ public sealed partial class R7Generator4DevelopmentTests
                     Assert.Equal(forecasts.Single(s => s.Bucket == CoreOrigin).ExactInverse, prefix.ExactInverse);
                     return forecasts.Where(s => s.Bucket >= CoreOrigin)
                         .ToDictionary(s => s.Bucket, s => new ForecastPaths(s.ExactInverse, s.ExactInverse));
-                }, ObservationEncoding.Hash(zip), training.SubjectId),
+                }, ObservationEncoding.Hash(zip), training.SubjectId);
+            return new
+            {
+                TrainingSeriesSha256 = training.Digest, Spec = spec,
+                Episodes = AuditEpisodes(measure, Materiality(train), DrainRows(measure, Materiality(train))),
+                Results = comparison.Report, comparison.Pass,
             };
         }).ToArray();
         R7RetainedPilotDiagnosticsTests.Write(output, "d3-executed-ssa.json", new
         {
             ManifestSha256 = ObservationEncoding.Hash(File.ReadAllBytes(Path.Combine(input, "pilot.json"))), manifest.Revision,
             Platform = RuntimeInformation.RuntimeIdentifier, Runtime = RuntimeInformation.FrameworkDescription, Rotations = rotations,
+            PassingRotations = rotations.Count(r => r.Pass), Pass = rotations.Count(r => r.Pass) >= 2,
         });
     }
 
