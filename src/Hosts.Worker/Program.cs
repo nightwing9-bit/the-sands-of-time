@@ -5,6 +5,7 @@ using Marrow.Infrastructure.Hosting;
 using Marrow.Infrastructure.Messaging;
 using Marrow.Infrastructure.Timeline;
 using Revenant.Api;
+using Revenant.Payments;
 using Revenant.Projection;
 using Revenant.Timeline;
 
@@ -63,7 +64,9 @@ builder.Services
     // (revenant_read_projector writes only payment_view/hold_view/posting_view and the inbox). Section Revenant:ReadProjection.
     .AddMarrowInboxConsumerService(builder.Configuration, "Revenant:ReadProjection", new MessagingTables("revenant"),
         RevenantEventProjection.ConsumerId, RevenantEventProjection.ApplyAsync);
-builder.Services.AddSingleton<RevenantAdvisoryWorker>();
+if (v4Advisory)
+    builder.Services.AddSingleton(sp => new RevenantAdvisoryWorker(sp.GetRequiredService<V4SimulationStore>(),
+        sp.GetRequiredService<V4BranchExecution>(), sp.GetRequiredService<RevenantLedgerOptions>()));
 
 await using var app = builder.Build();
 if (v4Advisory)

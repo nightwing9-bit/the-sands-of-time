@@ -37,3 +37,15 @@ The 8- and 12-bucket starter candidates were fitted on the first root and scored
 - Both candidates warned before one of two developing crossings, 40 minutes ahead. Each generated five warnings with four false warnings. The two sudden-shock scenarios did not cross the floor.
 
 A bounded correction tests a one-observation p-value history to eliminate repeated subtraction from the ML.NET kernel distance accumulator, and a stabilized rank-two forecast with a reference at the current completed seal and a fresh 32-bucket replay. Both use the same frozen pilot streams. A correction that makes a native score finite still has to satisfy the false-alert and comparator requirements.
+
+## Bounded correction and decision
+
+The corrected run tested source `af49ef7dde63025a80672bfb71cba7336b53a2db` at merge `8f5b6580c0b671112533cca8f992e50564bae788`. The native correction TRX records one executed and passed case with zero skips. The test measures performance and can pass while both candidates miss their scientific criteria. [Correction run](https://github.com/nightwing9-bit/the-sands-of-time/actions/runs/43366052112) · [Native TRX, fitted ZIPs, and metrics](https://github.com/nightwing9-bit/the-sands-of-time/actions/runs/43366052112/artifacts/14009894775)
+
+- The corrected detector returned finite p-values for every eligible bucket. At p ≤ 0.01 it detected zero of three events and produced one false alert over 47.95 normal account-days. At p ≤ 0.05 it detected one of three events and produced 24 false alerts, or 0.501 per normal account-day. Neither setting demonstrated useful recall within the 0.10 budget.
+- The corrected forecast lost to persistence on overall and active MAE at all eight horizons. Its +5-minute active MAE was 194,942 versus 137,401 minor units. Its +40-minute active MAE was 364,072 versus 336,287. Overall nominal coverage ranged from 30.45% to 39.61%. Stress coverage was zero at every horizon.
+- Central forecasts warned before both developing crossings with leads of 20 and 30 minutes. Six warnings included four false positives, yielding precision 33.3%. The pilot had no realised sudden-shock crossing, so it cannot measure recall for that event family.
+
+The correction anomaly ZIP SHA-256 is `e59fa01286ad08a4d9c7034cc95b66c5baa025836cb814b88b36301c4de63ddc`. The correction forecast ZIP SHA-256 is `abdf37160e2aa47c3ea7bfd25a98be35559b2472f6e046df08c8359282c728ea`. Both remain research artifacts.
+
+**R7 BLOCKED — SCIENTIFIC OR ARCHITECTURAL FAILURE.** The longitudinal data had enough activity to make a pilot decision. The detector fails the recall and burden requirement after the bounded numerical correction. Forecasting fails the persistence comparison and the warning precision requirement. The independent 20-root cohort, frozen FinalTest and shifted challenge were left untouched. Neither artifact qualifies for promotion. The published Worker cannot complete its promoted-artifact proof until this scientific gate clears.

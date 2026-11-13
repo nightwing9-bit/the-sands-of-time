@@ -21,6 +21,42 @@ namespace Revenant.Tests.Intelligence.R7;
 public sealed class R7PublishedWorkerTests(LedgerDatabase db)
 {
     [Fact]
+    [Trait("Category", "Integration")]
+    public async Task Advisory_evidence_is_idempotent_and_rejects_conflicting_bytes()
+    {
+        const string tenant = PaymentKit.TenantA;
+        var ct = CancellationToken.None;
+        var logins = await db.ProvisionDeployedLoginsAsync();
+        await using var writer = NpgsqlDataSource.Create(logins.WorkerLedger);
+        var services = new ServiceCollection();
+        services.AddSingleton(_ => NpgsqlDataSource.Create(logins.Worker));
+        services.AddMarrowTimeline(ObservedFinanceTimelineVersions.All, ObservedFinanceTimelineVersions.CheckpointInterval);
+        await using var host = services.BuildServiceProvider();
+        var ledger = PaymentKit.Store(writer);
+        var store = new V4SimulationStore(writer, ledger: ledger);
+        var branch = new V4BranchExecution(store,
+            host.GetRequiredService<ITimelineEngine<ObservedFinanceState, ObservedFinanceInput, ObservedFinanceContext>>());
+        var id = new ScenarioRunId(Guid.NewGuid());
+        var config = V4EpisodeConfig.Smoke;
+        var plan = V4EpisodePlanner.Plan(config, config.Roots().Single(), id).Financial;
+        var first = plan.Opening.Manifest.StartUtcMs + ObservedFinanceVersion.BucketMs;
+        var execution = await new V4EpisodeExecutor(store, branch, ledger).ExecuteAsync(tenant, PaymentKit.Operator,
+            plan with { Payments = [] }, ct, complete: false, sealThrough: first);
+        var account = plan.Opening.Manifest.Accounts[0].AccountId;
+        var series = V4ObservationProjector.Project(execution.History).AccountOutgoingSeries(account, first);
+        var fixture = new AdvisoryEvidence(series, id, new("test-pinned-model", new string('0', 64)), "test-policy",
+            AdvisoryStatus.Available, new(0, 0, 0, false, 0, .5, false, .01));
+        var digest = await store.PersistAdvisoryAsync(tenant, fixture, ct);
+        Assert.Equal(digest, await store.PersistAdvisoryAsync(tenant, fixture, ct));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            store.PersistAdvisoryAsync(tenant, fixture with { Anomaly = fixture.Anomaly! with { RawScore = 1 } }, ct));
+        await Assert.ThrowsAsync<PostgresException>(() => store.PersistAdvisoryAsync(PaymentKit.TenantB, fixture, ct));
+        Assert.Equal(1L, await PaymentKit.Scalar<long>(db.Owner,
+            "SELECT count(*) FROM revenant.v4_advisory_evidence WHERE execution_run_id = @run", ("run", id.Value)));
+        Assert.Equal(1, (await store.ReadFinanceHistoryAsync(tenant, id, id, ct)).LastFact);
+    }
+
+    [Fact]
     [Trait("Category", "R7Longitudinal")]
     public async Task Published_worker_writes_idempotent_pinned_SSA_evidence()
     {
