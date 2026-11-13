@@ -13,10 +13,33 @@ namespace Revenant.Synthetic;
 internal enum LongitudinalSplit : byte { Pilot = 1, Train = 2, Validation = 3, Calibration = 4, FinalTest = 5, Challenge = 6 }
 internal enum LongitudinalEventKind : byte { VelocityAnomaly = 1, FraudAssociatedVelocityAnomaly = 2, LegitimateBurst = 3, DevelopingPressure = 4, SuddenShock = 5 }
 
+/// <summary>
+/// Statistical outgoing-velocity truth (truth schema 2). It is a property of the observed counts relative to the account's own
+/// ordinary behavior, independent of business intent: Anomalous when the observed window is improbable under the ordinary process,
+/// Normal when it is typical, Ambiguous in between. Ambiguous windows are neither hits nor false alerts.
+/// </summary>
+internal enum VelocityTruth : byte { Anomalous = 1, Ambiguous = 2, Normal = 3 }
+
+/// <summary>Business intent behind injected activity, kept separate from statistical truth.</summary>
+internal enum EventIntent : byte { Legitimate = 1, FraudAssociated = 2 }
+
+internal enum VelocityMechanism : byte
+{
+    OffSchedule = 1, AmplitudeSurge = 2, SustainedElevation = 3, DormantBurst = 4, RecurringBatch = 5,
+
+    /// <summary>Outgoing installments of a developing-pressure drain or its recovery transfers.</summary>
+    TreasuryDrain = 6,
+}
+
 internal sealed record LongitudinalRoot(LongitudinalSplit Split, int Index, string Key, long Seed, int Days);
-internal sealed record LongitudinalEvent(string Id, string Subject, LongitudinalEventKind Kind, int Start, int End);
+
+/// <summary>Hidden evaluation annotation. Truth-schema-1 events leave the optional schema-2 fields null.</summary>
+internal sealed record LongitudinalEvent(string Id, string Subject, LongitudinalEventKind Kind, int Start, int End,
+    VelocityTruth? Truth = null, EventIntent? Intent = null, VelocityMechanism? Mechanism = null, long? ObservedCount = null,
+    double? OrdinaryMean = null, double? TailProbability = null);
 internal sealed record V4LongitudinalEpisode(LongitudinalRoot Root, V4EpisodePlan Financial, ImmutableArray<LongitudinalEvent> Events,
-    IReadOnlyDictionary<string, long> ReviewTimes, string BehaviorSha256);
+    IReadOnlyDictionary<string, long> ReviewTimes, string BehaviorSha256, IReadOnlyDictionary<string, string>? Rhythms = null,
+    string Generator = BehavioralEpisodeScenario.GeneratorVersionV3, string TruthSchema = V4LongitudinalPlanner.TruthSchema);
 
 internal static class V4LongitudinalPlanner
 {

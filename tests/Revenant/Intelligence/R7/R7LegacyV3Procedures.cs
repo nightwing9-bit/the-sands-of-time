@@ -4,10 +4,17 @@ using Microsoft.ML.Transforms.TimeSeries;
 using Revenant.Intelligence;
 using Revenant.Observations;
 using Revenant.Synthetic;
+using ForecastPoint = Revenant.Tests.Intelligence.R7.R7ForecastMetrics.ForecastPoint;
+using BankOrigin = Revenant.Tests.Intelligence.R7.R7ForecastMetrics.BankOrigin;
 
 namespace Revenant.Tests.Intelligence.R7;
 
-internal static class R7RollingEvaluation
+/// <summary>
+/// Archived R7/1 research procedures, kept only to reproduce the generator-3 pilot evidence (runs 43365500420 and 43366052112)
+/// and the one-factor ablations against it. They are not the advisory inference contract: promotion, qualification and the Worker
+/// use Hosts.Worker.RevenantSsaInference with Revenant.Intelligence.SsaAdvisory (policy revenant-ssa-advisory/2).
+/// </summary>
+internal static class R7LegacyV3Procedures
 {
     internal const int Warmup = 288;
     internal const int HistoryNonzero = 8;
@@ -20,8 +27,6 @@ internal static class R7RollingEvaluation
     internal sealed record AnomalyConfig(int Window, int History, int Training);
     internal sealed record ForecastConfig(int Window, int History, int Training, int? Rank = null, bool OriginCentered = false);
     internal sealed record BucketScore(int Bucket, long Count, bool NativeAlert, double? Raw, double? PValue, double BaselineRank);
-    internal sealed record ForecastPoint(long Central, long Lower, long Upper);
-    internal sealed record BankOrigin(int Bucket, long Available, ForecastPoint[] Path, long RobustLevel);
 
     internal static bool Eligible(V4AdvisorySeries series) =>
         series.Coverage == AdvisorySeriesCoverage.Complete && series.Points.Length > Warmup

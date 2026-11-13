@@ -2,13 +2,26 @@ using Revenant.Synthetic;
 
 namespace Revenant.Tests.Intelligence.R7;
 
+/// <summary>Forecast scoring against authoritative future available balances. Measures only; never computes a forecast.</summary>
 internal static class R7ForecastMetrics
 {
+    internal const int Horizon = 8;
+    internal const long ActiveChangeMinor = 10_000;
+
+    internal sealed record ForecastPoint(long Central, long Lower, long Upper, long CalibratedLower, long CalibratedUpper)
+    {
+        internal ForecastPoint(long central, long lower, long upper) : this(central, lower, upper, lower, upper) { }
+    }
+
+    internal sealed record BankOrigin(int Bucket, long Available, ForecastPoint[] Path, long RobustLevel);
+
     internal sealed record HorizonMetrics(int Horizon, int Samples, int Active, int Stress,
         double? Mae, double? Bias, double? Rmse, double? ActiveMae, double? StressMae, double? PersistenceMae, double? RobustMae,
         double? ActivePersistenceMae, double? ActiveRobustMae, double? StressPersistenceMae, double? StressRobustMae,
         double? NativeCoverage, double? NativeWidth, double? CalibratedCoverage, double? CalibratedWidth,
-        double? StressNativeCoverage, double? OrdinaryNativeCoverage, double? StressCalibratedCoverage, double? OrdinaryCalibratedCoverage);
+        double? StressNativeCoverage, double? OrdinaryNativeCoverage, double? StressCalibratedCoverage, double? OrdinaryCalibratedCoverage,
+        double? ActiveBias = null, double? StressBias = null, double? QuietMae = null, double? QuietPersistenceMae = null,
+        double? ActiveCalibratedCoverage = null);
 
     internal sealed record WarningMetrics(int Warnings, int FalseWarnings, int Crossings, int DevelopingCrossings,
         int SuddenCrossings, int WarnedDeveloping, int WarnedSudden, int[] LeadMinutes, int[] DevelopingLeadMinutes)
@@ -18,7 +31,7 @@ internal static class R7ForecastMetrics
     }
 
     internal sealed record BankCase(string Root, string Bank, long Reference, long[] Actual,
-        R7RollingEvaluation.BankOrigin[] Origins, LongitudinalEvent[] Events, long?[][]? Targets = null)
+        BankOrigin[] Origins, LongitudinalEvent[] Events, long?[][]? Targets = null)
     {
         internal long? Target(int bucket, int horizon) => Targets is not null ? Targets[bucket][horizon]
             : bucket + horizon + 1 < Actual.Length ? Actual[bucket + horizon + 1] : null;
@@ -27,15 +40,30 @@ internal static class R7ForecastMetrics
     private sealed record Error(double Ssa, double Persistence, double Robust, long NativeWidth, long CalibratedWidth,
         bool NativeCovered, bool CalibratedCovered, bool Active, bool Stress);
 
-    internal static HorizonMetrics[] Evaluate(BankCase[] cases, long[] adjustments)
+    /// <summary>Applies a legacy additive per-horizon widening (R7/1 "horizon-native-band-nonnegative-95th-miss/1").</summary>
+    internal static BankCase[] Widen(BankCase[] cases, long[] adjustments) => cases.Select(c => c with
     {
-        return Enumerable.Range(0, R7RollingEvaluation.Horizon).Select(h =>
+        Origins = c.Origins.Select(o => o with
+        {
+            Path = o.Path.Select((p, h) => p with
+            {
+                CalibratedLower = checked(p.Lower - adjustments[h]), CalibratedUpper = checked(p.Upper + adjustments[h]),
+            }).ToArray(),
+        }).ToArray(),
+    }).ToArray();
+
+    internal static HorizonMetrics[] Evaluate(BankCase[] cases, long[] adjustments) => Evaluate(Widen(cases, adjustments));
+
+    internal static HorizonMetrics[] Evaluate(BankCase[] cases)
+    {
+        return Enumerable.Range(0, Horizon).Select(h =>
         {
             var rows = cases.SelectMany(bank => bank.Origins.Where(origin => bank.Target(origin.Bucket, h).HasValue)
-                .Select(origin => Compare(bank, origin, h, adjustments[h]))).ToArray();
+                .Select(origin => Compare(bank, origin, h))).ToArray();
             var active = rows.Where(r => r.Active || r.Stress).ToArray();
             var stress = rows.Where(r => r.Stress).ToArray();
             var ordinary = rows.Where(r => !r.Stress).ToArray();
+            var quiet = rows.Where(r => !r.Active && !r.Stress).ToArray();
             return new HorizonMetrics(h + 1, rows.Length, active.Length, stress.Length,
                 Mean(rows, r => Math.Abs(r.Ssa)), Mean(rows, r => r.Ssa),
                 Mean(rows, r => r.Ssa * r.Ssa) is { } mse ? Math.Sqrt(mse) : null,
@@ -46,11 +74,14 @@ internal static class R7ForecastMetrics
                 Mean(rows, r => r.NativeCovered ? 1 : 0), Mean(rows, r => r.NativeWidth),
                 Mean(rows, r => r.CalibratedCovered ? 1 : 0), Mean(rows, r => r.CalibratedWidth),
                 Mean(stress, r => r.NativeCovered ? 1 : 0), Mean(ordinary, r => r.NativeCovered ? 1 : 0),
-                Mean(stress, r => r.CalibratedCovered ? 1 : 0), Mean(ordinary, r => r.CalibratedCovered ? 1 : 0));
+                Mean(stress, r => r.CalibratedCovered ? 1 : 0), Mean(ordinary, r => r.CalibratedCovered ? 1 : 0),
+                Mean(active, r => r.Ssa), Mean(stress, r => r.Ssa), Mean(quiet, r => Math.Abs(r.Ssa)), Mean(quiet, r => r.Persistence),
+                Mean(active, r => r.CalibratedCovered ? 1 : 0));
         }).ToArray();
     }
 
-    internal static long[] Calibrate(BankCase[] calibration) => Enumerable.Range(0, R7RollingEvaluation.Horizon).Select(h =>
+    /// <summary>R7/1 additive widening: the 95th percentile of each horizon's native-band miss distance on calibration data.</summary>
+    internal static long[] Calibrate(BankCase[] calibration) => Enumerable.Range(0, Horizon).Select(h =>
     {
         var misses = calibration.SelectMany(bank => bank.Origins
             .Where(origin => bank.Target(origin.Bucket, h).HasValue)
@@ -64,6 +95,10 @@ internal static class R7ForecastMetrics
         return misses[Math.Clamp((int)Math.Ceiling((misses.Length + 1) * .95) - 1, 0, misses.Length - 1)];
     }).ToArray();
 
+    /// <summary>
+    /// Warning events: an origin at or above the floor whose central path falls below it within eight horizons, coalesced over
+    /// eight buckets. A warning is true when an actual downward crossing follows within the eight horizons.
+    /// </summary>
     internal static WarningMetrics Warnings(BankCase[] cases)
     {
         var warnings = 0;
@@ -77,20 +112,22 @@ internal static class R7ForecastMetrics
         var developingLead = new List<int>();
         foreach (var bank in cases)
         {
+            if (bank.Origins.Length == 0) continue;
             var floor = bank.Reference / 10;
-            var actual = Enumerable.Range(R7RollingEvaluation.Warmup + 1, bank.Actual.Length - R7RollingEvaluation.Warmup - 1)
+            var first = bank.Origins[0].Bucket + 1;
+            var actual = Enumerable.Range(first, Math.Max(0, bank.Actual.Length - first))
                 .Where(i => bank.Actual[i] < floor && bank.Actual[i - 1] >= floor).ToArray();
             crossings += actual.Length;
             var kind = actual.ToDictionary(i => i, i => bank.Events.FirstOrDefault(e => i >= e.Start && i <= e.End)?.Kind);
             developing += kind.Values.Count(k => k == LongitudinalEventKind.DevelopingPressure);
             sudden += kind.Values.Count(k => k == LongitudinalEventKind.SuddenShock);
-            var predicted = bank.Origins.Where(o => o.Available >= floor && o.Bucket + R7RollingEvaluation.Horizon < bank.Actual.Length
+            var predicted = bank.Origins.Where(o => o.Available >= floor && o.Bucket + Horizon < bank.Actual.Length
                 && o.Path.Any(p => p.Central < floor)).Select(o => o.Bucket);
             var matched = new HashSet<int>();
-            foreach (var alert in R7RollingEvaluation.Coalesce(predicted, R7RollingEvaluation.Horizon))
+            foreach (var alert in Coalesce(predicted, Horizon))
             {
                 warnings++;
-                var hit = actual.FirstOrDefault(i => i > alert && i <= alert + R7RollingEvaluation.Horizon && !matched.Contains(i), -1);
+                var hit = actual.FirstOrDefault(i => i > alert && i <= alert + Horizon && !matched.Contains(i), -1);
                 if (hit < 0)
                 {
                     falseWarnings++;
@@ -111,17 +148,28 @@ internal static class R7ForecastMetrics
             lead.ToArray(), developingLead.ToArray());
     }
 
-    private static Error Compare(BankCase bank, R7RollingEvaluation.BankOrigin origin, int horizon, long adjustment)
+    internal static int[] Coalesce(IEnumerable<int> buckets, int cooldown)
+    {
+        var previous = -cooldown - 1;
+        var result = new List<int>();
+        foreach (var bucket in buckets)
+        {
+            if (bucket - previous > cooldown) result.Add(bucket);
+            previous = bucket;
+        }
+        return result.ToArray();
+    }
+
+    private static Error Compare(BankCase bank, BankOrigin origin, int horizon)
     {
         var target = origin.Bucket + horizon + 1;
         var actual = bank.Target(origin.Bucket, horizon)!.Value;
         var step = origin.Path[horizon];
-        var lower = checked(step.Lower - adjustment);
-        var upper = checked(step.Upper + adjustment);
         return new((double)step.Central - actual, Math.Abs((double)origin.Available - actual),
-            Math.Abs((double)origin.RobustLevel - actual), checked(step.Upper - step.Lower), checked(upper - lower),
-            actual >= step.Lower && actual <= step.Upper, actual >= lower && actual <= upper,
-            Math.Abs(actual - origin.Available) >= R7RollingEvaluation.ActiveChangeMinor,
+            Math.Abs((double)origin.RobustLevel - actual), checked(step.Upper - step.Lower),
+            checked(step.CalibratedUpper - step.CalibratedLower),
+            actual >= step.Lower && actual <= step.Upper, actual >= step.CalibratedLower && actual <= step.CalibratedUpper,
+            Math.Abs(actual - origin.Available) >= ActiveChangeMinor,
             bank.Events.Any(e => target >= e.Start && origin.Bucket <= e.End));
     }
 

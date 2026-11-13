@@ -29,6 +29,8 @@
   <ItemGroup>
     <Compile Include="../../src/Hosts.Worker/MlRuntimeSsa.cs" Link="Platform/MlRuntimeSsa.cs" />
     <Compile Include="../../src/Hosts.Worker/RevenantSsaInference.cs" Link="Platform/RevenantSsaInference.cs" />
+    <!-- R7/2 train/serve parity: the published Worker's scoring function is compiled from the same source file. -->
+    <Compile Include="../../src/Hosts.Worker/RevenantAdvisoryWorker.cs" Link="Platform/RevenantAdvisoryWorker.cs" />
     <ProjectReference Include="..\..\src\Revenant\Revenant.csproj" />
     <ProjectReference Include="..\..\src\Revenant.Contracts\Revenant.Contracts.csproj" />
     <!-- Test-only host composition of the shared Timeline over PostgreSQL; the Revenant domain itself never references Infrastructure. -->

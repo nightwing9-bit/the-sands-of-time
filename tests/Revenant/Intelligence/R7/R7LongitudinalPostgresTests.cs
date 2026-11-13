@@ -27,10 +27,19 @@ public sealed class R7LongitudinalPostgresTests(LedgerDatabase db)
     private const string Owner = PaymentKit.Operator;
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
 
+    // Generator-3 truth bytes stay identical: schema-2 event fields and rhythms are omitted when null.
+    private static readonly JsonSerializerOptions TruthJson = new(Json) { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+
     [Fact]
     [Trait("Category", "R7Longitudinal")]
     public Task Generate_the_two_seven_day_PostgreSQL_pilot_roots() =>
-        Generate(V4LongitudinalPlanner.Roots(LongitudinalSplit.Pilot).ToArray(), "pilot.json");
+        Generate(V4LongitudinalPlanner.Roots(LongitudinalSplit.Pilot).ToArray(), "pilot.json", V4LongitudinalPlanner.Version);
+
+    /// <summary>Generator-4 development pilot: three independent seven-day roots (train, calibrate, evaluate).</summary>
+    [Fact]
+    [Trait("Category", "R7Longitudinal")]
+    public Task Generate_the_generator_4_PostgreSQL_development_pilot() =>
+        Generate(V4LongitudinalPlannerG4.Roots(LongitudinalSplit.Pilot).Take(3).ToArray(), "pilot.json", V4LongitudinalPlannerG4.Version);
 
     [Fact]
     [Trait("Category", "R7Longitudinal")]
@@ -40,17 +49,23 @@ public sealed class R7LongitudinalPostgresTests(LedgerDatabase db)
         var ordinal = int.Parse(Environment.GetEnvironmentVariable("REVENANT_R7_COHORT_ORDINAL") ?? "",
             System.Globalization.CultureInfo.InvariantCulture);
         Assert.NotEqual(LongitudinalSplit.Pilot, split);
-        var root = V4LongitudinalPlanner.Roots(split).Single(r => r.Index == ordinal);
-        return Generate([root], "qualification.json");
+        // R7/2 qualification uses generator 4 only. Generator 3 remains reproducible for its archived pilot.
+        var root = V4LongitudinalPlannerG4.Roots(split).Single(r => r.Index == ordinal);
+        return Generate([root], "qualification.json", V4LongitudinalPlannerG4.Version);
     }
 
-    private async Task Generate(LongitudinalRoot[] roots, string manifestName)
+    private async Task Generate(LongitudinalRoot[] roots, string manifestName, string generator)
     {
-        Assert.True(OperatingSystem.IsLinux() && RuntimeInformation.ProcessArchitecture == Architecture.X64);
+        // Qualification evidence is generated on Linux AMD64. A development pilot (pilot.json, non-model-required roots) may be
+        // generated on another host when explicitly allowed; the manifest records the runtime identifier either way.
+        var developmentHost = manifestName == "pilot.json"
+            && Environment.GetEnvironmentVariable("REVENANT_R7_ALLOW_DEVELOPMENT_HOST") == "1";
+        Assert.True(developmentHost || (OperatingSystem.IsLinux() && RuntimeInformation.ProcessArchitecture == Architecture.X64));
         var path = Environment.GetEnvironmentVariable("REVENANT_R7_LONGITUDINAL_OUTPUT")
             ?? throw new InvalidOperationException("Set the longitudinal evidence directory.");
         Directory.CreateDirectory(path);
-        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(35));
+        var minutes = int.TryParse(Environment.GetEnvironmentVariable("REVENANT_R7_GENERATION_TIMEOUT_MINUTES"), out var m) && m > 0 ? m : 35;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(minutes));
         var logins = await db.ProvisionDeployedLoginsAsync();
         await using var writer = NpgsqlDataSource.Create(logins.WorkerLedger);
         var services = new ServiceCollection();
@@ -66,7 +81,8 @@ public sealed class R7LongitudinalPostgresTests(LedgerDatabase db)
         var executor = new V4EpisodeExecutor(store, branch, ledger);
         var summaries = await Task.WhenAll(roots.Select(async root =>
         {
-            var episode = V4LongitudinalPlanner.Plan(root, new ScenarioRunId(new Guid(Convert.FromHexString(root.Key[..32]), bigEndian: true)));
+            var id = new ScenarioRunId(new Guid(Convert.FromHexString(root.Key[..32]), bigEndian: true));
+            var episode = generator == V4LongitudinalPlannerG4.Version ? V4LongitudinalPlannerG4.Plan(root, id) : V4LongitudinalPlanner.Plan(root, id);
             var riskMode = root.Split == LongitudinalSplit.Challenge ? ObservedRiskMode.ModelRequired : ObservedRiskMode.NotRequired;
             var result = await executor.ExecuteAsync(Tenant, Owner, episode.Financial, timeout.Token, riskMode,
                 reviewTimes: episode.ReviewTimes);
@@ -74,7 +90,7 @@ public sealed class R7LongitudinalPostgresTests(LedgerDatabase db)
         }));
         File.WriteAllBytes(Path.Combine(path, manifestName), JsonSerializer.SerializeToUtf8Bytes(new
         {
-            Generator = V4LongitudinalPlanner.Version, Revision = Environment.GetEnvironmentVariable("REVENANT_R7_SOURCE_SHA"),
+            Generator = generator, Revision = Environment.GetEnvironmentVariable("REVENANT_R7_SOURCE_SHA"),
             Runtime = RuntimeInformation.FrameworkDescription, Platform = RuntimeInformation.RuntimeIdentifier, Roots = summaries,
         }, Json));
     }
@@ -91,6 +107,8 @@ public sealed class R7LongitudinalPostgresTests(LedgerDatabase db)
             .Where(f => f.Input.Kind == ObservedFactKind.PaymentIntent)
             .Select(f => Revenant.Scenario.PaymentIntentCodec.Instance.Decode(f.Input.Payload.AsSpan()))
             .ToLookup(p => (p.SourceAccountId, (p.EventTimeUtcMs - origin) / Bucket));
+        // Every planned intent is a committed intake, so planned and observed per-bucket counts are identical.
+        Assert.Equal(plan.Payments.Length, accepted.Sum(g => g.Count()));
         var targets = V4BankTargets.Build(projection.Banks).ToLookup(t => t.BankId);
         var path = Path.Combine(directory, episode.Root.Key);
         Directory.CreateDirectory(path);
@@ -165,8 +183,8 @@ public sealed class R7LongitudinalPostgresTests(LedgerDatabase db)
         // Hidden event annotations are stored independently from the causal model inputs.
         Save("truth.json", JsonSerializer.SerializeToUtf8Bytes(new
         {
-            Schema = V4LongitudinalPlanner.TruthSchema, DefaultAccountBucket = "Normal", Events = episode.Events,
-        }, Json));
+            Schema = episode.TruthSchema, DefaultAccountBucket = "Normal", Events = episode.Events, episode.Rhythms,
+        }, TruthJson));
         var facts = result.History.Segments.SelectMany(s => s.Facts).ToArray();
         using var process = Process.GetCurrentProcess();
         return new

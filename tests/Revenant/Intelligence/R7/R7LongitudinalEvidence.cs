@@ -10,17 +10,21 @@ namespace Revenant.Tests.Intelligence.R7;
 internal sealed record LongitudinalRootEvidence(LongitudinalRoot Root, string BehaviorSha256, string ContentHash,
     Guid Execution, int Seals, SortedDictionary<string, string> Streams, long Accepted, long Held, long Releases, long ReturnFacts);
 internal sealed record LongitudinalEvidence(string Generator, string Revision, LongitudinalRootEvidence[] Roots);
-internal sealed record LongitudinalTruth(string Schema, string DefaultAccountBucket, LongitudinalEvent[] Events);
+internal sealed record LongitudinalTruth(string Schema, string DefaultAccountBucket, LongitudinalEvent[] Events,
+    Dictionary<string, string>? Rhythms = null);
 internal sealed record LongitudinalSample(LongitudinalRootEvidence Manifest, V4AdvisorySeries[] Accounts,
-    V4AdvisorySeries[] Banks, LongitudinalEvent[] Events, IReadOnlyDictionary<string, long?[][]> Targets)
+    V4AdvisorySeries[] Banks, LongitudinalEvent[] Events, IReadOnlyDictionary<string, long?[][]> Targets,
+    IReadOnlyDictionary<string, string>? Rhythms = null)
 {
+    internal static readonly string[] Generators = [V4LongitudinalPlanner.Version, V4LongitudinalPlannerG4.Version];
+
     private static readonly JsonSerializerOptions Json = new() { Converters = { new JsonStringEnumConverter() } };
 
     internal static LongitudinalEvidence ReadManifest(string path, string name)
     {
         var manifest = JsonSerializer.Deserialize<LongitudinalEvidence>(File.ReadAllBytes(Path.Combine(path, name)), Json)
             ?? throw new InvalidDataException("Missing longitudinal manifest.");
-        if (manifest.Generator != V4LongitudinalPlanner.Version || manifest.Roots.Length == 0
+        if (!Generators.Contains(manifest.Generator) || manifest.Roots.Length == 0
             || manifest.Roots.Select(r => r.Root.Key).Distinct().Count() != manifest.Roots.Length
             || manifest.Roots.Select(r => r.BehaviorSha256).Distinct().Count() != manifest.Roots.Length)
             throw new InvalidDataException("Invalid longitudinal manifest or repeated roots.");
@@ -40,7 +44,9 @@ internal sealed record LongitudinalSample(LongitudinalRootEvidence Manifest, V4A
             ?? throw new InvalidDataException("Missing longitudinal truth.");
         var accounts = series.Where(s => s.Schema == V4AdvisorySeries.AccountSchema).ToArray();
         var banks = series.Where(s => s.Schema == V4AdvisorySeries.BankSchema).ToArray();
-        if (truth.Schema != V4LongitudinalPlanner.TruthSchema || truth.DefaultAccountBucket != "Normal"
+        if (truth.Schema is not (V4LongitudinalPlanner.TruthSchema or V4LongitudinalPlannerG4.TruthSchema)
+            || (truth.Schema == V4LongitudinalPlannerG4.TruthSchema) != (truth.Rhythms is not null)
+            || truth.DefaultAccountBucket != "Normal"
             || accounts.Length == 0 || banks.Length != 6
             || series.Select(s => s.SubjectId).Distinct().Count() != series.Length
             || series.Any(s => s.Coverage != AdvisorySeriesCoverage.Complete || s.Points.Length != root.Seals)
@@ -76,7 +82,7 @@ internal sealed record LongitudinalSample(LongitudinalRootEvidence Manifest, V4A
                 reader.EnsureEnd();
                 targets.Add(bank.SubjectId, horizons);
             }
-        return new(root, accounts, banks, truth.Events, targets);
+        return new(root, accounts, banks, truth.Events, targets, truth.Rhythms);
 
         byte[] ReadStream(string name, string hash)
         {

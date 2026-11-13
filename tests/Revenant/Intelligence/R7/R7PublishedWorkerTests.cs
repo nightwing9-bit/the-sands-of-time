@@ -67,7 +67,7 @@ public sealed class R7PublishedWorkerTests(LedgerDatabase db)
         var artifactRoot = Path.Combine(Path.GetDirectoryName(worker)!, "Intelligence", "Artifacts", "revenant-ssa");
         var (anomaly, anomalyZip) = ReadPin("anomaly");
         var (forecast, forecastZip) = ReadPin("forecast");
-        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(12));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(40));
         var ct = timeout.Token;
         var logins = await db.ProvisionDeployedLoginsAsync();
         await using var writer = NpgsqlDataSource.Create(logins.WorkerLedger);
@@ -83,9 +83,10 @@ public sealed class R7PublishedWorkerTests(LedgerDatabase db)
         var branch = new V4BranchExecution(store,
             host.GetRequiredService<ITimelineEngine<ObservedFinanceState, ObservedFinanceInput, ObservedFinanceContext>>());
         var id = new ScenarioRunId(Guid.NewGuid());
-        var episode = V4LongitudinalPlanner.Plan(V4LongitudinalPlanner.Roots(LongitudinalSplit.Pilot).First(), id);
+        // Generator 4 Pilot root 0 through bucket 1,160: past the 1,152-bucket anomaly warm-up and the 288-bucket forecast warm-up.
+        var episode = V4LongitudinalPlannerG4.Plan(V4LongitudinalPlannerG4.Roots(LongitudinalSplit.Pilot).First(), id);
         var origin = episode.Financial.Opening.Manifest.StartUtcMs;
-        var seal = origin + 330 * ObservedFinanceVersion.BucketMs;
+        var seal = origin + 1_160 * ObservedFinanceVersion.BucketMs;
         var plan = episode.Financial with
         {
             Payments = [.. episode.Financial.Payments.Where(p => p.Intent.EventTimeUtcMs < seal)],
@@ -96,7 +97,7 @@ public sealed class R7PublishedWorkerTests(LedgerDatabase db)
             anomalyModels: [anomaly], liquidityModels: [forecast]);
         var projection = V4ObservationProjector.Project(result.History);
         var account = plan.Opening.Manifest.Accounts.Select(a => projection.AccountOutgoingSeries(a.AccountId, seal))
-            .OrderByDescending(a => a.Points.Take(288).Count(p => p.Value > 0)).First();
+            .OrderByDescending(a => a.Points.Take(1_152).Count(p => p.Value > 0)).First();
         Assert.True(result.History.Segments[0].Facts.Count(f => f.Input.Kind == ObservedFactKind.Screening
             && f.Input.PayloadSchema == V4ModelScreeningEvidence.Schema) > 0);
 
