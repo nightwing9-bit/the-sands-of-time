@@ -607,7 +607,8 @@ jobs:
         env:
           REVENANT_R7_PILOT_INPUT: ${{ github.workspace }}/TestResults/r7-pilot-input
           REVENANT_R7_PILOT_EVAL: ${{ github.workspace }}/TestResults/r7-pilot-evaluation
-          REVENANT_R7_PILOT_CORRECTION: ${{ contains(github.event.pull_request.body, 'R7-pilot-correction: yes') && '1' || '0' }}
+          REVENANT_R7_PILOT_CORRECTION: >-
+            ${{ contains(github.event.pull_request.body, 'R7-pilot-correction: yes') && '1' || '0' }}
         run: |
           set -euo pipefail
           sudo apt-get update -qq
