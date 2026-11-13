@@ -29,10 +29,12 @@ public sealed class R7PilotEvaluationTests
             .ThenBy(s => s.SubjectId, StringComparer.Ordinal).First();
         var ml = new MLContext(seed: 7);
         var report = new List<object>();
-        foreach (var window in new[] { 8, 12 })
+        var correction = Environment.GetEnvironmentVariable("REVENANT_R7_PILOT_CORRECTION") == "1";
+        foreach (var window in correction ? new[] { 8 } : new[] { 8, 12 })
         {
-            var anomalyConfig = new R7RollingEvaluation.AnomalyConfig(window, window * 2, 288);
-            var forecastConfig = new R7RollingEvaluation.ForecastConfig(window, window * 4, 288);
+            var anomalyConfig = new R7RollingEvaluation.AnomalyConfig(window, correction ? 1 : window * 2, 288);
+            var forecastConfig = new R7RollingEvaluation.ForecastConfig(window, window * 4, 288,
+                Rank: correction ? 2 : null, OriginCentered: correction);
             var anomalyPath = Path.Combine(output, $"pilot-anomaly-{window}.zip");
             var forecastPath = Path.Combine(output, $"pilot-forecast-{window}.zip");
             R7RollingEvaluation.FitAnomaly(ml, trainingAccount, anomalyConfig, anomalyPath);
@@ -40,7 +42,8 @@ public sealed class R7PilotEvaluationTests
             var account = unseen.Accounts.Select(s => (s, R7RollingEvaluation.ScoreAccount(ml, s, anomalyPath),
                 unseen.Events.Where(e => e.Subject == s.SubjectId).ToArray())).ToArray();
             var banks = unseen.Banks.Select(s => new R7ForecastMetrics.BankCase(unseen.Manifest.Root.Key, s.SubjectId,
-                s.ReferenceMinor!.Value, s.Points.Select(p => p.Value).ToArray(), R7RollingEvaluation.ForecastBank(ml, s, forecastPath),
+                s.ReferenceMinor!.Value, s.Points.Select(p => p.Value).ToArray(),
+                R7RollingEvaluation.ForecastBank(ml, s, forecastPath, forecastConfig.OriginCentered),
                 unseen.Events.Where(e => e.Subject == s.SubjectId).ToArray())).ToArray();
             report.Add(new
             {
@@ -53,7 +56,7 @@ public sealed class R7PilotEvaluationTests
                     Count = a.Item2.Count(s => s.Raw is null || s.PValue is null),
                     Examples = a.Item2.Where(s => s.Raw is null || s.PValue is null).Take(4),
                 }).ToArray(),
-                ThresholdDiagnostics = new[] { .001, .0025, .005, .01, .025, .05 }.Select(threshold => new
+                ThresholdDiagnostics = new[] { 1e-7, 1e-6, .0001, .001, .0025, .005, .01, .025, .05 }.Select(threshold => new
                 {
                     Threshold = threshold,
                     Ssa = R7RollingEvaluation.EvaluateAnomalies(account, threshold, baseline: false),

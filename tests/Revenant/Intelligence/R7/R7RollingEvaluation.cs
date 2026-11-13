@@ -18,7 +18,7 @@ internal static class R7RollingEvaluation
     internal const long ActiveChangeMinor = 10_000;
 
     internal sealed record AnomalyConfig(int Window, int History, int Training);
-    internal sealed record ForecastConfig(int Window, int History, int Training);
+    internal sealed record ForecastConfig(int Window, int History, int Training, int? Rank = null, bool OriginCentered = false);
     internal sealed record BucketScore(int Bucket, long Count, bool NativeAlert, double? Raw, double? PValue, double BaselineRank);
     internal sealed record ForecastPoint(long Central, long Lower, long Upper);
     internal sealed record BankOrigin(int Bucket, long Available, ForecastPoint[] Path, long RobustLevel);
@@ -43,12 +43,14 @@ internal static class R7RollingEvaluation
         if (series.Schema != V4AdvisorySeries.BankSchema || series.Coverage != AdvisorySeriesCoverage.Complete
             || series.Points.Length < config.Training)
             throw new InvalidDataException("Forecast training requires one contiguous bank history.");
-        var normalize = new AdvisoryBalanceNormalization(series.ReferenceMinor!.Value, Scale);
+        var reference = config.OriginCentered ? series.Points[config.Training - 1].Value : series.ReferenceMinor!.Value;
+        var normalize = new AdvisoryBalanceNormalization(reference, Scale);
         var observations = ml.Data.LoadFromEnumerable(series.Points.Take(config.Training)
             .Select(p => new SeriesPoint { Value = normalize.Normalize(p.Value) }));
         var trainer = ml.Forecasting.ForecastBySsa(nameof(ForecastOutput.Forecast), nameof(SeriesPoint.Value),
             windowSize: config.Window, seriesLength: config.History, trainSize: config.Training, horizon: Horizon,
-            isAdaptive: false, confidenceLevel: .95f,
+            isAdaptive: false, confidenceLevel: .95f, rankSelectionMethod: config.Rank.HasValue
+                ? RankSelectionMethod.Fixed : RankSelectionMethod.Exact, rank: config.Rank,
             confidenceLowerBoundColumn: nameof(ForecastOutput.LowerBound), confidenceUpperBoundColumn: nameof(ForecastOutput.UpperBound));
         ml.Model.Save(trainer.Fit(observations), observations.Schema, path);
     }
@@ -71,7 +73,7 @@ internal static class R7RollingEvaluation
         return scores.ToArray();
     }
 
-    internal static BankOrigin[] ForecastBank(MLContext ml, V4AdvisorySeries series, string path)
+    internal static BankOrigin[] ForecastBank(MLContext ml, V4AdvisorySeries series, string path, bool originCentered = false)
     {
         var normalize = new AdvisoryBalanceNormalization(series.ReferenceMinor!.Value, Scale);
         using var artifact = File.OpenRead(path);
@@ -80,11 +82,23 @@ internal static class R7RollingEvaluation
         for (var i = 0; i < series.Points.Length; i++)
         {
             var available = series.Points[i].Value;
-            var result = RevenantSsaInference.ObserveBank(engine, normalize.Normalize(available));
+            ForecastOutput result;
+            var atOrigin = normalize;
+            if (originCentered)
+            {
+                if (i < Warmup) continue;
+                atOrigin = new AdvisoryBalanceNormalization(available, Scale);
+                using var localArtifact = File.OpenRead(path);
+                using var local = RevenantSsaInference.Load<ForecastOutput>(ml, localArtifact);
+                for (var j = i - 31; j <= i; j++)
+                    _ = RevenantSsaInference.ObserveBank(local, atOrigin.Normalize(series.Points[j].Value));
+                result = local.Predict();
+            }
+            else result = RevenantSsaInference.ObserveBank(engine, normalize.Normalize(available));
             if (i < Warmup) continue;
             RevenantSsaInference.VerifyForecast(result, Horizon);
-            var steps = Enumerable.Range(0, Horizon).Select(h => new ForecastPoint(normalize.Restore(result.Forecast[h]),
-                normalize.Restore(result.LowerBound[h]), normalize.Restore(result.UpperBound[h]))).ToArray();
+            var steps = Enumerable.Range(0, Horizon).Select(h => new ForecastPoint(atOrigin.Restore(result.Forecast[h]),
+                atOrigin.Restore(result.LowerBound[h]), atOrigin.Restore(result.UpperBound[h]))).ToArray();
             if (steps.Any(p => p.Lower > p.Central || p.Upper < p.Central))
                 throw new InvalidDataException("Invalid ML.NET forecast interval.");
             var trailing = series.Points.Skip(i - Horizon + 1).Take(Horizon).Select(p => p.Value).Order().ToArray();

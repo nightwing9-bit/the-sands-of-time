@@ -579,7 +579,8 @@ jobs:
   r7-pilot-evaluation:
     name: R7 SSA evaluation on the frozen pilot (Linux AMD64)
     if: >-
-      ${{ github.event.pull_request.head.repo.full_name == github.repository
+      ${{ github.event.action == 'edited'
+          && github.event.pull_request.head.repo.full_name == github.repository
           && github.event.pull_request.head.ref == 'codex/r7-ssa-anomaly-liquidity-20261113'
           && contains(github.event.pull_request.body, 'R7-pilot-evaluation: ') }}
     runs-on: ubuntu-24.04
@@ -606,6 +607,7 @@ jobs:
         env:
           REVENANT_R7_PILOT_INPUT: ${{ github.workspace }}/TestResults/r7-pilot-input
           REVENANT_R7_PILOT_EVAL: ${{ github.workspace }}/TestResults/r7-pilot-evaluation
+          REVENANT_R7_PILOT_CORRECTION: ${{ contains(github.event.pull_request.body, 'R7-pilot-correction: yes') && '1' || '0' }}
         run: |
           set -euo pipefail
           sudo apt-get update -qq
@@ -617,7 +619,9 @@ jobs:
           report="$REVENANT_R7_PILOT_EVAL/r7-pilot-evaluation.trx"
           grep -Eq '<Counters [^>]*total="1" executed="1" passed="1" failed="0"' "$report"
           grep -Eq "<UnitTestResult [^>]*testName=\"[^\"]*\.$case_name\"[^>]*outcome=\"Passed\"" "$report"
-          jq -e '.Candidates | length == 2 and all(.[]; (.Horizons | length) == 8)' "$REVENANT_R7_PILOT_EVAL/pilot-evaluation.json"
+          expected=2
+          if [[ "$REVENANT_R7_PILOT_CORRECTION" == 1 ]]; then expected=1; fi
+          jq -e --argjson expected "$expected" '.Candidates | length == $expected and all(.[]; (.Horizons | length) == 8)' "$REVENANT_R7_PILOT_EVAL/pilot-evaluation.json"
       - uses: actions/upload-artifact@v6
         if: ${{ !cancelled() }}
         with:
@@ -715,6 +719,40 @@ jobs:
         with:
           name: r7-model-evaluation
           path: TestResults/r7-model-evaluation
+          if-no-files-found: error
+          retention-days: 21
+  r7-published-worker:
+    name: R7 published Worker advisory proof (Linux AMD64)
+    if: >-
+      ${{ github.event.pull_request.head.repo.full_name == github.repository
+          && github.event.pull_request.head.ref == 'codex/r7-ssa-anomaly-liquidity-20261113'
+          && contains(github.event.pull_request.body, format('R7-published-worker: {0}', github.event.pull_request.head.sha)) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - name: Publish and exercise the pinned advisory workloads
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends libomp-dev
+          dotnet publish src/Hosts.Worker/Hosts.Worker.csproj -c Release -r linux-x64 --self-contained false -o "$RUNNER_TEMP/r7-worker"
+          export REVENANT_R7_WORKER_DLL="$RUNNER_TEMP/r7-worker/Hosts.Worker.dll"
+          case_name=Published_worker_writes_idempotent_pinned_SSA_evidence
+          dotnet test tests/Revenant/Revenant.Tests.csproj -c Release \
+            --filter "Category=R7Longitudinal&FullyQualifiedName~$case_name" \
+            --logger 'trx;LogFileName=r7-worker.trx' --results-directory TestResults/r7-worker
+          report=TestResults/r7-worker/r7-worker.trx
+          grep -Eq '<Counters [^>]*total="1" executed="1" passed="1" failed="0"' "$report"
+          grep -Eq "<UnitTestResult [^>]*testName=\"[^\"]*\.$case_name\"[^>]*outcome=\"Passed\"" "$report"
+      - uses: actions/upload-artifact@v6
+        if: ${{ !cancelled() }}
+        with:
+          name: r7-published-worker
+          path: TestResults/r7-worker
           if-no-files-found: error
           retention-days: 21
   web:
