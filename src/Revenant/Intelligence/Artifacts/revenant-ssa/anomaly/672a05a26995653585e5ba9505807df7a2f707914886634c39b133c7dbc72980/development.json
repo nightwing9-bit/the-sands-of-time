@@ -1,0 +1,1474 @@
+{
+  "ModelId": "revenant-ssa-anomaly/672a05a26995653585e5ba9505807df7a2f707914886634c39b133c7dbc72980",
+  "ArtifactSha256": "03e895da4fa4348b69b1251c6ef9c1c9e6c2deee893e83bf2a983c698281b35e",
+  "PilotSha256": "19b136929aec3e30032995bb7004dbb102693e810ea772007e04073d004e3ce6",
+  "TrainingRoot": "eafc18ee2bb318b60c5fb50a76c911ca9c5606f9ea2225fa8810905e06ae2ae1",
+  "TrainingSubject": "BANK-A/eafc18ee2bb318b6/ACC-0003",
+  "TrainingSeriesSha256": "00f5fcdb0dcf1f91f46969bfef23f75e7e4f1df4c69a20c58952ee3cec5e43c5",
+  "Spec": {
+    "Transform": "Count",
+    "SeasonalWindow": 576,
+    "TrainingWindow": 1160,
+    "PValueHistory": 32,
+    "Warmup": 1152,
+    "MinimumNonzero": 8
+  },
+  "Trainer": "DetectSpikeBySsa; positive side; confidence 95; seed 7; Single",
+  "Runtime": "ML.NET 5.0.1; .NET 10; Linux AMD64",
+  "SeriesSchema": "account-outgoing-velocity-series/1",
+  "Policy": "R7-AnomalyGlobalPolicy/1",
+  "Threshold": 3.4120270786372,
+  "Allowance": 0.075,
+  "Cooldown": 6,
+  "LateMatch": 3,
+  "Status": "SimulationEvaluatedIndependentQualificationPending",
+  "SelectedCalibrationRoot": "b628ba72f37514717a3a45f9aa13067755359b85f2c135dfa1e834f2f7d381e8",
+  "Folds": [
+    {
+      "CalibrationRoot": "b628ba72f37514717a3a45f9aa13067755359b85f2c135dfa1e834f2f7d381e8",
+      "MeasurementRoot": "2a519d1b80ffa2cb8711bdbd6394398e7ff5991b2d20a05184c67b4e69573b04",
+      "Threshold": 3.4120270786372,
+      "Calibration": {
+        "Accounts": 24,
+        "QualifiedAccounts": 24,
+        "NormalAccountDays": 70.70833333333333,
+        "Events": 31,
+        "Detected": 23,
+        "Excluded": 1,
+        "AlertedExcluded": 0,
+        "FalseAlerts": 5,
+        "AlertEvents": 28,
+        "HardNegatives": 28,
+        "AlertedHardNegatives": 4,
+        "DetectionDelayMinutes": [
+          40,
+          25,
+          5,
+          10,
+          5,
+          10,
+          20,
+          10,
+          30,
+          10,
+          10,
+          20,
+          20,
+          50,
+          15,
+          60,
+          0,
+          50,
+          5,
+          0,
+          20,
+          10,
+          10
+        ],
+        "ByMechanism": {
+          "SustainedElevation": {
+            "Events": 8,
+            "Detected": 5,
+            "FalseAlerts": 0,
+            "NormalDays": 0,
+            "Recall": 0.625,
+            "FalseAlertsPerNormalDay": null
+          },
+          "OffSchedule": {
+            "Events": 10,
+            "Detected": 6,
+            "FalseAlerts": 0,
+            "NormalDays": 0,
+            "Recall": 0.6,
+            "FalseAlertsPerNormalDay": null
+          },
+          "AmplitudeSurge": {
+            "Events": 2,
+            "Detected": 2,
+            "FalseAlerts": 0,
+            "NormalDays": 0,
+            "Recall": 1,
+            "FalseAlertsPerNormalDay": null
+          },
+          "TreasuryDrain": {
+            "Events": 8,
+            "Detected": 7,
+            "FalseAlerts": 0,
+            "NormalDays": 0,
+            "Recall": 0.875,
+            "FalseAlertsPerNormalDay": null
+          },
+          "DormantBurst": {
+            "Events": 3,
+            "Detected": 3,
+            "FalseAlerts": 0,
+            "NormalDays": 0,
+            "Recall": 1,
+            "FalseAlertsPerNormalDay": null
+          }
+        },
+        "ByIntent": {
+          "Legitimate": {
+            "Events": 19,
+            "Detected": 15,
+            "FalseAlerts": 0,
+            "NormalDays": 0,
+            "Recall": 0.7894736842105263,
+            "FalseAlertsPerNormalDay": null
+          },
+          "FraudAssociated": {
+            "Events": 12,
+            "Detected": 8,
+            "FalseAlerts": 0,
+            "NormalDays": 0,
+            "Recall": 0.6666666666666666,
+            "FalseAlertsPerNormalDay": null
+          }
+        },
+        "ByRhythm": {
+          "Treasury": {
+            "Events": 2,
+            "Detected": 1,
+            "FalseAlerts": 0,
+            "NormalDays": 17.836805555555557,
+            "Recall": 0.5,
+            "FalseAlertsPerNormalDay": 0
+          },
+          "Commercial": {
+            "Events": 9,
+            "Detected": 6,
+            "FalseAlerts": 3,
+            "NormalDays": 14.680555555555555,
+            "Recall": 0.6666666666666666,
+            "FalseAlertsPerNormalDay": 0.2043519394512772
+          },
+          "Regular": {
+            "Events": 6,
+            "Detected": 5,
+            "FalseAlerts": 1,
+            "NormalDays": 17.743055555555557,
+            "Recall": 0.8333333333333334,
+            "FalseAlertsPerNormalDay": 0.05636007827788649
+          },
+          "Sporadic": {
+            "Events": 6,
+            "Detected": 4,
+            "FalseAlerts": 1,
+            "NormalDays": 11.756944444444445,
+            "Recall": 0.6666666666666666,
+            "FalseAlertsPerNormalDay": 0.08505611340815121
+          },
+          "Quiet": {
+            "Events": 8,
+            "Detected": 7,
+            "FalseAlerts": 0,
+            "NormalDays": 8.690972222222223,
+            "Recall": 0.875,
+            "FalseAlertsPerNormalDay": 0
+          }
+        },
+        "ByRoot": {
+          "b628ba72f37514717a3a45f9aa13067755359b85f2c135dfa1e834f2f7d381e8": {
+            "Events": 31,
+            "Detected": 23,
+            "FalseAlerts": 5,
+            "NormalDays": 70.70833333333333,
+            "Recall": 0.7419354838709677,
+            "FalseAlertsPerNormalDay": 0.07071302298173247
+          }
+        },
+        "Recall": 0.7419354838709677,
+        "FalseAlertsPerNormalDay": 0.07071302298173247,
+        "Precision": 0.8214285714285714,
+        "MedianDelayMinutes": 10
+      },
+      "Measurement": {
+        "Accounts": 24,
+        "QualifiedAccounts": 24,
+        "NormalAccountDays": 71.25694444444444,
+        "Events": 23,
+        "Detected": 14,
+        "Excluded": 9,
+        "AlertedExcluded": 1,
+        "FalseAlerts": 7,
+        "AlertEvents": 22,
+        "HardNegatives": 30,
+        "AlertedHardNegatives": 5,
+        "DetectionDelayMinutes": [
+          20,
+          15,
+          10,
+          0,
+          20,
+          15,
+          10,
+          10,
+          10,
+          5,
+          0,
+          15,
+          0,
+          10
+        ],
+        "ByMechanism": {
+          "SustainedElevation": {
+            "Events": 8,
+            "Detected": 5,
+            "FalseAlerts": 0,
+            "NormalDays": 0,
+            "Recall": 0.625,
+            "FalseAlertsPerNormalDay": null
+          },
+          "OffSchedule": {
+            "Events": 9,
+            "Detected": 5,
+            "FalseAlerts": 0,
+            "NormalDays": 0,
+            "Recall": 0.5555555555555556,
+            "FalseAlertsPerNormalDay": null
+          },
+          "DormantBurst": {
+            "Events": 3,
+            "Detected": 2,
+            "FalseAlerts": 0,
+            "NormalDays": 0,
+            "Recall": 0.6666666666666666,
+            "FalseAlertsPerNormalDay": null
+          },
+          "TreasuryDrain": {
+            "Events": 1,
+            "Detected": 0,
+            "FalseAlerts": 0,
+            "NormalDays": 0,
+            "Recall": 0,
+            "FalseAlertsPerNormalDay": null
+          },
+          "AmplitudeSurge": {
+            "Events": 2,
+            "Detected": 2,
+            "FalseAlerts": 0,
+            "NormalDays": 0,
+            "Recall": 1,
+            "FalseAlertsPerNormalDay": null
+          }
+        },
+        "ByIntent": {
+          "Legitimate": {
+            "Events": 14,
+            "Detected": 7,
+            "FalseAlerts": 0,
+            "NormalDays": 0,
+            "Recall": 0.5,
+            "FalseAlertsPerNormalDay": null
+          },
+          "FraudAssociated": {
+            "Events": 9,
+            "Detected": 7,
+            "FalseAlerts": 0,
+            "NormalDays": 0,
+            "Recall": 0.7777777777777778,
+            "FalseAlertsPerNormalDay": null
+          }
+        },
+        "ByRhythm": {
+          "Treasury": {
+            "Events": 0,
+            "Detected": 0,
+            "FalseAlerts": 0,
+            "NormalDays": 17.97222222222222,
+            "Recall": null,
+            "FalseAlertsPerNormalDay": 0
+          },
+          "Regular": {
+            "Events": 9,
+            "Detected": 6,
+            "FalseAlerts": 2,
+            "NormalDays": 17.670138888888886,
+            "Recall": 0.6666666666666666,
+            "FalseAlertsPerNormalDay": 0.11318530163096878
+          },
+          "Sporadic": {
+            "Events": 7,
+            "Detected": 4,
+            "FalseAlerts": 0,
+            "NormalDays": 11.79861111111111,
+            "Recall": 0.5714285714285714,
+            "FalseAlertsPerNormalDay": 0
+          },
+          "Quiet": {
+            "Events": 4,
+            "Detected": 3,
+            "FalseAlerts": 0,
+            "NormalDays": 8.895833333333332,
+            "Recall": 0.75,
+            "FalseAlertsPerNormalDay": 0
+          },
+          "Commercial": {
+            "Events": 3,
+            "Detected": 1,
+            "FalseAlerts": 5,
+            "NormalDays": 14.92013888888889,
+            "Recall": 0.3333333333333333,
+            "FalseAlertsPerNormalDay": 0.3351175238538515
+          }
+        },
+        "ByRoot": {
+          "2a519d1b80ffa2cb8711bdbd6394398e7ff5991b2d20a05184c67b4e69573b04": {
+            "Events": 23,
+            "Detected": 14,
+            "FalseAlerts": 7,
+            "NormalDays": 71.25694444444443,
+            "Recall": 0.6086956521739131,
+            "FalseAlertsPerNormalDay": 0.09823603937238089
+          }
+        },
+        "Recall": 0.6086956521739131,
+        "FalseAlertsPerNormalDay": 0.09823603937238086,
+        "Precision": 0.6666666666666666,
+        "MedianDelayMinutes": 10
+      },
+      "Seasonal": {
+        "Threshold": 3.428268392556153,
+        "Calibration": {
+          "Accounts": 24,
+          "QualifiedAccounts": 24,
+          "NormalAccountDays": 70.70833333333333,
+          "Events": 31,
+          "Detected": 29,
+          "Excluded": 1,
+          "AlertedExcluded": 0,
+          "FalseAlerts": 3,
+          "AlertEvents": 32,
+          "HardNegatives": 28,
+          "AlertedHardNegatives": 3,
+          "DetectionDelayMinutes": [
+            15,
+            20,
+            15,
+            5,
+            5,
+            15,
+            10,
+            5,
+            20,
+            15,
+            25,
+            15,
+            30,
+            5,
+            10,
+            15,
+            5,
+            10,
+            20,
+            15,
+            20,
+            0,
+            45,
+            5,
+            0,
+            0,
+            20,
+            5,
+            10
+          ],
+          "ByMechanism": {
+            "SustainedElevation": {
+              "Events": 8,
+              "Detected": 8,
+              "FalseAlerts": 0,
+              "NormalDays": 0,
+              "Recall": 1,
+              "FalseAlertsPerNormalDay": null
+            },
+            "OffSchedule": {
+              "Events": 10,
+              "Detected": 9,
+              "FalseAlerts": 0,
+              "NormalDays": 0,
+              "Recall": 0.9,
+              "FalseAlertsPerNormalDay": null
+            },
+            "AmplitudeSurge": {
+              "Events": 2,
+              "Detected": 2,
+              "FalseAlerts": 0,
+              "NormalDays": 0,
+              "Recall": 1,
+              "FalseAlertsPerNormalDay": null
+            },
+            "TreasuryDrain": {
+              "Events": 8,
+              "Detected": 7,
+              "FalseAlerts": 0,
+              "NormalDays": 0,
+              "Recall": 0.875,
+              "FalseAlertsPerNormalDay": null
+            },
+            "DormantBurst": {
+              "Events": 3,
+              "Detected": 3,
+              "FalseAlerts": 0,
+              "NormalDays": 0,
+              "Recall": 1,
+              "FalseAlertsPerNormalDay": null
+            }
+          },
+          "ByIntent": {
+            "Legitimate": {
+              "Events": 19,
+              "Detected": 17,
+              "FalseAlerts": 0,
+              "NormalDays": 0,
+              "Recall": 0.8947368421052632,
+              "FalseAlertsPerNormalDay": null
+            },
+            "FraudAssociated": {
+              "Events": 12,
+              "Detected": 12,
+              "FalseAlerts": 0,
+              "NormalDays": 0,
+              "Recall": 1,
+              "FalseAlertsPerNormalDay": null
+            }
+          },
+          "ByRhythm": {
+            "Treasury": {
+              "Events": 2,
+              "Detected": 1,
+              "FalseAlerts": 0,
+              "NormalDays": 17.836805555555557,
+              "Recall": 0.5,
+              "FalseAlertsPerNormalDay": 0
+            },
+            "Commercial": {
+              "Events": 9,
+              "Detected": 9,
+              "FalseAlerts": 3,
+              "NormalDays": 14.680555555555555,
+              "Recall": 1,
+              "FalseAlertsPerNormalDay": 0.2043519394512772
+            },
+            "Regular": {
+              "Events": 6,
+              "Detected": 5,
+              "FalseAlerts": 0,
+              "NormalDays": 17.743055555555557,
+              "Recall": 0.8333333333333334,
+              "FalseAlertsPerNormalDay": 0
+            },
+            "Sporadic": {
+              "Events": 6,
+              "Detected": 6,
+              "FalseAlerts": 0,
+              "NormalDays": 11.756944444444445,
+              "Recall": 1,
+              "FalseAlertsPerNormalDay": 0
+            },
+            "Quiet": {
+              "Events": 8,
+              "Detected": 8,
+              "FalseAlerts": 0,
+              "NormalDays": 8.690972222222223,
+              "Recall": 1,
+              "FalseAlertsPerNormalDay": 0
+            }
+          },
+          "ByRoot": {
+            "b628ba72f37514717a3a45f9aa13067755359b85f2c135dfa1e834f2f7d381e8": {
+              "Events": 31,
+              "Detected": 29,
+              "FalseAlerts": 3,
+              "NormalDays": 70.70833333333333,
+              "Recall": 0.9354838709677419,
+              "FalseAlertsPerNormalDay": 0.04242781378903948
+            }
+          },
+          "Recall": 0.9354838709677419,
+          "FalseAlertsPerNormalDay": 0.04242781378903948,
+          "Precision": 0.90625,
+          "MedianDelayMinutes": 15
+        },
+        "Measurement": {
+          "Accounts": 24,
+          "QualifiedAccounts": 24,
+          "NormalAccountDays": 71.25694444444444,
+          "Events": 23,
+          "Detected": 21,
+          "Excluded": 9,
+          "AlertedExcluded": 1,
+          "FalseAlerts": 3,
+          "AlertEvents": 25,
+          "HardNegatives": 30,
+          "AlertedHardNegatives": 1,
+          "DetectionDelayMinutes": [
+            10,
+            10,
+            10,
+            0,
+            10,
+            35,
+            5,
+            10,
+            5,
+            5,
+            0,
+            10,
+            10,
+            0,
+            10,
+            5,
+            0,
+            10,
+            0,
+            5,
+            10
+          ],
+          "ByMechanism": {
+            "SustainedElevation": {
+              "Events": 8,
+              "Detected": 8,
+              "FalseAlerts": 0,
+              "NormalDays": 0,
+              "Recall": 1,
+              "FalseAlertsPerNormalDay": null
+            },
+            "OffSchedule": {
+              "Events": 9,
+              "Detected": 8,
+              "FalseAlerts": 0,
+              "NormalDays": 0,
+              "Recall": 0.8888888888888888,
+              "FalseAlertsPerNormalDay": null
+            },
+            "DormantBurst": {
+              "Events": 3,
+              "Detected": 3,
+              "FalseAlerts": 0,
+              "NormalDays": 0,
+              "Recall": 1,
+              "FalseAlertsPerNormalDay": null
+            },
+            "TreasuryDrain": {
+              "Events": 1,
+              "Detected": 0,
+              "FalseAlerts": 0,
+              "NormalDays": 0,
+              "Recall": 0,
+              "FalseAlertsPerNormalDay": null
+            },
+            "AmplitudeSurge": {
+              "Events": 2,
+              "Detected": 2,
+              "FalseAlerts": 0,
+              "NormalDays": 0,
+              "Recall": 1,
+              "FalseAlertsPerNormalDay": null
+            }
+          },
+          "ByIntent": {
+            "Legitimate": {
+              "Events": 14,
+              "Detected": 12,
+              "FalseAlerts": 0,
+              "NormalDays": 0,
+              "Recall": 0.8571428571428571,
+              "FalseAlertsPerNormalDay": null
+            },
+            "FraudAssociated": {
+              "Events": 9,
+              "Detected": 9,
+              "FalseAlerts": 0,
+              "NormalDays": 0,
+              "Recall": 1,
+              "FalseAlertsPerNormalDay": null
+            }
+          },
+          "ByRhythm": {
+            "Treasury": {
+              "Events": 0,
+              "Detected": 0,
+              "FalseAlerts": 0,
+              "NormalDays": 17.97222222222222,
+              "Recall": null,
+              "FalseAlertsPerNormalDay": 0
+            },
+            "Regular": {
+              "Events": 9,
+              "Detected": 9,
+              "FalseAlerts": 2,
+              "NormalDays": 17.670138888888886,
+              "Recall": 1,
+              "FalseAlertsPerNormalDay": 0.11318530163096878
+            },
+            "Sporadic": {
+              "Events": 7,
+              "Detected": 5,
+              "FalseAlerts": 0,
+              "NormalDays": 11.79861111111111,
+              "Recall": 0.7142857142857143,
+              "FalseAlertsPerNormalDay": 0
+            },
+            "Quiet": {
+              "Events": 4,
+              "Detected": 4,
+              "FalseAlerts": 0,
+              "NormalDays": 8.895833333333332,
+              "Recall": 1,
+              "FalseAlertsPerNormalDay": 0
+            },
+            "Commercial": {
+              "Events": 3,
+              "Detected": 3,
+              "FalseAlerts": 1,
+              "NormalDays": 14.92013888888889,
+              "Recall": 1,
+              "FalseAlertsPerNormalDay": 0.0670235047707703
+            }
+          },
+          "ByRoot": {
+            "2a519d1b80ffa2cb8711bdbd6394398e7ff5991b2d20a05184c67b4e69573b04": {
+              "Events": 23,
+              "Detected": 21,
+              "FalseAlerts": 3,
+              "NormalDays": 71.25694444444443,
+              "Recall": 0.9130434782608695,
+              "FalseAlertsPerNormalDay": 0.042101159731020375
+            }
+          },
+          "Recall": 0.9130434782608695,
+          "FalseAlertsPerNormalDay": 0.04210115973102037,
+          "Precision": 0.875,
+          "MedianDelayMinutes": 10
+        }
+      }
+    },
+    {
+      "CalibrationRoot": "2a519d1b80ffa2cb8711bdbd6394398e7ff5991b2d20a05184c67b4e69573b04",
+      "MeasurementRoot": "b628ba72f37514717a3a45f9aa13067755359b85f2c135dfa1e834f2f7d381e8",
+      "Threshold": 4.144452375123362,
+      "Calibration": {
+        "Accounts": 24,
+        "QualifiedAccounts": 24,
+        "NormalAccountDays": 71.25694444444444,
+        "Events": 23,
+        "Detected": 14,
+        "Excluded": 9,
+        "AlertedExcluded": 1,
+        "FalseAlerts": 4,
+        "AlertEvents": 19,
+        "HardNegatives": 30,
+        "AlertedHardNegatives": 3,
+        "DetectionDelayMinutes": [
+          25,
+          20,
+          10,
+          0,
+          20,
+          20,
+          10,
+          10,
+          15,
+          5,
+          0,
+          15,
+          0,
+          10
+        ],
+        "ByMechanism": {
+          "SustainedElevation": {
+            "Events": 8,
+            "Detected": 5,
+            "FalseAlerts": 0,
+            "NormalDays": 0,
+            "Recall": 0.625,
+            "FalseAlertsPerNormalDay": null
+          },
+          "OffSchedule": {
+            "Events": 9,
+            "Detected": 5,
+            "FalseAlerts": 0,
+            "NormalDays": 0,
+            "Recall": 0.5555555555555556,
+            "FalseAlertsPerNormalDay": null
+          },
+          "DormantBurst": {
+            "Events": 3,
+            "Detected": 2,
+            "FalseAlerts": 0,
+            "NormalDays": 0,
+            "Recall": 0.6666666666666666,
+            "FalseAlertsPerNormalDay": null
+          },
+          "TreasuryDrain": {
+            "Events": 1,
+            "Detected": 0,
+            "FalseAlerts": 0,
+            "NormalDays": 0,
+            "Recall": 0,
+            "FalseAlertsPerNormalDay": null
+          },
+          "AmplitudeSurge": {
+            "Events": 2,
+            "Detected": 2,
+            "FalseAlerts": 0,
+            "NormalDays": 0,
+            "Recall": 1,
+            "FalseAlertsPerNormalDay": null
+          }
+        },
+        "ByIntent": {
+          "Legitimate": {
+            "Events": 14,
+            "Detected": 7,
+            "FalseAlerts": 0,
+            "NormalDays": 0,
+            "Recall": 0.5,
+            "FalseAlertsPerNormalDay": null
+          },
+          "FraudAssociated": {
+            "Events": 9,
+            "Detected": 7,
+            "FalseAlerts": 0,
+            "NormalDays": 0,
+            "Recall": 0.7777777777777778,
+            "FalseAlertsPerNormalDay": null
+          }
+        },
+        "ByRhythm": {
+          "Treasury": {
+            "Events": 0,
+            "Detected": 0,
+            "FalseAlerts": 0,
+            "NormalDays": 17.97222222222222,
+            "Recall": null,
+            "FalseAlertsPerNormalDay": 0
+          },
+          "Regular": {
+            "Events": 9,
+            "Detected": 6,
+            "FalseAlerts": 1,
+            "NormalDays": 17.670138888888886,
+            "Recall": 0.6666666666666666,
+            "FalseAlertsPerNormalDay": 0.05659265081548439
+          },
+          "Sporadic": {
+            "Events": 7,
+            "Detected": 4,
+            "FalseAlerts": 0,
+            "NormalDays": 11.79861111111111,
+            "Recall": 0.5714285714285714,
+            "FalseAlertsPerNormalDay": 0
+          },
+          "Quiet": {
+            "Events": 4,
+            "Detected": 3,
+            "FalseAlerts": 0,
+            "NormalDays": 8.895833333333332,
+            "Recall": 0.75,
+            "FalseAlertsPerNormalDay": 0
+          },
+          "Commercial": {
+            "Events": 3,
+            "Detected": 1,
+            "FalseAlerts": 3,
+            "NormalDays": 14.92013888888889,
+            "Recall": 0.3333333333333333,
+            "FalseAlertsPerNormalDay": 0.2010705143123109
+          }
+        },
+        "ByRoot": {
+          "2a519d1b80ffa2cb8711bdbd6394398e7ff5991b2d20a05184c67b4e69573b04": {
+            "Events": 23,
+            "Detected": 14,
+            "FalseAlerts": 4,
+            "NormalDays": 71.25694444444443,
+            "Recall": 0.6086956521739131,
+            "FalseAlertsPerNormalDay": 0.056134879641360505
+          }
+        },
+        "Recall": 0.6086956521739131,
+        "FalseAlertsPerNormalDay": 0.05613487964136049,
+        "Precision": 0.7777777777777778,
+        "MedianDelayMinutes": 10
+      },
+      "Measurement": {
+        "Accounts": 24,
+        "QualifiedAccounts": 24,
+        "NormalAccountDays": 70.70833333333333,
+        "Events": 31,
+        "Detected": 16,
+        "Excluded": 1,
+        "AlertedExcluded": 0,
+        "FalseAlerts": 2,
+        "AlertEvents": 18,
+        "HardNegatives": 28,
+        "AlertedHardNegatives": 2,
+        "DetectionDelayMinutes": [
+          40,
+          25,
+          5,
+          15,
+          5,
+          10,
+          10,
+          10,
+          25,
+          60,
+          15,
+          60,
+          55,
+          5,
+          10,
+          15
+        ],
+        "ByMechanism": {
+          "SustainedElevation": {
+            "Events": 8,
+            "Detected": 3,
+            "FalseAlerts": 0,
+            "NormalDays": 0,
+            "Recall": 0.375,
+            "FalseAlertsPerNormalDay": null
+          },
+          "OffSchedule": {
+            "Events": 10,
+            "Detected": 6,
+            "FalseAlerts": 0,
+            "NormalDays": 0,
+            "Recall": 0.6,
+            "FalseAlertsPerNormalDay": null
+          },
+          "AmplitudeSurge": {
+            "Events": 2,
+            "Detected": 2,
+            "FalseAlerts": 0,
+            "NormalDays": 0,
+            "Recall": 1,
+            "FalseAlertsPerNormalDay": null
+          },
+          "TreasuryDrain": {
+            "Events": 8,
+            "Detected": 5,
+            "FalseAlerts": 0,
+            "NormalDays": 0,
+            "Recall": 0.625,
+            "FalseAlertsPerNormalDay": null
+          },
+          "DormantBurst": {
+            "Events": 3,
+            "Detected": 0,
+            "FalseAlerts": 0,
+            "NormalDays": 0,
+            "Recall": 0,
+            "FalseAlertsPerNormalDay": null
+          }
+        },
+        "ByIntent": {
+          "Legitimate": {
+            "Events": 19,
+            "Detected": 11,
+            "FalseAlerts": 0,
+            "NormalDays": 0,
+            "Recall": 0.5789473684210527,
+            "FalseAlertsPerNormalDay": null
+          },
+          "FraudAssociated": {
+            "Events": 12,
+            "Detected": 5,
+            "FalseAlerts": 0,
+            "NormalDays": 0,
+            "Recall": 0.4166666666666667,
+            "FalseAlertsPerNormalDay": null
+          }
+        },
+        "ByRhythm": {
+          "Treasury": {
+            "Events": 2,
+            "Detected": 0,
+            "FalseAlerts": 0,
+            "NormalDays": 17.836805555555557,
+            "Recall": 0,
+            "FalseAlertsPerNormalDay": 0
+          },
+          "Commercial": {
+            "Events": 9,
+            "Detected": 5,
+            "FalseAlerts": 2,
+            "NormalDays": 14.680555555555555,
+            "Recall": 0.5555555555555556,
+            "FalseAlertsPerNormalDay": 0.13623462630085148
+          },
+          "Regular": {
+            "Events": 6,
+            "Detected": 5,
+            "FalseAlerts": 0,
+            "NormalDays": 17.743055555555557,
+            "Recall": 0.8333333333333334,
+            "FalseAlertsPerNormalDay": 0
+          },
+          "Sporadic": {
+            "Events": 6,
+            "Detected": 2,
+            "FalseAlerts": 0,
+            "NormalDays": 11.756944444444445,
+            "Recall": 0.3333333333333333,
+            "FalseAlertsPerNormalDay": 0
+          },
+          "Quiet": {
+            "Events": 8,
+            "Detected": 4,
+            "FalseAlerts": 0,
+            "NormalDays": 8.690972222222223,
+            "Recall": 0.5,
+            "FalseAlertsPerNormalDay": 0
+          }
+        },
+        "ByRoot": {
+          "b628ba72f37514717a3a45f9aa13067755359b85f2c135dfa1e834f2f7d381e8": {
+            "Events": 31,
+            "Detected": 16,
+            "FalseAlerts": 2,
+            "NormalDays": 70.70833333333333,
+            "Recall": 0.5161290322580645,
+            "FalseAlertsPerNormalDay": 0.02828520919269299
+          }
+        },
+        "Recall": 0.5161290322580645,
+        "FalseAlertsPerNormalDay": 0.02828520919269299,
+        "Precision": 0.8888888888888888,
+        "MedianDelayMinutes": 15
+      },
+      "Seasonal": {
+        "Threshold": 3.579575973930253,
+        "Calibration": {
+          "Accounts": 24,
+          "QualifiedAccounts": 24,
+          "NormalAccountDays": 71.25694444444444,
+          "Events": 23,
+          "Detected": 21,
+          "Excluded": 9,
+          "AlertedExcluded": 0,
+          "FalseAlerts": 3,
+          "AlertEvents": 24,
+          "HardNegatives": 30,
+          "AlertedHardNegatives": 1,
+          "DetectionDelayMinutes": [
+            10,
+            10,
+            10,
+            0,
+            10,
+            40,
+            5,
+            10,
+            5,
+            5,
+            0,
+            10,
+            10,
+            0,
+            10,
+            5,
+            0,
+            10,
+            5,
+            5,
+            10
+          ],
+          "ByMechanism": {
+            "SustainedElevation": {
+              "Events": 8,
+              "Detected": 8,
+              "FalseAlerts": 0,
+              "NormalDays": 0,
+              "Recall": 1,
+              "FalseAlertsPerNormalDay": null
+            },
+            "OffSchedule": {
+              "Events": 9,
+              "Detected": 8,
+              "FalseAlerts": 0,
+              "NormalDays": 0,
+              "Recall": 0.8888888888888888,
+              "FalseAlertsPerNormalDay": null
+            },
+            "DormantBurst": {
+              "Events": 3,
+              "Detected": 3,
+              "FalseAlerts": 0,
+              "NormalDays": 0,
+              "Recall": 1,
+              "FalseAlertsPerNormalDay": null
+            },
+            "TreasuryDrain": {
+              "Events": 1,
+              "Detected": 0,
+              "FalseAlerts": 0,
+              "NormalDays": 0,
+              "Recall": 0,
+              "FalseAlertsPerNormalDay": null
+            },
+            "AmplitudeSurge": {
+              "Events": 2,
+              "Detected": 2,
+              "FalseAlerts": 0,
+              "NormalDays": 0,
+              "Recall": 1,
+              "FalseAlertsPerNormalDay": null
+            }
+          },
+          "ByIntent": {
+            "Legitimate": {
+              "Events": 14,
+              "Detected": 12,
+              "FalseAlerts": 0,
+              "NormalDays": 0,
+              "Recall": 0.8571428571428571,
+              "FalseAlertsPerNormalDay": null
+            },
+            "FraudAssociated": {
+              "Events": 9,
+              "Detected": 9,
+              "FalseAlerts": 0,
+              "NormalDays": 0,
+              "Recall": 1,
+              "FalseAlertsPerNormalDay": null
+            }
+          },
+          "ByRhythm": {
+            "Treasury": {
+              "Events": 0,
+              "Detected": 0,
+              "FalseAlerts": 0,
+              "NormalDays": 17.97222222222222,
+              "Recall": null,
+              "FalseAlertsPerNormalDay": 0
+            },
+            "Regular": {
+              "Events": 9,
+              "Detected": 9,
+              "FalseAlerts": 2,
+              "NormalDays": 17.670138888888886,
+              "Recall": 1,
+              "FalseAlertsPerNormalDay": 0.11318530163096878
+            },
+            "Sporadic": {
+              "Events": 7,
+              "Detected": 5,
+              "FalseAlerts": 0,
+              "NormalDays": 11.79861111111111,
+              "Recall": 0.7142857142857143,
+              "FalseAlertsPerNormalDay": 0
+            },
+            "Quiet": {
+              "Events": 4,
+              "Detected": 4,
+              "FalseAlerts": 0,
+              "NormalDays": 8.895833333333332,
+              "Recall": 1,
+              "FalseAlertsPerNormalDay": 0
+            },
+            "Commercial": {
+              "Events": 3,
+              "Detected": 3,
+              "FalseAlerts": 1,
+              "NormalDays": 14.92013888888889,
+              "Recall": 1,
+              "FalseAlertsPerNormalDay": 0.0670235047707703
+            }
+          },
+          "ByRoot": {
+            "2a519d1b80ffa2cb8711bdbd6394398e7ff5991b2d20a05184c67b4e69573b04": {
+              "Events": 23,
+              "Detected": 21,
+              "FalseAlerts": 3,
+              "NormalDays": 71.25694444444443,
+              "Recall": 0.9130434782608695,
+              "FalseAlertsPerNormalDay": 0.042101159731020375
+            }
+          },
+          "Recall": 0.9130434782608695,
+          "FalseAlertsPerNormalDay": 0.04210115973102037,
+          "Precision": 0.875,
+          "MedianDelayMinutes": 10
+        },
+        "Measurement": {
+          "Accounts": 24,
+          "QualifiedAccounts": 24,
+          "NormalAccountDays": 70.70833333333333,
+          "Events": 31,
+          "Detected": 28,
+          "Excluded": 1,
+          "AlertedExcluded": 0,
+          "FalseAlerts": 3,
+          "AlertEvents": 31,
+          "HardNegatives": 28,
+          "AlertedHardNegatives": 3,
+          "DetectionDelayMinutes": [
+            15,
+            20,
+            15,
+            5,
+            5,
+            15,
+            10,
+            5,
+            25,
+            15,
+            15,
+            30,
+            5,
+            10,
+            15,
+            5,
+            10,
+            20,
+            15,
+            20,
+            0,
+            45,
+            5,
+            0,
+            0,
+            20,
+            5,
+            10
+          ],
+          "ByMechanism": {
+            "SustainedElevation": {
+              "Events": 8,
+              "Detected": 7,
+              "FalseAlerts": 0,
+              "NormalDays": 0,
+              "Recall": 0.875,
+              "FalseAlertsPerNormalDay": null
+            },
+            "OffSchedule": {
+              "Events": 10,
+              "Detected": 9,
+              "FalseAlerts": 0,
+              "NormalDays": 0,
+              "Recall": 0.9,
+              "FalseAlertsPerNormalDay": null
+            },
+            "AmplitudeSurge": {
+              "Events": 2,
+              "Detected": 2,
+              "FalseAlerts": 0,
+              "NormalDays": 0,
+              "Recall": 1,
+              "FalseAlertsPerNormalDay": null
+            },
+            "TreasuryDrain": {
+              "Events": 8,
+              "Detected": 7,
+              "FalseAlerts": 0,
+              "NormalDays": 0,
+              "Recall": 0.875,
+              "FalseAlertsPerNormalDay": null
+            },
+            "DormantBurst": {
+              "Events": 3,
+              "Detected": 3,
+              "FalseAlerts": 0,
+              "NormalDays": 0,
+              "Recall": 1,
+              "FalseAlertsPerNormalDay": null
+            }
+          },
+          "ByIntent": {
+            "Legitimate": {
+              "Events": 19,
+              "Detected": 17,
+              "FalseAlerts": 0,
+              "NormalDays": 0,
+              "Recall": 0.8947368421052632,
+              "FalseAlertsPerNormalDay": null
+            },
+            "FraudAssociated": {
+              "Events": 12,
+              "Detected": 11,
+              "FalseAlerts": 0,
+              "NormalDays": 0,
+              "Recall": 0.9166666666666666,
+              "FalseAlertsPerNormalDay": null
+            }
+          },
+          "ByRhythm": {
+            "Treasury": {
+              "Events": 2,
+              "Detected": 1,
+              "FalseAlerts": 0,
+              "NormalDays": 17.836805555555557,
+              "Recall": 0.5,
+              "FalseAlertsPerNormalDay": 0
+            },
+            "Commercial": {
+              "Events": 9,
+              "Detected": 9,
+              "FalseAlerts": 3,
+              "NormalDays": 14.680555555555555,
+              "Recall": 1,
+              "FalseAlertsPerNormalDay": 0.2043519394512772
+            },
+            "Regular": {
+              "Events": 6,
+              "Detected": 5,
+              "FalseAlerts": 0,
+              "NormalDays": 17.743055555555557,
+              "Recall": 0.8333333333333334,
+              "FalseAlertsPerNormalDay": 0
+            },
+            "Sporadic": {
+              "Events": 6,
+              "Detected": 5,
+              "FalseAlerts": 0,
+              "NormalDays": 11.756944444444445,
+              "Recall": 0.8333333333333334,
+              "FalseAlertsPerNormalDay": 0
+            },
+            "Quiet": {
+              "Events": 8,
+              "Detected": 8,
+              "FalseAlerts": 0,
+              "NormalDays": 8.690972222222223,
+              "Recall": 1,
+              "FalseAlertsPerNormalDay": 0
+            }
+          },
+          "ByRoot": {
+            "b628ba72f37514717a3a45f9aa13067755359b85f2c135dfa1e834f2f7d381e8": {
+              "Events": 31,
+              "Detected": 28,
+              "FalseAlerts": 3,
+              "NormalDays": 70.70833333333333,
+              "Recall": 0.9032258064516129,
+              "FalseAlertsPerNormalDay": 0.04242781378903948
+            }
+          },
+          "Recall": 0.9032258064516129,
+          "FalseAlertsPerNormalDay": 0.04242781378903948,
+          "Precision": 0.9032258064516129,
+          "MedianDelayMinutes": 15
+        }
+      }
+    }
+  ],
+  "Stratification": [
+    {
+      "Calibration": 0,
+      "Measurement": 1,
+      "Low": 3,
+      "High": 5,
+      "CalibrationExposure": [
+        {
+          "Accounts": 13,
+          "Days": 38.28472222222222,
+          "Events": 16,
+          "CommercialDays": 0,
+          "CommercialHardNegatives": 0,
+          "CommercialNormalActiveBuckets": 0
+        },
+        {
+          "Accounts": 4,
+          "Days": 11.784722222222221,
+          "Events": 4,
+          "CommercialDays": 0,
+          "CommercialHardNegatives": 0,
+          "CommercialNormalActiveBuckets": 0
+        },
+        {
+          "Accounts": 7,
+          "Days": 20.63888888888889,
+          "Events": 11,
+          "CommercialDays": 14.680555555555555,
+          "CommercialHardNegatives": 28,
+          "CommercialNormalActiveBuckets": 247
+        }
+      ],
+      "MeasurementExposure": [
+        {
+          "Accounts": 12,
+          "Days": 35.58680555555556,
+          "Events": 13,
+          "CommercialDays": 0,
+          "CommercialHardNegatives": 0,
+          "CommercialNormalActiveBuckets": 0
+        },
+        {
+          "Accounts": 6,
+          "Days": 17.78125,
+          "Events": 6,
+          "CommercialDays": 0,
+          "CommercialHardNegatives": 0,
+          "CommercialNormalActiveBuckets": 0
+        },
+        {
+          "Accounts": 6,
+          "Days": 17.88888888888889,
+          "Events": 4,
+          "CommercialDays": 14.92013888888889,
+          "CommercialHardNegatives": 30,
+          "CommercialNormalActiveBuckets": 238
+        }
+      ]
+    },
+    {
+      "Calibration": 1,
+      "Measurement": 0,
+      "Low": 3,
+      "High": 4,
+      "CalibrationExposure": [
+        {
+          "Accounts": 12,
+          "Days": 35.58680555555556,
+          "Events": 13,
+          "CommercialDays": 0,
+          "CommercialHardNegatives": 0,
+          "CommercialNormalActiveBuckets": 0
+        },
+        {
+          "Accounts": 4,
+          "Days": 11.885416666666666,
+          "Events": 4,
+          "CommercialDays": 0,
+          "CommercialHardNegatives": 0,
+          "CommercialNormalActiveBuckets": 0
+        },
+        {
+          "Accounts": 8,
+          "Days": 23.78472222222222,
+          "Events": 6,
+          "CommercialDays": 14.92013888888889,
+          "CommercialHardNegatives": 30,
+          "CommercialNormalActiveBuckets": 238
+        }
+      ],
+      "MeasurementExposure": [
+        {
+          "Accounts": 13,
+          "Days": 38.28472222222222,
+          "Events": 16,
+          "CommercialDays": 0,
+          "CommercialHardNegatives": 0,
+          "CommercialNormalActiveBuckets": 0
+        },
+        {
+          "Accounts": 2,
+          "Days": 5.847222222222222,
+          "Events": 2,
+          "CommercialDays": 0,
+          "CommercialHardNegatives": 0,
+          "CommercialNormalActiveBuckets": 0
+        },
+        {
+          "Accounts": 9,
+          "Days": 26.57638888888889,
+          "Events": 13,
+          "CommercialDays": 14.680555555555555,
+          "CommercialHardNegatives": 28,
+          "CommercialNormalActiveBuckets": 247
+        }
+      ]
+    }
+  ],
+  "References": [
+    {
+      "Root": "2a519d1b80ffa2cb8711bdbd6394398e7ff5991b2d20a05184c67b4e69573b04",
+      "Subject": "BANK-A/2a519d1b80ffa2cb/ACC-0001",
+      "StreamSha256": "e0dd2724a42022c71e1267f24656360250d82e315fbcddee4e0be66f9367680b",
+      "BoundaryMs": 1772973600000,
+      "Step": {
+        "Bucket": 1152,
+        "Count": 0,
+        "Residual": 0.04805322363972664,
+        "ExpectedCount": 0,
+        "NativePValue": 0.7320774161143919,
+        "NativeAlert": false,
+        "Statistic": 0,
+        "Alert": false
+      }
+    },
+    {
+      "Root": "2a519d1b80ffa2cb8711bdbd6394398e7ff5991b2d20a05184c67b4e69573b04",
+      "Subject": "BANK-A/2a519d1b80ffa2cb/ACC-0001",
+      "StreamSha256": "e0dd2724a42022c71e1267f24656360250d82e315fbcddee4e0be66f9367680b",
+      "BoundaryMs": 1772992800000,
+      "Step": {
+        "Bucket": 1216,
+        "Count": 1,
+        "Residual": 0.8190077245235443,
+        "ExpectedCount": 0.1809922754764557,
+        "NativePValue": 1E-08,
+        "NativeAlert": true,
+        "Statistic": 0.39750257180698156,
+        "Alert": false
+      }
+    },
+    {
+      "Root": "2a519d1b80ffa2cb8711bdbd6394398e7ff5991b2d20a05184c67b4e69573b04",
+      "Subject": "BANK-A/2a519d1b80ffa2cb/ACC-0001",
+      "StreamSha256": "e0dd2724a42022c71e1267f24656360250d82e315fbcddee4e0be66f9367680b",
+      "BoundaryMs": 1773232500000,
+      "Step": {
+        "Bucket": 2015,
+        "Count": 0,
+        "Residual": 0.019345415756106377,
+        "ExpectedCount": 0,
+        "NativePValue": 0.2864001777096866,
+        "NativeAlert": false,
+        "Statistic": 0,
+        "Alert": false
+      }
+    },
+    {
+      "Root": "2a519d1b80ffa2cb8711bdbd6394398e7ff5991b2d20a05184c67b4e69573b04",
+      "Subject": "BANK-A/2a519d1b80ffa2cb/ACC-0002",
+      "StreamSha256": "844adfc58ced4ea38fb8791f6ff1930dffdcf97af972a5ec93a696833018bc71",
+      "BoundaryMs": 1772973600000,
+      "Step": {
+        "Bucket": 1152,
+        "Count": 0,
+        "Residual": 0.17848119139671326,
+        "ExpectedCount": 0,
+        "NativePValue": 0.04646981118740873,
+        "NativeAlert": true,
+        "Statistic": 0,
+        "Alert": false
+      }
+    },
+    {
+      "Root": "2a519d1b80ffa2cb8711bdbd6394398e7ff5991b2d20a05184c67b4e69573b04",
+      "Subject": "BANK-A/2a519d1b80ffa2cb/ACC-0002",
+      "StreamSha256": "844adfc58ced4ea38fb8791f6ff1930dffdcf97af972a5ec93a696833018bc71",
+      "BoundaryMs": 1773012000000,
+      "Step": {
+        "Bucket": 1280,
+        "Count": 2,
+        "Residual": 1.5306332409381866,
+        "ExpectedCount": 0.46936675906181335,
+        "NativePValue": 1E-08,
+        "NativeAlert": true,
+        "Statistic": 0.14393245160238774,
+        "Alert": false
+      }
+    },
+    {
+      "Root": "2a519d1b80ffa2cb8711bdbd6394398e7ff5991b2d20a05184c67b4e69573b04",
+      "Subject": "BANK-A/2a519d1b80ffa2cb/ACC-0002",
+      "StreamSha256": "844adfc58ced4ea38fb8791f6ff1930dffdcf97af972a5ec93a696833018bc71",
+      "BoundaryMs": 1773232500000,
+      "Step": {
+        "Bucket": 2015,
+        "Count": 0,
+        "Residual": 0.11539959162473679,
+        "ExpectedCount": 0,
+        "NativePValue": 0.1835902707440667,
+        "NativeAlert": false,
+        "Statistic": 0,
+        "Alert": false
+      }
+    }
+  ]
+}

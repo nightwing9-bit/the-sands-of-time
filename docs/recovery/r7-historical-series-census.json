@@ -1,0 +1,708 @@
+{
+  "Schema": "revenant-r7-historical-series-census/1",
+  "BufferFloor": "diagnostic 10% of opening available balance, rounded down",
+  "Percentiles": "nearest rank",
+  "R4": {
+    "Sha256": "a40cfb31cab319541a339d5c07a7068b6fda4717718a8012af5a999a83e793df",
+    "Accounts": {
+      "DistinctAccounts": 661,
+      "AcceptedIntents": 2219,
+      "OutgoingPerAccount": {
+        "Min": 0,
+        "P50": 2,
+        "P90": 7,
+        "P99": 27,
+        "Max": 31
+      },
+      "NonzeroBucketsPerAccount": {
+        "Min": 0,
+        "P50": 2,
+        "P90": 6,
+        "P99": 9,
+        "Max": 12
+      },
+      "ZeroOnlyAccounts": 131,
+      "ActiveDays": {
+        "Min": 0,
+        "P50": 1,
+        "P90": 3,
+        "P99": 3,
+        "Max": 3
+      },
+      "ActiveOnAtLeastTwoDays": 319,
+      "Buckets": 571104,
+      "NonzeroBuckets": 1677,
+      "ZeroFraction": 0.9970635821146411,
+      "ActiveBucketSize": {
+        "Min": 1,
+        "P50": 1,
+        "P90": 1,
+        "P99": 8,
+        "Max": 9
+      },
+      "BurstBuckets": 133,
+      "Historical48PriorBuckets": 539376,
+      "NonzeroAfter48PriorBuckets": 1677,
+      "SequencesWith49Buckets": 661,
+      "SequencesWith49BucketsAnd16ActiveBuckets": 0,
+      "ExplicitPositive": 411,
+      "ExplicitNormal": 1266,
+      "Unlabeled": 569427,
+      "KnownNormalBurstBuckets": 24,
+      "AllLegitimateMultiIntentBuckets": 89,
+      "MultiIntentHardNegativeBucketsOutsidePositiveTruth": 0,
+      "PerAccountLag1": {
+        "Defined": 530,
+        "Median": -0.0023228803716608564,
+        "P90": -0.0011600928074245794
+      },
+      "PerAccountLag8": {
+        "Defined": 530,
+        "Median": -0.0035169988276670654,
+        "P90": -0.0011695906432748096
+      },
+      "PerAccountLag288": {
+        "Defined": 355,
+        "Median": 0.24618129340873302,
+        "P90": 0.8157850369311902
+      }
+    },
+    "Banks": {
+      "Banks": 144,
+      "BankBuckets": 124416,
+      "ChangedBuckets": 2833,
+      "ConstantFraction": 0.9772296167695473,
+      "ChangedBucketsPerBankMin": 11,
+      "ChangedBucketsPerBankMax": 30,
+      "BelowFloorBuckets": 0,
+      "BelowFloorEntries": 0,
+      "AtOrBelowTwiceFloorBuckets": 0,
+      "FullTargetOrigins": 123264,
+      "PerHorizonCoverage": [
+        124272,
+        124128,
+        123984,
+        123840,
+        123696,
+        123552,
+        123408,
+        123264
+      ],
+      "MedianDailyChangeAutocorrelation": 0.1376170245841719,
+      "NetSettlementChangeBuckets": 2951,
+      "ReservationChangeBuckets": 26
+    }
+  },
+  "R5": {
+    "Sha256": "c1c2b2178ea80946f195d821d848e60059c3607fb10fac506b70d7eddecdf5e9",
+    "Accounts": {
+      "DistinctAccounts": 642,
+      "AcceptedIntents": 3406,
+      "OutgoingPerAccount": {
+        "Min": 0,
+        "P50": 3,
+        "P90": 13,
+        "P99": 24,
+        "Max": 32
+      },
+      "NonzeroBucketsPerAccount": {
+        "Min": 0,
+        "P50": 3,
+        "P90": 10,
+        "P99": 13,
+        "Max": 20
+      },
+      "ZeroOnlyAccounts": 57,
+      "ActiveDays": {
+        "Min": 0,
+        "P50": 2,
+        "P90": 3,
+        "P99": 3,
+        "Max": 3
+      },
+      "ActiveOnAtLeastTwoDays": 393,
+      "Buckets": 554688,
+      "NonzeroBuckets": 2807,
+      "ZeroFraction": 0.9949394975193262,
+      "ActiveBucketSize": {
+        "Min": 1,
+        "P50": 1,
+        "P90": 1,
+        "P99": 7,
+        "Max": 10
+      },
+      "BurstBuckets": 245,
+      "Historical48PriorBuckets": 523872,
+      "NonzeroAfter48PriorBuckets": 2694,
+      "SequencesWith49Buckets": 642,
+      "SequencesWith49BucketsAnd16ActiveBuckets": 2,
+      "ExplicitPositive": 846,
+      "ExplicitNormal": 1961,
+      "Unlabeled": 551881,
+      "KnownNormalBurstBuckets": 49,
+      "AllLegitimateMultiIntentBuckets": 184,
+      "MultiIntentHardNegativeBucketsOutsidePositiveTruth": 0,
+      "PerAccountLag1": {
+        "Defined": 585,
+        "Median": -0.00232288037166083,
+        "P90": 0.33100775193798326
+      },
+      "PerAccountLag8": {
+        "Defined": 584,
+        "Median": -0.003516998827667074,
+        "P90": -0.00116959064327481
+      },
+      "PerAccountLag288": {
+        "Defined": 464,
+        "Median": -0.003134796238244517,
+        "P90": 0.15443335290663301
+      }
+    },
+    "Banks": {
+      "Banks": 144,
+      "BankBuckets": 124416,
+      "ChangedBuckets": 4581,
+      "ConstantFraction": 0.9631799768518519,
+      "ChangedBucketsPerBankMin": 12,
+      "ChangedBucketsPerBankMax": 54,
+      "BelowFloorBuckets": 0,
+      "BelowFloorEntries": 0,
+      "AtOrBelowTwiceFloorBuckets": 0,
+      "FullTargetOrigins": 123264,
+      "PerHorizonCoverage": [
+        124272,
+        124128,
+        123984,
+        123840,
+        123696,
+        123552,
+        123408,
+        123264
+      ],
+      "MedianDailyChangeAutocorrelation": 0.008853126880808743,
+      "NetSettlementChangeBuckets": 4687,
+      "ReservationChangeBuckets": 28
+    }
+  },
+  "R6": {
+    "BankStreamSha256": "cf1775026e3d48e278f77a4ca69519dcf930aa0cbb5b1497bc13173a7c51a3bb",
+    "Key": "f1f625b4a56f730bc7777b17f299127cf4ffcd143eb36a3cfde310d305a69a6e",
+    "Split": "FinalTest",
+    "OpeningBoundaryMs": 1771499400000,
+    "PlannedEndMs": 1771758600000,
+    "ObservedClosingBoundaryMs": 1771758900000,
+    "Accounts": {
+      "DistinctAccounts": 26,
+      "AcceptedIntents": 145,
+      "OutgoingPerAccount": {
+        "Min": 0,
+        "P50": 3,
+        "P90": 15,
+        "P99": 20,
+        "Max": 20
+      },
+      "NonzeroBucketsPerAccount": {
+        "Min": 0,
+        "P50": 3,
+        "P90": 10,
+        "P99": 14,
+        "Max": 14
+      },
+      "ZeroOnlyAccounts": 2,
+      "ActiveDays": {
+        "Min": 0,
+        "P50": 2,
+        "P90": 3,
+        "P99": 3,
+        "Max": 3
+      },
+      "ActiveOnAtLeastTwoDays": 16,
+      "Buckets": 22490,
+      "NonzeroBuckets": 116,
+      "ZeroFraction": 0.9948421520675856,
+      "ActiveBucketSize": {
+        "Min": 1,
+        "P50": 1,
+        "P90": 1,
+        "P99": 7,
+        "Max": 8
+      },
+      "BurstBuckets": 10,
+      "Historical48PriorBuckets": 21242,
+      "NonzeroAfter48PriorBuckets": 111,
+      "SequencesWith49Buckets": 26,
+      "SequencesWith49BucketsAnd16ActiveBuckets": 0,
+      "ExplicitPositive": 36,
+      "ExplicitNormal": 80,
+      "Unlabeled": 22374,
+      "KnownNormalBurstBuckets": 2,
+      "AllLegitimateMultiIntentBuckets": 7,
+      "MultiIntentHardNegativeBucketsOutsidePositiveTruth": 0,
+      "PerAccountLag1": {
+        "Defined": 24,
+        "Median": -0.0023201856148491583,
+        "P90": 0.22339763534536186
+      },
+      "PerAccountLag8": {
+        "Defined": 24,
+        "Median": -0.003251821019771078,
+        "P90": -0.0011682242990654441
+      },
+      "PerAccountLag288": {
+        "Defined": 21,
+        "Median": -0.0028979941878888725,
+        "P90": 0.11216738628200472
+      }
+    },
+    "Banks": [
+      {
+        "Bank": "BANK-A",
+        "Seals": 865,
+        "FirstBoundaryMs": 1771499700000,
+        "LastBoundaryMs": 1771758900000,
+        "OpeningAvailableMinor": 5858457,
+        "PostedMinor": {
+          "Min": 5138879,
+          "P50": 5879018,
+          "P90": 6021029,
+          "P99": 6166879,
+          "Max": 6166879
+        },
+        "ReservedMinor": {
+          "Min": 0,
+          "P50": 0,
+          "P90": 0,
+          "P99": 0,
+          "Max": 0
+        },
+        "AvailableMinor": {
+          "Min": 5138879,
+          "P50": 5879018,
+          "P90": 6021029,
+          "P99": 6166879,
+          "Max": 6166879
+        },
+        "ChangedBuckets": 18,
+        "ConstantFraction": 0.9791907514450867,
+        "ChangedMagnitudeMinor": {
+          "Min": 11237,
+          "P50": 83026,
+          "P90": 270519,
+          "P99": 678000,
+          "Max": 678000
+        },
+        "SettlementChangeBuckets": 19,
+        "ReturnChangeBuckets": 1,
+        "ReservationChangeBuckets": 0,
+        "SettledInMinor": 1175759,
+        "SettledOutMinor": 1408882,
+        "ReservedFlowMinor": 0,
+        "ReleasedFlowMinor": 0,
+        "FloorMinor": 585845,
+        "BelowFloorBuckets": 0,
+        "BelowFloorEntries": 0,
+        "AtOrBelowTwiceFloorBuckets": 0,
+        "ForecastOrigins": 865,
+        "FullTargetOrigins": 857,
+        "PerHorizonCoverage": [
+          864,
+          863,
+          862,
+          861,
+          860,
+          859,
+          858,
+          857
+        ],
+        "Lag1Change": -0.015944046458523684,
+        "Lag8Change": 0.004281824330850229,
+        "Lag288Change": -0.00033380967053072753,
+        "DailyChangedBuckets": [
+          4,
+          10,
+          4,
+          0
+        ]
+      },
+      {
+        "Bank": "BANK-B",
+        "Seals": 865,
+        "FirstBoundaryMs": 1771499700000,
+        "LastBoundaryMs": 1771758900000,
+        "OpeningAvailableMinor": 9153576,
+        "PostedMinor": {
+          "Min": 7732341,
+          "P50": 9123114,
+          "P90": 9290619,
+          "P99": 9450963,
+          "Max": 9450963
+        },
+        "ReservedMinor": {
+          "Min": 0,
+          "P50": 0,
+          "P90": 0,
+          "P99": 0,
+          "Max": 0
+        },
+        "AvailableMinor": {
+          "Min": 7732341,
+          "P50": 9123114,
+          "P90": 9290619,
+          "P99": 9450963,
+          "Max": 9450963
+        },
+        "ChangedBuckets": 32,
+        "ConstantFraction": 0.9630057803468208,
+        "ChangedMagnitudeMinor": {
+          "Min": 9907,
+          "P50": 132593,
+          "P90": 260172,
+          "P99": 373640,
+          "Max": 373640
+        },
+        "SettlementChangeBuckets": 35,
+        "ReturnChangeBuckets": 3,
+        "ReservationChangeBuckets": 0,
+        "SettledInMinor": 1685100,
+        "SettledOutMinor": 3300293,
+        "ReservedFlowMinor": 0,
+        "ReleasedFlowMinor": 0,
+        "FloorMinor": 915357,
+        "BelowFloorBuckets": 0,
+        "BelowFloorEntries": 0,
+        "AtOrBelowTwiceFloorBuckets": 0,
+        "ForecastOrigins": 865,
+        "FullTargetOrigins": 857,
+        "PerHorizonCoverage": [
+          864,
+          863,
+          862,
+          861,
+          860,
+          859,
+          858,
+          857
+        ],
+        "Lag1Change": 0.11459940973919172,
+        "Lag8Change": 0.17203236598404695,
+        "Lag288Change": 0.11746246951315195,
+        "DailyChangedBuckets": [
+          6,
+          11,
+          15,
+          0
+        ]
+      },
+      {
+        "Bank": "BANK-C",
+        "Seals": 865,
+        "FirstBoundaryMs": 1771499700000,
+        "LastBoundaryMs": 1771758900000,
+        "OpeningAvailableMinor": 7446815,
+        "PostedMinor": {
+          "Min": 7163154,
+          "P50": 7468949,
+          "P90": 7683856,
+          "P99": 7833503,
+          "Max": 7833503
+        },
+        "ReservedMinor": {
+          "Min": 0,
+          "P50": 0,
+          "P90": 0,
+          "P99": 0,
+          "Max": 0
+        },
+        "AvailableMinor": {
+          "Min": 7163154,
+          "P50": 7468949,
+          "P90": 7683856,
+          "P99": 7833503,
+          "Max": 7833503
+        },
+        "ChangedBuckets": 26,
+        "ConstantFraction": 0.9699421965317919,
+        "ChangedMagnitudeMinor": {
+          "Min": 4629,
+          "P50": 85638,
+          "P90": 153264,
+          "P99": 362809,
+          "Max": 362809
+        },
+        "SettlementChangeBuckets": 26,
+        "ReturnChangeBuckets": 0,
+        "ReservationChangeBuckets": 0,
+        "SettledInMinor": 1488123,
+        "SettledOutMinor": 1101435,
+        "ReservedFlowMinor": 0,
+        "ReleasedFlowMinor": 0,
+        "FloorMinor": 744681,
+        "BelowFloorBuckets": 0,
+        "BelowFloorEntries": 0,
+        "AtOrBelowTwiceFloorBuckets": 0,
+        "ForecastOrigins": 865,
+        "FullTargetOrigins": 857,
+        "PerHorizonCoverage": [
+          864,
+          863,
+          862,
+          861,
+          860,
+          859,
+          858,
+          857
+        ],
+        "Lag1Change": -0.0773581228519778,
+        "Lag8Change": 0.00791627180791239,
+        "Lag288Change": -0.14795944678315284,
+        "DailyChangedBuckets": [
+          8,
+          12,
+          6,
+          0
+        ]
+      },
+      {
+        "Bank": "BANK-D",
+        "Seals": 865,
+        "FirstBoundaryMs": 1771499700000,
+        "LastBoundaryMs": 1771758900000,
+        "OpeningAvailableMinor": 12064320,
+        "PostedMinor": {
+          "Min": 11824947,
+          "P50": 12156479,
+          "P90": 12278233,
+          "P99": 12329709,
+          "Max": 12443067
+        },
+        "ReservedMinor": {
+          "Min": 0,
+          "P50": 0,
+          "P90": 0,
+          "P99": 0,
+          "Max": 0
+        },
+        "AvailableMinor": {
+          "Min": 11824947,
+          "P50": 12156479,
+          "P90": 12278233,
+          "P99": 12329709,
+          "Max": 12443067
+        },
+        "ChangedBuckets": 24,
+        "ConstantFraction": 0.9722543352601156,
+        "ChangedMagnitudeMinor": {
+          "Min": 7241,
+          "P50": 96045,
+          "P90": 201817,
+          "P99": 260172,
+          "Max": 260172
+        },
+        "SettlementChangeBuckets": 24,
+        "ReturnChangeBuckets": 0,
+        "ReservationChangeBuckets": 0,
+        "SettledInMinor": 1412992,
+        "SettledOutMinor": 1034245,
+        "ReservedFlowMinor": 0,
+        "ReleasedFlowMinor": 0,
+        "FloorMinor": 1206432,
+        "BelowFloorBuckets": 0,
+        "BelowFloorEntries": 0,
+        "AtOrBelowTwiceFloorBuckets": 0,
+        "ForecastOrigins": 865,
+        "FullTargetOrigins": 857,
+        "PerHorizonCoverage": [
+          864,
+          863,
+          862,
+          861,
+          860,
+          859,
+          858,
+          857
+        ],
+        "Lag1Change": 0.0227388879207011,
+        "Lag8Change": -0.07731833604795015,
+        "Lag288Change": 0.02640779307292212,
+        "DailyChangedBuckets": [
+          6,
+          7,
+          10,
+          1
+        ]
+      },
+      {
+        "Bank": "BANK-E",
+        "Seals": 865,
+        "FirstBoundaryMs": 1771499700000,
+        "LastBoundaryMs": 1771758900000,
+        "OpeningAvailableMinor": 9940066,
+        "PostedMinor": {
+          "Min": 9514134,
+          "P50": 10031332,
+          "P90": 11694866,
+          "P99": 11774641,
+          "Max": 11813235
+        },
+        "ReservedMinor": {
+          "Min": 0,
+          "P50": 226238,
+          "P90": 226238,
+          "P99": 226238,
+          "Max": 226238
+        },
+        "AvailableMinor": {
+          "Min": 9287896,
+          "P50": 9940066,
+          "P90": 11468628,
+          "P99": 11548403,
+          "Max": 11586997
+        },
+        "ChangedBuckets": 45,
+        "ConstantFraction": 0.9479768786127167,
+        "ChangedMagnitudeMinor": {
+          "Min": 4747,
+          "P50": 102875,
+          "P90": 201817,
+          "P99": 498774,
+          "Max": 498774
+        },
+        "SettlementChangeBuckets": 46,
+        "ReturnChangeBuckets": 1,
+        "ReservationChangeBuckets": 1,
+        "SettledInMinor": 5073577,
+        "SettledOutMinor": 3753472,
+        "ReservedFlowMinor": 226238,
+        "ReleasedFlowMinor": 0,
+        "FloorMinor": 994006,
+        "BelowFloorBuckets": 0,
+        "BelowFloorEntries": 0,
+        "AtOrBelowTwiceFloorBuckets": 0,
+        "ForecastOrigins": 865,
+        "FullTargetOrigins": 857,
+        "PerHorizonCoverage": [
+          864,
+          863,
+          862,
+          861,
+          860,
+          859,
+          858,
+          857
+        ],
+        "Lag1Change": 0.09044102227403564,
+        "Lag8Change": -0.0016521477620750219,
+        "Lag288Change": 0.007694250203056803,
+        "DailyChangedBuckets": [
+          9,
+          20,
+          16,
+          0
+        ]
+      },
+      {
+        "Bank": "BANK-F",
+        "Seals": 865,
+        "FirstBoundaryMs": 1771499700000,
+        "LastBoundaryMs": 1771758900000,
+        "OpeningAvailableMinor": 21718837,
+        "PostedMinor": {
+          "Min": 20556863,
+          "P50": 21527782,
+          "P90": 21750535,
+          "P99": 21825215,
+          "Max": 21843776
+        },
+        "ReservedMinor": {
+          "Min": 0,
+          "P50": 133805,
+          "P90": 307227,
+          "P99": 307227,
+          "Max": 307227
+        },
+        "AvailableMinor": {
+          "Min": 20249636,
+          "P50": 21427537,
+          "P90": 21750535,
+          "P99": 21825215,
+          "Max": 21843776
+        },
+        "ChangedBuckets": 46,
+        "ConstantFraction": 0.9468208092485549,
+        "ChangedMagnitudeMinor": {
+          "Min": 4747,
+          "P50": 93241,
+          "P90": 183531,
+          "P99": 373640,
+          "Max": 373640
+        },
+        "SettlementChangeBuckets": 47,
+        "ReturnChangeBuckets": 1,
+        "ReservationChangeBuckets": 3,
+        "SettledInMinor": 3520231,
+        "SettledOutMinor": 3757455,
+        "ReservedFlowMinor": 307227,
+        "ReleasedFlowMinor": 133805,
+        "FloorMinor": 2171883,
+        "BelowFloorBuckets": 0,
+        "BelowFloorEntries": 0,
+        "AtOrBelowTwiceFloorBuckets": 0,
+        "ForecastOrigins": 865,
+        "FullTargetOrigins": 857,
+        "PerHorizonCoverage": [
+          864,
+          863,
+          862,
+          861,
+          860,
+          859,
+          858,
+          857
+        ],
+        "Lag1Change": 0.0046694796050842395,
+        "Lag8Change": 0.10344891104703437,
+        "Lag288Change": 0.018474710438123727,
+        "DailyChangedBuckets": [
+          10,
+          17,
+          19,
+          0
+        ]
+      }
+    ],
+    "LearnedHolds": 1,
+    "ReviewedPrincipalMinor": 133805,
+    "ComparedWithRulesOnly": {
+      "ComparedRows": 5184,
+      "ChangedAvailableRows": 459,
+      "ChangedPostedRows": 918,
+      "ChangedReservedRows": 459,
+      "MaxAbsoluteAvailableChangeMinor": 133805
+    },
+    "BankSummary": {
+      "Banks": 6,
+      "BankBuckets": 5190,
+      "ChangedBuckets": 191,
+      "ConstantFraction": 0.9631984585741811,
+      "ChangedBucketsPerBankMin": 18,
+      "ChangedBucketsPerBankMax": 46,
+      "BelowFloorBuckets": 0,
+      "BelowFloorEntries": 0,
+      "AtOrBelowTwiceFloorBuckets": 0,
+      "FullTargetOrigins": 5142,
+      "PerHorizonCoverage": [
+        5184,
+        5178,
+        5172,
+        5166,
+        5160,
+        5154,
+        5148,
+        5142
+      ],
+      "MedianDailyChangeAutocorrelation": 0.007694250203056803,
+      "NetSettlementChangeBuckets": 197,
+      "ReservationChangeBuckets": 4
+    }
+  }
+}
