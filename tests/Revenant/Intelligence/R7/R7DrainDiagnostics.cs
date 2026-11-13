@@ -337,11 +337,22 @@ public sealed partial class R7Generator4DevelopmentTests
                 var recognition = origin.Where(i => Observe(levels, opening, i, threshold).Active).Select(i => (int?)i).FirstOrDefault();
                 var crossing = origin.Where(i => levels[i - 1] >= opening / 10 && levels[i] < opening / 10)
                     .Select(i => (int?)i).FirstOrDefault();
+                var fullEvent = root.Events.Single(e => e.Subject == bank.SubjectId
+                    && e.Kind == LongitudinalEventKind.DevelopingPressure && e.Start == d.Start);
+                var firstEventCrossing = Enumerable.Range(fullEvent.Start, fullEvent.End - fullEvent.Start + 1)
+                    .Where(i => levels[i - 1] >= opening / 10 && levels[i] < opening / 10).Select(i => (int?)i).FirstOrDefault();
+                var recognizedLeadBuckets = origin.Where(i => i < crossing && crossing - i <= SsaAdvisory.Horizon
+                    && mask.Contains(i) && Observe(levels, opening, i, threshold).Active)
+                    .Select(i => crossing!.Value - i).OrderDescending().ToArray();
                 return (object)new
                 {
                     Bank = bank.SubjectId, d.Start, d.End, FirstDebit = firstDebit, Recognition = recognition, Crossing = crossing,
                     LeadMinutes = 5 * (crossing - recognition), EligibleAtRecognition = recognition.HasValue && mask.Contains(recognition.Value),
                     ActiveOriginsBeforeCrossing = origin.Count(i => i < crossing && Observe(levels, opening, i, threshold).Active),
+                    FirstFullEpisodeCrossing = firstEventCrossing,
+                    FullEpisodeMinimumFraction = levels[fullEvent.Start..(fullEvent.End + 1)].Min() / (double)opening,
+                    MaximumInHorizonLeadMinutes = recognizedLeadBuckets.Length == 0 ? (int?)null : 5 * recognizedLeadBuckets[0],
+                    RecognizedLeadBuckets = recognizedLeadBuckets,
                     MinimumFraction = origin.Min(i => levels[i]) / (double)opening,
                     LastObservedDebit = origin.Where(i => levels[i] < levels[i - 1]).Select(i => (int?)i).LastOrDefault(),
                 };
