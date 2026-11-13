@@ -9,3 +9,11 @@ Keep the fitted model ZIP immutable and create independent observation state for
 ## Pending integration
 
 R8 readiness requires qualified and pinned model ZIPs with reference outputs, the selected model and warning policies, advisory evidence DTOs and persistence, typed availability failures, actual published Worker inference and cold reconstruction evidence. The native transfer fixture will exercise branch parity and a changed reservation. Its experimental ZIPs carry no deployment authorization.
+
+## Worker interface implemented for qualification
+
+`Hosts.Worker --v4-advisory <execution-uuid> <completed-boundary-ms> [account-id]` scores an account when supplied and all six banks otherwise. The command returns a typed status, subject, completed origin, model identity, input digest and evidence digest. Available rows include the observed count and native score or the eight forecast steps and both interval variants. Failures return their status without an output. The finance dispatcher remains independent.
+
+The loader expects one applicable `ObservedModelPin` from the run context. It validates the manifest SHA-256 embedded in the model ID and the ZIP SHA-256 before creating a Linux AMD64 inference engine. Each invocation replays the requested prefix independently. Available evidence is stored in `revenant.v4_advisory_evidence` using tenant RLS and an immutable execution, subject, seal, schema, model and policy key. The same digest can be written again. A different digest for the same key fails.
+
+The command and its native test compile. Artifact promotion and the published Worker test depend on qualifying models. The transfer ZIPs and pilot ZIPs are research artifacts.

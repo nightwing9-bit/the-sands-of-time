@@ -27,3 +27,13 @@ The initial run tested source `ae86288d480d2d21d947ea9666166aafbf273975` at PR m
 Anomaly recall tied the comparator in these fixtures. Forecast error improved on the short constructed rhythms, while the nominal intervals undercovered. The complete native test took 124 seconds. Cold reconstruction matched at the inherited seal. At the next seal the child held 175,000 minor units, leaving available balances of 3,979,995 in the child and 4,161,348 in the source. The first-horizon forecasts were 3,934,060 and 4,165,289 respectively.
 
 The experimental anomaly ZIP SHA-256 was `38b7252db1ac9b75357988dcf2d1bb1883ed2506d61c29782f45b8140fb84e1a`. The forecast ZIP SHA-256 was `6c631772883fcf520712d387f11c5553d9bf263c1cf4badba834504484e565fd`. These artifacts are native mechanics evidence for the initial fixture. Promotion requires the longitudinal evaluation.
+
+## Seven-day pilot evaluation
+
+The 8- and 12-bucket starter candidates were fitted on the first root and scored on the second. The first scoring attempt failed on a nonfinite ML.NET p-value. A diagnostic run retained missing values as missing and measured them explicitly. [Starter run](https://github.com/nightwing9-bit/the-sands-of-time/actions/runs/43365500420) · [Executed TRX and metrics](https://github.com/nightwing9-bit/the-sands-of-time/actions/runs/43365500420/artifacts/14009769436)
+
+- The 8-bucket anomaly detector returned 2,400 unavailable scores across eight qualified accounts. At p ≤ 0.001 it detected three of three eligible events and produced 1.50 false alerts per qualified normal account-day. The 12-bucket detector returned 5,572 unavailable scores and reached two of three events at 1.00 false alert per normal account-day. The operational budget is 0.10.
+- Both forecasters lost to persistence at all eight active horizons. The 8-bucket model's active MAE was 196,485 versus 137,401 minor units at +5 minutes and 648,201 versus 336,287 at +40 minutes. Native interval coverage at those horizons was 86.96% and 94.22% overall, versus 5.26% and 6.03% during stress.
+- Both candidates warned before one of two developing crossings, 40 minutes ahead. Each generated five warnings with four false warnings. The two sudden-shock scenarios did not cross the floor.
+
+A bounded correction tests a one-observation p-value history to eliminate repeated subtraction from the ML.NET kernel distance accumulator, and a stabilized rank-two forecast with a reference at the current completed seal and a fresh 32-bucket replay. Both use the same frozen pilot streams. A correction that makes a native score finite still has to satisfy the false-alert and comparator requirements.

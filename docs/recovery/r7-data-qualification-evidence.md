@@ -47,3 +47,23 @@ REVENANT_R7_CENSUS_OUTPUT="$PWD/TestResults/r7/census.json" \
 ```
 
 The seven-day R7 pilot and independent qualification cohort are pending the Linux AMD64 SSA transfer result. The initial native fixture uses three shorter six-bank roots to test fit, transfer and reconstruction.
+
+## Seven-day PostgreSQL pilot
+
+Generator `revenant-episode-generator/3` used two independent six-bank roots and 2,016 completed seals per root. The native test passed once with zero skips in 10m32s. The job failed after the test because the TRX guard called `rg`, which the runner did not have. The uploaded TRX and manifest checks were verified against the retained artifact. The workflow now uses `grep` for these checks. [Pilot run](https://github.com/nightwing9-bit/the-sands-of-time/actions/runs/43363691834) · [TRX, manifest and canonical series](https://github.com/nightwing9-bit/the-sands-of-time/actions/runs/43363691834/artifacts/14009897750)
+
+| Measure | Root A | Root B |
+| --- | ---: | ---: |
+| Committed outgoing intents | 1,772 | 1,739 |
+| Posted settlements | 1,771 | 1,739 |
+| Holds / authorized releases | 7 / 7 | 7 / 7 |
+| Posted returns | 24 | 22 |
+| Qualified accounts | 10 of 12 | 8 of 12 |
+| Unlabeled-event-free normal nonzero account buckets | 1,246 | 1,246 |
+| Developing-pressure crossings of the 10% diagnostic floor | 2 | 2 |
+| Sudden-shock floor crossings | 0 | 0 |
+| PostgreSQL execution and replay | 631.9 s | 614.9 s |
+
+There were 4,882 changed bank intervals of 24,192 (20.18%) and 24,096 origins with all eight targets. Maximum observed round-trip normalization error at scale 1,024 was zero minor units. The histories include enough real variation to test transfer and expose the starter failures. Seven days are sufficient for this diagnostic. Daily seasonality and a longer simulation have no demonstrated benefit here.
+
+The pilot manifest SHA-256 is `36cc5b4c229f70953a19b38d41f675d0e70d70941f9c7ba6225bd4edd06c5d78`. Root keys are `514e1dc178bde270ebd60c95ce8075228457b7d2e62e8505a46a9a02e45fdc74` and `be567b6a27658b2136b0806a2418f2f376c6c6aa69455ec281ee7d9b13f8b446`. Source `5c8d48dd9beaebcc12cab0aa4c02ebf40c370bf7` and merge `bd3ebd34eae337dfc1395b82aa359ce41e74890f` generated the streams.

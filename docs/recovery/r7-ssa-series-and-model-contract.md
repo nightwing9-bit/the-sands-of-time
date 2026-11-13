@@ -19,3 +19,9 @@ ML.NET TimeSeries 5.0.1 uses the existing Linux AMD64 OpenMP runtime setup. The 
 | `ForecastBySsa` | Window 8, series length 32, train size 96, eight horizons, non-adaptive, nominal 95% |
 
 The fitted forecaster can emit a path before seeing any serving observations. The experiment records its first horizon before and after warmup. Transferability and the production warmup remain open until the native evidence and longitudinal pilot are evaluated. A production model manifest, calibrated intervals, alert policy, and Worker advisory service are pending.
+
+## Advisory serving and failure states
+
+The Worker resolves exact model pins from the run context. Artifacts use `Intelligence/Artifacts/revenant-ssa/{anomaly|forecast}/{manifest-sha256}/` with a manifest and ZIP. The ZIP SHA-256 is checked against both context and manifest. The invocation creates a separate ML.NET engine per subject, consumes only the supplied verified completed prefix and records the output at that origin. An unavailable origin or subject is explicit. Artifact and platform failures produce `ArtifactMissing`, `ArtifactInvalid`, or `RuntimeUnavailable`. An account or bank that lacks the pinned history reports `InsufficientHistory`.
+
+Available predictions are canonicalized in `anomaly-evidence/1` and `liquidity-forecast-evidence/1` and stored in the advisory projection. Evidence binds physical execution, lineage, subject, origin seal, input digest, model, policy and result. Predictions do not enter Screening. The serving contract currently implements genesis-centered inference. A corrected method can be promoted only with the same inference transformation in the Worker and the evaluation.
