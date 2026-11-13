@@ -82,8 +82,10 @@ internal static class V4LongitudinalPlannerG4
 
     internal static V4LongitudinalEpisode Plan(LongitudinalRoot root, ScenarioRunId execution) => Plan(root, execution, Version);
 
-    internal static V4LongitudinalEpisode Plan(LongitudinalRoot root, ScenarioRunId execution, string version)
+    internal static V4LongitudinalEpisode Plan(LongitudinalRoot root, ScenarioRunId execution, string version, bool residualTraining = false)
     {
+        if (residualTraining && (version != V4LongitudinalPlannerG5.Version || root != V4LongitudinalPlannerG5.ResidualTrainingRoot()))
+            throw new ArgumentException("Enrichment is confined to the pinned offline Train root.", nameof(root));
         var calendar = SeededRandom.ForStream(root.Seed, 41);
         var ordinary = SeededRandom.ForStream(root.Seed, 42);
         var stress = SeededRandom.ForStream(root.Seed, 43);
@@ -165,13 +167,31 @@ internal static class V4LongitudinalPlannerG4
         var newPressure = version == V4LongitudinalPlannerG5.Version;
         var suddenIndex = newPressure ? BankCount : stress.NextInt(0, 3);
         var bankEvents = new List<(string Bank, LongitudinalEventKind Kind, int Start, int End)>();
-        for (var i = 0; i < (newPressure ? BankCount + 1 : 3); i++)
+        // The offline variant changes only the pressure episode allocation and target size.
+        // The independently timed background remains a single continuous walk over the full root.
+        var trainingDays = Enumerable.Range(1, 8).ToArray();
+        var trainingCrossing = new[] { true, true, true, true, false, false, false, false };
+        if (residualTraining) stress.Shuffle(trainingCrossing);
+        for (var i = 0; i < (residualTraining ? trainingDays.Length + 1 : newPressure ? BankCount + 1 : 3); i++)
         {
             var bank = stressed[i % BankCount];
             var recipient = stressed[(i + 3) % BankCount];
             var start = stressDays[i % stressDays.Length] * BucketsPerDay + stress.NextInt(65, 215);
             var sudden = i == suddenIndex;
-            if (newPressure && i >= stressDays.Length)
+            if (residualTraining && i < trainingDays.Length)
+            {
+                AddTrainingPressure(trainingDays[i], trainingCrossing[i]);
+                continue;
+            }
+            if (residualTraining)
+            {
+                sudden = true;
+                bank = 1;
+                recipient = 4;
+                start = 9 * BucketsPerDay + stress.NextInt(65, 215);
+                walk = Walk();
+            }
+            if (!residualTraining && newPressure && i >= stressDays.Length)
                 start = stressDays[0] * BucketsPerDay + 10;
             var installments = sudden ? 1 : stress.NextInt(8, 17);
             var gap = sudden ? 1 : stress.NextInt(1, shifted ? 4 : 3);
@@ -265,6 +285,71 @@ internal static class V4LongitudinalPlannerG4
             ObservationEncoding.Hash(canonical.ToArray()),
             accounts.Select((a, i) => (a.AccountId, rhythms[i].Kind.ToString())).ToDictionary(x => x.AccountId, x => x.Item2, StringComparer.Ordinal),
             version, TruthSchema);
+
+        // Try stochastic, fundable payment schedules on the planning ledger before choosing an episode.
+        // These feasibility checks use training truth only. None of the schedule is passed to the forecaster.
+        void AddTrainingPressure(int day, bool crossing)
+        {
+            const int bank = 0;
+            var members = Enumerable.Range(Treasury(bank), AccountsPerBank).ToArray();
+            var baseline = Walk();
+            var floor = bankOpening[bank] / 10;
+            var baselineOrders = baseline.Kept.Select(x => x.Order).ToHashSet();
+            for (var attempt = 0; attempt < 256; attempt++)
+            {
+                var start = day * BucketsPerDay + stress.NextInt(40, 219);
+                var installments = stress.NextInt(8, 17);
+                var gap = stress.NextInt(1, 3);
+                var pause = stress.NextInt(9, 21);
+                var end = start + (installments - 1) * gap;
+                var recovery = end + pause;
+                var last = recovery + installments - 1;
+                var recipient = stress.NextInt(1, BankCount);
+                var before = members.Sum(a => baseline.BalanceAt(a, start));
+                var atEnd = members.Sum(a => baseline.BalanceAt(a, end + 1));
+                // Aim inside each class with room for review and return effects at execution.
+                var keep = bankOpening[bank] * (crossing ? stress.NextInt(54, 74) : stress.NextInt(111, 121)) / 1_000;
+                var principal = atEnd - keep;
+                if (before < bankOpening[bank] / 2 || principal <= 0) continue;
+                var budgets = members.Select(a => Enumerable.Range(start, recovery - start + 1)
+                    .Min(t => baseline.BalanceAt(a, t)) - Reserve(a)).Select(x => Math.Max(0, x)).ToArray();
+                var capacity = budgets.Sum();
+                if (capacity < principal) continue;
+                var initial = instructions.Count;
+                for (var m = 0; m < members.Length; m++)
+                {
+                    var amount = principal * budgets[m] / capacity;
+                    if (amount < installments) continue;
+                    for (var j = 0; j < installments; j++)
+                    {
+                        var part = amount * (j + 1) / installments - amount * j / installments;
+                        Add(start + j * gap, members[m], Treasury(recipient) + m, part);
+                        Add(recovery + j, Treasury(recipient) + m, members[m], part);
+                    }
+                }
+                var proposed = Walk();
+                var orders = proposed.Kept.Select(x => x.Order).ToHashSet();
+                var minimum = Enumerable.Range(start + 1, last - start + 1)
+                    .Min(t => members.Sum(a => proposed.BalanceAt(a, t)));
+                var inClass = crossing ? minimum < bankOpening[bank] * 85 / 1_000
+                    : minimum >= bankOpening[bank] * 108 / 1_000 && minimum <= bankOpening[bank] * 123 / 1_000;
+                if (before >= floor && inClass && baselineOrders.IsSubsetOf(orders)
+                    && instructions.Skip(initial).All(x => orders.Contains(x.Order)))
+                {
+                    for (var m = 0; m < members.Length; m++)
+                    {
+                        episodes.Add(new(members[m], LongitudinalEventKind.VelocityAnomaly, VelocityMechanism.TreasuryDrain,
+                            EventIntent.Legitimate, start, end));
+                        episodes.Add(new(Treasury(recipient) + m, LongitudinalEventKind.VelocityAnomaly, VelocityMechanism.TreasuryDrain,
+                            EventIntent.Legitimate, recovery, last));
+                    }
+                    bankEvents.Add((accounts[Treasury(bank)].BankId, LongitudinalEventKind.DevelopingPressure, start, last));
+                    return;
+                }
+                instructions.RemoveRange(initial, instructions.Count - initial);
+            }
+            throw new InvalidOperationException($"No fundable training pressure schedule on day {day}.");
+        }
 
         int Treasury(int bank) => bank * AccountsPerBank;
 

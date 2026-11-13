@@ -71,7 +71,7 @@ public sealed class R7LongitudinalPostgresTests(LedgerDatabase db)
     }
 
     internal static async Task ExecutePilot(LongitudinalRoot[] roots, string manifestName, string generator, string path,
-        LedgerDatabase.DeployedLogins logins, CancellationToken cancellation)
+        LedgerDatabase.DeployedLogins logins, CancellationToken cancellation, bool residualTraining = false)
     {
         Directory.CreateDirectory(path);
         await using var writer = NpgsqlDataSource.Create(logins.WorkerLedger);
@@ -91,6 +91,7 @@ public sealed class R7LongitudinalPostgresTests(LedgerDatabase db)
             var id = new ScenarioRunId(new Guid(Convert.FromHexString(root.Key[..32]), bigEndian: true));
             var episode = generator switch
             {
+                V4LongitudinalPlannerG5.Version when residualTraining => V4LongitudinalPlannerG4.Plan(root, id, generator, residualTraining: true),
                 V4LongitudinalPlannerG5.Version => V4LongitudinalPlannerG5.Plan(root, id),
                 V4LongitudinalPlannerG4.Version => V4LongitudinalPlannerG4.Plan(root, id),
                 _ => V4LongitudinalPlanner.Plan(root, id),
@@ -100,11 +101,13 @@ public sealed class R7LongitudinalPostgresTests(LedgerDatabase db)
                 reviewTimes: episode.ReviewTimes);
             return Export(path, episode, result);
         }));
-        File.WriteAllBytes(Path.Combine(path, manifestName), JsonSerializer.SerializeToUtf8Bytes(new
+        var manifest = new Dictionary<string, object?>
         {
-            Generator = generator, Revision = Environment.GetEnvironmentVariable("REVENANT_R7_SOURCE_SHA"),
-            Runtime = RuntimeInformation.FrameworkDescription, Platform = RuntimeInformation.RuntimeIdentifier, Roots = summaries,
-        }, Json));
+            ["Generator"] = generator, ["Revision"] = Environment.GetEnvironmentVariable("REVENANT_R7_SOURCE_SHA"),
+            ["Runtime"] = RuntimeInformation.FrameworkDescription, ["Platform"] = RuntimeInformation.RuntimeIdentifier, ["Roots"] = summaries,
+        };
+        if (residualTraining) manifest.Add("TrainingVariant", V4LongitudinalPlannerG5.ResidualTrainingVariant);
+        File.WriteAllBytes(Path.Combine(path, manifestName), JsonSerializer.SerializeToUtf8Bytes(manifest, Json));
     }
 
     private static object Export(string directory, V4LongitudinalEpisode episode, V4ExecutedEpisode result)
@@ -239,4 +242,16 @@ public sealed class R7IsolatedDrainPostgresTests
             ?? throw new InvalidOperationException($"Set {key} for the isolated development database.");
     }
 
+    [Fact]
+    [Trait("Category", "R7Longitudinal")]
+    public async Task Execute_one_G5_residual_training_history_on_isolated_PostgreSQL()
+    {
+        string Require(string key) => Environment.GetEnvironmentVariable(key) ?? throw new InvalidOperationException($"Set {key}.");
+        var output = Require("REVENANT_R7_LONGITUDINAL_OUTPUT");
+        Assert.False(File.Exists(Path.Combine(output, "residual-train.json")), "Reuse the committed training export.");
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(90));
+        await R7LongitudinalPostgresTests.ExecutePilot([V4LongitudinalPlannerG5.ResidualTrainingRoot()], "residual-train.json",
+            V4LongitudinalPlannerG5.Version, output, new(Require("R7_PG_WORKER"), Require("R7_PG_LEDGER"), "", "", ""),
+            timeout.Token, residualTraining: true);
+    }
 }

@@ -23,7 +23,7 @@ public sealed partial class R7Generator4DevelopmentTests
             Assert.Equal(old.Manifest.ContentHash, plan.Financial.Opening.Manifest.ContentHash);
             Assert.Equal(old.Events, plan.Events.ToArray());
         }
-        var roots = V4LongitudinalPlannerG5.Roots().Select(PlanSample).ToArray();
+        var roots = V4LongitudinalPlannerG5.Roots().Select(root => PlanSample(root)).ToArray();
         var feasibility = Enumerable.Range(0, 3).Select(i =>
         {
             var train = roots[i];
@@ -115,10 +115,11 @@ public sealed partial class R7Generator4DevelopmentTests
         });
     }
 
-    private static LongitudinalSample PlanSample(LongitudinalRoot root)
+    private static LongitudinalSample PlanSample(LongitudinalRoot root, bool residualTraining = false)
     {
         var id = new ScenarioRunId(new Guid(Convert.FromHexString(root.Key[..32]), bigEndian: true));
-        var episode = V4LongitudinalPlannerG5.Plan(root, id);
+        var episode = residualTraining ? V4LongitudinalPlannerG4.Plan(root, id, V4LongitudinalPlannerG5.Version, residualTraining: true)
+            : V4LongitudinalPlannerG5.Plan(root, id);
         var plan = episode.Financial;
         var manifest = plan.Opening.Manifest;
         var seals = root.Days * DailyBuckets;
@@ -137,7 +138,7 @@ public sealed partial class R7Generator4DevelopmentTests
         }
         Assert.Equal(manifest.Accounts.Sum(a => a.OpeningBalance.MinorUnits), accounts.Values.Sum());
         Assert.Single(episode.Events.Where(e => e.Kind == LongitudinalEventKind.SuddenShock));
-        Assert.Equal(6, episode.Events.Count(e => e.Kind == LongitudinalEventKind.DevelopingPressure));
+        Assert.Equal(residualTraining ? 8 : 6, episode.Events.Count(e => e.Kind == LongitudinalEventKind.DevelopingPressure));
         var banks = manifest.Banks.Select(bank =>
         {
             var opening = bank.OpeningBalance.MinorUnits;

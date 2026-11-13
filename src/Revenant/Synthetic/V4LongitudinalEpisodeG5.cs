@@ -25,6 +25,17 @@ internal static class V4LongitudinalPlannerG5
     internal static V4LongitudinalEpisode Plan(LongitudinalRoot root, ScenarioRunId execution) =>
         V4LongitudinalPlannerG4.Plan(root, execution, Version);
 
+    internal const string ResidualTrainingVariant = "revenant-g5-residual-training/1";
+    internal const string ResidualTrainingBank = "BANK-A";
+
+    internal static LongitudinalRoot ResidualTrainingRoot()
+    {
+        const int days = 10;
+        var hash = SHA256.HashData(ObservationEncoding.Begin(ResidualTrainingVariant)
+            .WriteByte((byte)LongitudinalSplit.Train).WriteInt32(days).ToArray());
+        return new(LongitudinalSplit.Train, 0, Convert.ToHexStringLower(hash), BinaryPrimitives.ReadInt64BigEndian(hash), days);
+    }
+
     internal sealed record Sweep(int Bucket, int From, int To, long Amount);
 
     /// <summary>Each originator clears a finite batch to a partner and receives an independently timed funding sweep later that day.</summary>
