@@ -184,7 +184,7 @@ public sealed class R7QualificationEvaluationTests
             R7Evaluation.Scorer.TrailingRank, null, b * CalibrationMargin).Threshold);
         var manifest = new SsaAdvisoryManifest(SsaAdvisory.Policy, "anomaly", ObservationEncoding.Hash(selected.Artifact), generator,
             trainingAccount.Digest, selected.Candidate.Spec, policy with { Threshold = ssaThresholds[Key(R7Evaluation.FalseAlertBudget)] },
-            null, null);
+            null, null, SsaAdvisoryManifest.CausalAnomalyExpectation);
         Assert.True(manifest.IsValidFor("anomaly"));
         return new(selected.Candidate.Name, selected.Artifact, manifest, ssaThresholds, baselineThresholds, new
         {

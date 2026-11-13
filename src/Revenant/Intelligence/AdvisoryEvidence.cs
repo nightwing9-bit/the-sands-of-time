@@ -23,7 +23,7 @@ internal sealed record AdvisoryForecast(long ReferenceMinor, long ScaleMinor, lo
     AdvisoryForecastStep[] Horizons);
 
 /// <summary>
-/// R7/2 anomaly output (anomaly-evidence/2): observed count versus the fitted SSA's expected count, the native SSA raw score, the
+/// R7/2 anomaly output (anomaly-evidence/2): observed count versus the fitted SSA's expected count, the causal residual, the
 /// calibrated alert statistic and threshold, and the native p-value only as a diagnostic (null when ML.NET returns a nonfinite one).
 /// </summary>
 internal sealed record AdvisoryAnomalyV2(long Count, double ExpectedCount, double Residual, SsaAlertStatistic Statistic,

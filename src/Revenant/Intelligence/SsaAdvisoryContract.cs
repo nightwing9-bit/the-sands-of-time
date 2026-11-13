@@ -129,20 +129,24 @@ internal sealed record SsaIntervalPolicy(int SigmaWindow, double Coverage, Immut
 /// <summary>Model manifest stored beside a promoted R7/2 artifact. Its SHA-256 is the model ID suffix.</summary>
 internal sealed record SsaAdvisoryManifest(string Policy, string Kind, string ArtifactSha256, string Generator,
     string TrainingSeriesSha256, SsaAnomalySpec? Anomaly, SsaAlertPolicy? Alert, SsaForecastSpec? Forecast,
-    SsaIntervalPolicy? Interval)
+    SsaIntervalPolicy? Interval, string? AnomalyExpectation = null)
 {
+    internal const string CausalAnomalyExpectation = "prior-bucket-ssa-state/1";
+
     internal bool IsValidFor(string kind) => Policy == SsaAdvisory.Policy && Kind == kind
         && !string.IsNullOrWhiteSpace(Generator) && IsHash(ArtifactSha256) && IsHash(TrainingSeriesSha256) && kind switch
         {
-            "anomaly" => Anomaly is { IsValid: true } && Alert is { IsValid: true } && Forecast is null && Interval is null,
-            "forecast" => Forecast is { IsValid: true } && Interval is { IsValid: true } && Anomaly is null && Alert is null,
+            "anomaly" => Anomaly is { IsValid: true } && Alert is { IsValid: true } && Forecast is null && Interval is null
+                && AnomalyExpectation == CausalAnomalyExpectation,
+            "forecast" => Forecast is { IsValid: true } && Interval is { IsValid: true } && Anomaly is null && Alert is null
+                && AnomalyExpectation is null,
             _ => false,
         };
 
     private static bool IsHash(string? value) => value is { Length: 64 } && value.All(char.IsAsciiHexDigitLower);
 }
 
-/// <summary>One scored account bucket. <see cref="Residual"/> is the native SSA raw score in transformed units.</summary>
+/// <summary>One scored account bucket. <see cref="Residual"/> subtracts the causal SSA expectation in transformed units.</summary>
 internal readonly record struct SsaAnomalyStep(int Bucket, long Count, double Residual, double ExpectedCount,
     double? NativePValue, bool NativeAlert, double Statistic, bool Alert);
 

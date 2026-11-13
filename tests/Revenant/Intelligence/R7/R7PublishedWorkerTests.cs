@@ -53,7 +53,21 @@ public sealed class R7PublishedWorkerTests(LedgerDatabase db)
         var wrongTenant = await Assert.ThrowsAsync<PostgresException>(() => store.PersistAdvisoryAsync(PaymentKit.TenantB,
             fixture with { Model = fixture.Model with { ModelId = "different-test-pin" } }, ct));
         Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, wrongTenant.SqlState);
+        var v2 = fixture with
+        {
+            Model = fixture.Model with { ModelId = "test-pinned-model-v2" },
+            Policy = SsaAdvisory.Policy,
+            Anomaly = null,
+            AnomalyV2 = new(0, 0, 0, SsaAlertStatistic.PoissonSurprise, 0, 3, false, false, null, 576, 6),
+        };
+        var v2Digest = await store.PersistAdvisoryAsync(tenant, v2, ct);
+        Assert.Equal(v2Digest, await store.PersistAdvisoryAsync(tenant, v2, ct));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            store.PersistAdvisoryAsync(tenant, v2 with { AnomalyV2 = v2.AnomalyV2! with { Residual = 1 } }, ct));
         Assert.Equal(1L, await PaymentKit.Scalar<long>(db.Owner,
+            "SELECT count(*) FROM revenant.v4_advisory_evidence WHERE execution_run_id = @run AND schema_id = 'anomaly-evidence/2'",
+            ("run", id.Value)));
+        Assert.Equal(2L, await PaymentKit.Scalar<long>(db.Owner,
             "SELECT count(*) FROM revenant.v4_advisory_evidence WHERE execution_run_id = @run", ("run", id.Value)));
         Assert.Equal(1, (await store.ReadFinanceHistoryAsync(tenant, id, id, ct)).LastFact);
     }

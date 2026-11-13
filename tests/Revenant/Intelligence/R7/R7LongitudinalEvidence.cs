@@ -31,7 +31,7 @@ internal sealed record LongitudinalSample(LongitudinalRootEvidence Manifest, V4A
         return manifest;
     }
 
-    internal static LongitudinalSample Read(string directory, LongitudinalRootEvidence root)
+    internal static LongitudinalSample Read(string directory, LongitudinalRootEvidence root, bool requirePilotTargets = false)
     {
         if (root.Root.Key.Length != 64 || root.Root.Key.Any(c => !char.IsAsciiHexDigitLower(c))
             || root.Seals != root.Root.Days * V4LongitudinalPlanner.BucketsPerDay)
@@ -57,7 +57,7 @@ internal sealed record LongitudinalSample(LongitudinalRootEvidence Manifest, V4A
             if (!s.Points.Select(p => p.Seal).SequenceEqual(banks[0].Points.Select(p => p.Seal)))
                 throw new InvalidDataException("Series do not refer to the same completed seals.");
         var targets = new Dictionary<string, long?[][]>(StringComparer.Ordinal);
-        if (root.Root.Split != LongitudinalSplit.Pilot)
+        if (requirePilotTargets || root.Root.Split != LongitudinalSplit.Pilot)
             foreach (var bank in banks)
             {
                 var name = bank.SubjectId + ".targets";

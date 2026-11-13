@@ -12,12 +12,115 @@ namespace Revenant.Tests.Intelligence.R7;
 
 /// <summary>
 /// Generator-4 development work on the three Pilot roots only (root 0 trains, root 1 selects and calibrates, root 2 measures).
-/// Qualification roots are never planned here. Plan-derived account counts are development evidence: the PostgreSQL export
-/// asserts that every planned intent is a committed intake, so these counts equal the observed series once executed.
+/// Qualification roots are never planned here. Executed and plan-derived development measurements have separate outputs.
 /// </summary>
 public sealed class R7Generator4DevelopmentTests
 {
     private const long Bucket = ObservedFinanceVersion.BucketMs;
+
+    private static LongitudinalSample[] ReadExecutedPilot(string input)
+    {
+        var manifest = LongitudinalSample.ReadManifest(input, "pilot.json");
+        Assert.Equal(V4LongitudinalPlannerG4.Version, manifest.Generator);
+        Assert.Equal(V4LongitudinalPlannerG4.Roots(LongitudinalSplit.Pilot).Take(3), manifest.Roots.Select(r => r.Root));
+        return manifest.Roots.Select(r => LongitudinalSample.Read(input, r, requirePilotTargets: true)).ToArray();
+    }
+
+    [Fact]
+    [Trait("Category", "R7DiagnosticsNative")]
+    public void Reconcile_and_measure_anomaly_on_generator_4_PostgreSQL_streams()
+    {
+        Assert.True(OperatingSystem.IsLinux() && RuntimeInformation.ProcessArchitecture == Architecture.X64);
+        var input = Environment.GetEnvironmentVariable("REVENANT_R7_PILOT_INPUT")
+            ?? throw new InvalidOperationException("Set REVENANT_R7_PILOT_INPUT to the generator-4 PostgreSQL pilot.");
+        var output = Environment.GetEnvironmentVariable("REVENANT_R7_DIAGNOSTICS_OUTPUT")
+            ?? throw new InvalidOperationException("Set REVENANT_R7_DIAGNOSTICS_OUTPUT.");
+        Directory.CreateDirectory(output);
+        var roots = ReadExecutedPilot(input);
+        var reconciliation = roots.Select(root =>
+        {
+            var planned = Planned(root.Manifest.Root);
+            Assert.Equal(planned.Episode.BehaviorSha256, root.Manifest.BehaviorSha256);
+            Assert.Equal(planned.Episode.Financial.Opening.Manifest.ContentHash, root.Manifest.ContentHash);
+            Assert.Equal(planned.Episode.Events.ToArray(), root.Events);
+            Assert.Equal(planned.Episode.Financial.Payments.Length, root.Manifest.Accepted);
+            var accounts = R7Evaluation.Inputs([root]).ToDictionary(a => a.Subject, StringComparer.Ordinal);
+            Assert.Equal(planned.Accounts.Length, accounts.Count);
+            foreach (var account in planned.Accounts)
+            {
+                var executed = accounts[account.Subject];
+                Assert.Equal(account.Counts, executed.Counts);
+                Assert.Equal(account.Rhythm, executed.Rhythm);
+            }
+            Assert.Equal(root.Manifest.Accepted, accounts.Values.Sum(a => a.Counts.Sum()));
+            return new
+            {
+                root.Manifest.Root, root.Manifest.Accepted, root.Manifest.Seals, root.Manifest.BehaviorSha256,
+                root.Manifest.ContentHash, FinanceFactsThroughFinalSeal = root.Banks[0].Points[^1].Seal.FactSequence,
+                FinalSealDigest = root.Banks[0].Points[^1].Seal.PrefixDigest, Accounts = accounts.Count, Banks = root.Targets.Count,
+            };
+        }).ToArray();
+
+        var ml = new MLContext(seed: 7);
+        var candidate = R7QualificationEvaluationTests.AnomalyCandidates[0];
+        var training = R7QualificationEvaluationTests.TrainingAccount(R7Evaluation.Inputs([roots[0]]), candidate.Spec);
+        var policy = candidate.Policy();
+        var artifact = RevenantSsaInference.FitAnomaly(ml, candidate.Spec, training.Counts, 0);
+        var calibration = Cases(roots[1]);
+        var measurement = Cases(roots[2]);
+        // Fixed rate uses only the pre-score prefix of each account and the same Poisson window and floor.
+        var fixedCalibration = WithFixedRate(calibration);
+        var fixedMeasurement = WithFixedRate(measurement);
+        var budgets = R7QualificationEvaluationTests.SensitivityBudgets.Select(b => new
+        {
+            Budget = b,
+            Ssa = Compare(calibration, measurement, R7Evaluation.Scorer.Ssa, policy, b),
+            Fixed = Compare(fixedCalibration, fixedMeasurement, R7Evaluation.Scorer.Ssa, policy, b),
+            Rank = Compare(calibration, measurement, R7Evaluation.Scorer.TrailingRank, null, b),
+            Seasonal = Compare(calibration, measurement, R7Evaluation.Scorer.SeasonalExcess, null, b),
+        }).ToArray();
+        R7RetainedPilotDiagnosticsTests.Write(output, "generator-4-executed-anomaly-development.json", new
+        {
+            Reconciliation = reconciliation, Candidate = candidate.Name, candidate.Spec, Policy = policy,
+            TrainingAccount = training.Subject, TrainingDigest = training.Digest,
+            ArtifactSha256 = ObservationEncoding.Hash(artifact), Budgets = budgets,
+            PoissonAudit = measurement.Where(c => c.Steps.Length > 0).GroupBy(c => c.Rhythm).Select(group =>
+            {
+                var normal = group.Select(c => c.Steps.Where(s => !c.Labels.Any(e =>
+                    (R7Evaluation.IsPositive(e) || R7Evaluation.IsExcluded(e)) &&
+                    s.Bucket >= e.Start && s.Bucket <= e.End + R7Evaluation.LateMatch)).ToArray()).ToArray();
+                var steps = normal.SelectMany(s => s).ToArray();
+                var expected = steps.Sum(s => Math.Max(s.ExpectedCount, policy.Floor));
+                return new
+                {
+                    Rhythm = group.Key, NormalBuckets = steps.Length,
+                    PearsonDispersion = steps.Average(s => Math.Pow(s.Count - Math.Max(s.ExpectedCount, policy.Floor), 2)
+                        / Math.Max(s.ExpectedCount, policy.Floor)),
+                    ObservedToExpected = steps.Sum(s => s.Count) / expected,
+                    LagOneResidualCorrelation = normal.Select(s => R7Diagnostics.Autocorrelation(
+                        s.Select(p => p.Residual).ToArray(), [1])[0]).Where(v => v.HasValue).DefaultIfEmpty().Average(),
+                    TailAtOnePercent = steps.Count(s => s.Statistic >= 2) / (double)steps.Length,
+                };
+            }).ToArray(),
+        });
+
+        R7Evaluation.AccountCase[] Cases(LongitudinalSample root) =>
+            R7QualificationEvaluationTests.Accounts(ml, R7Evaluation.Inputs([root]), artifact, candidate.Spec, policy);
+
+        R7Evaluation.AccountCase[] WithFixedRate(R7Evaluation.AccountCase[] cases) => cases.Select(c =>
+        {
+            var rate = c.Counts.Take(candidate.Spec.Warmup).Average();
+            return c with { Steps = [.. c.Steps.Select(s => s with { ExpectedCount = rate })] };
+        }).ToArray();
+
+        static object Compare(R7Evaluation.AccountCase[] calibrate, R7Evaluation.AccountCase[] measure,
+            R7Evaluation.Scorer scorer, SsaAlertPolicy? policy, double budget)
+        {
+            var (threshold, metrics) = R7Evaluation.Calibrate(calibrate, scorer, policy,
+                budget * R7QualificationEvaluationTests.CalibrationMargin);
+            return new { Threshold = threshold, Calibration = metrics, Measurement = R7Evaluation.Evaluate(measure, scorer, policy, threshold) };
+        }
+    }
 
     internal sealed record PlannedRoot(V4LongitudinalEpisode Episode, R7Evaluation.AccountInput[] Accounts,
         Dictionary<string, long[]> BankChanges);
@@ -196,10 +299,7 @@ public sealed class R7Generator4DevelopmentTests
         var output = Environment.GetEnvironmentVariable("REVENANT_R7_DIAGNOSTICS_OUTPUT")
             ?? throw new InvalidOperationException("Set REVENANT_R7_DIAGNOSTICS_OUTPUT.");
         Directory.CreateDirectory(output);
-        var manifest = LongitudinalSample.ReadManifest(input, "pilot.json");
-        Assert.Equal(V4LongitudinalPlannerG4.Version, manifest.Generator);
-        var roots = manifest.Roots.Select(r => LongitudinalSample.Read(input, r)).ToArray();
-        Assert.Equal(V4LongitudinalPlannerG4.Roots(LongitudinalSplit.Pilot).Take(3), roots.Select(r => r.Manifest.Root));
+        var roots = ReadExecutedPilot(input);
         var ml = new MLContext(seed: 7);
         var development = R7QualificationEvaluationTests.DevelopForecast(ml, [roots[0]], [roots[1]], [roots[1]],
             V4LongitudinalPlannerG4.Version);
@@ -237,6 +337,15 @@ public sealed class R7Generator4DevelopmentTests
                 Horizons = R7RetainedPilotDiagnosticsTests.Summaries(horizons),
                 Coverage = horizons.Select(h => new { h.Horizon, h.CalibratedCoverage, h.CalibratedWidth, h.StressCalibratedCoverage,
                     h.ActiveCalibratedCoverage, h.OrdinaryCalibratedCoverage }),
+                ByBank = cases.Select(c => new { c.Bank, Horizons = R7ForecastMetrics.Evaluate([c]) }),
+                ByStressType = new[] { LongitudinalEventKind.DevelopingPressure, LongitudinalEventKind.SuddenShock }.Select(kind => new
+                {
+                    Kind = kind.ToString(),
+                    Horizons = R7ForecastMetrics.Evaluate(cases.Select(c => c with
+                    {
+                        Events = [.. c.Events.Where(e => e.Kind == kind)],
+                    }).ToArray()).Select(h => new { h.Horizon, h.Stress, h.StressMae, h.StressBias, h.StressPersistenceMae, h.StressRobustMae }),
+                }),
             };
         }).ToArray();
 

@@ -38,7 +38,7 @@ public sealed class R7InferenceParityTests
             var anomalyArtifact = RevenantSsaInference.FitAnomaly(ml, anomalyCandidate.Spec, counts, 0);
             var anomalyPin = Pin(directory, "anomaly", anomalyArtifact, new(SsaAdvisory.Policy, "anomaly",
                 ObservationEncoding.Hash(anomalyArtifact), "parity-fixture", account.Digest, anomalyCandidate.Spec,
-                anomalyCandidate.Policy(4), null, null));
+                anomalyCandidate.Policy(4), null, null, SsaAdvisoryManifest.CausalAnomalyExpectation));
             var forecastSpec = R7QualificationEvaluationTests.ForecastCandidates[0].Spec;
             var bank = root.Banks[0];
             var levels = bank.Points.Select(p => p.Value).ToArray();
@@ -52,6 +52,17 @@ public sealed class R7InferenceParityTests
             {
                 var values = subject.Points.Select(p => p.Value).ToArray();
                 var research = RevenantSsaInference.ScoreAccount(ml, anomalyArtifact, anomalyCandidate.Spec, anomalyCandidate.Policy(4), values);
+                const int extra = 32;
+                long[] differentHistory = [.. Enumerable.Repeat(3L, extra), .. values];
+                var transferred = RevenantSsaInference.ScoreAccount(ml, anomalyArtifact, anomalyCandidate.Spec,
+                    anomalyCandidate.Policy(4), differentHistory);
+                Assert.InRange(Math.Abs(research[0].ExpectedCount - transferred[extra].ExpectedCount), 0, 1e-6);
+                var origin = anomalyCandidate.Spec.Warmup;
+                var perturbed = values[..(origin + 1)];
+                perturbed[^1] += 9;
+                var currentSpike = RevenantSsaInference.ScoreAccount(ml, anomalyArtifact, anomalyCandidate.Spec,
+                    anomalyCandidate.Policy(4), perturbed).Single();
+                Assert.InRange(Math.Abs(research[0].ExpectedCount - currentSpike.ExpectedCount), 0, 1e-6);
                 foreach (var k in new[] { anomalyCandidate.Spec.Warmup, anomalyCandidate.Spec.Warmup + 137, values.Length - 1 })
                 {
                     var evidence = RevenantAdvisoryWorker.Score(Prefix(subject, k), subject.ExecutionRunId, anomalyPin, true, directory);
@@ -71,6 +82,11 @@ public sealed class R7InferenceParityTests
             {
                 var values = subject.Points.Select(p => p.Value).ToArray();
                 var research = RevenantSsaInference.ForecastBank(ml, forecastArtifact, forecastSpec, interval, subject.ReferenceMinor!.Value, values);
+                const int extra = 32;
+                long[] differentHistory = [.. Enumerable.Repeat(subject.ReferenceMinor.Value + 175_000, extra), .. values];
+                var transferred = RevenantSsaInference.ForecastBank(ml, forecastArtifact, forecastSpec, interval,
+                    subject.ReferenceMinor.Value, differentHistory);
+                Assert.Equal(research[0].Central, transferred[extra].Central);
                 foreach (var k in new[] { forecastSpec.Warmup, 1_000, values.Length - 1 })
                 {
                     var evidence = RevenantAdvisoryWorker.Score(Prefix(subject, k), subject.ExecutionRunId, forecastPin, false, directory);

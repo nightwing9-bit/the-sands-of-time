@@ -71,6 +71,7 @@ internal static class RevenantSsaInference
         using var engine = Load<SpikeOutput>(ml, stream);
         var steps = new SsaAnomalyStep[counts.Count - spec.Warmup];
         var alert = new SsaAlertState(policy);
+        double expectedInput = 0;
         for (var i = 0; i < counts.Count; i++)
         {
             var input = SsaAdvisory.AnomalyInput(spec.Transform, counts[i]);
@@ -78,12 +79,17 @@ internal static class RevenantSsaInference
             if (raw.Length != 3 || raw[0] is not (0d or 1d) || !double.IsFinite(raw[1]))
                 throw new InvalidDataException(FormattableString.Invariant(
                     $"Invalid ML.NET anomaly output at bucket {i}: [{string.Join(", ", raw)}]."));
-            if (i < spec.Warmup) continue;
-            var residual = raw[1];
-            var expected = SsaAdvisory.ExpectedCount(spec.Transform, input - residual);
-            var statistic = alert.Next(counts[i], expected, residual);
-            steps[i - spec.Warmup] = new(i, counts[i], residual, expected, double.IsFinite(raw[2]) ? raw[2] : null, raw[0] == 1,
-                statistic, counts[i] > 0 && statistic >= policy.Threshold);
+            if (i >= spec.Warmup)
+            {
+                var residual = input - expectedInput;
+                var expected = SsaAdvisory.ExpectedCount(spec.Transform, expectedInput);
+                var statistic = alert.Next(counts[i], expected, residual);
+                steps[i - spec.Warmup] = new(i, counts[i], residual, expected, double.IsFinite(raw[2]) ? raw[2] : null, raw[0] == 1,
+                    statistic, counts[i] > 0 && statistic >= policy.Threshold);
+            }
+            // The prediction engine consumes bucket i before its getter runs. Its signed raw score therefore
+            // subtracts the prediction from that updated state, which is the expectation for bucket i+1.
+            expectedInput = input - raw[1];
         }
         return steps;
     }
