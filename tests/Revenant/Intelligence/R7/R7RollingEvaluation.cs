@@ -19,7 +19,7 @@ internal static class R7RollingEvaluation
 
     internal sealed record AnomalyConfig(int Window, int History, int Training);
     internal sealed record ForecastConfig(int Window, int History, int Training);
-    internal sealed record BucketScore(int Bucket, long Count, bool NativeAlert, double Raw, double PValue, double BaselineRank);
+    internal sealed record BucketScore(int Bucket, long Count, bool NativeAlert, double? Raw, double? PValue, double BaselineRank);
     internal sealed record ForecastPoint(long Central, long Lower, long Upper);
     internal sealed record BankOrigin(int Bucket, long Available, ForecastPoint[] Path, long RobustLevel);
 
@@ -62,10 +62,11 @@ internal static class R7RollingEvaluation
         for (var i = 0; i < series.Points.Length; i++)
         {
             var count = series.Points[i].Value;
-            var raw = RevenantSsaInference.ObserveAccount(engine, count);
+            var raw = RevenantSsaInference.ObserveAccount(engine, count, allowUnavailable: true);
             if (i < Warmup) continue;
             var exceed = series.Points.Skip(i - Warmup).Take(Warmup).Count(p => p.Value >= count);
-            scores.Add(new(i, count, raw.Alert, raw.RawScore, raw.PValue, (exceed + 1d) / (Warmup + 1)));
+            scores.Add(new(i, count, raw.Alert, double.IsFinite(raw.RawScore) ? raw.RawScore : null,
+                double.IsFinite(raw.PValue) ? raw.PValue : null, (exceed + 1d) / (Warmup + 1)));
         }
         return scores.ToArray();
     }
@@ -93,7 +94,7 @@ internal static class R7RollingEvaluation
     }
 
     internal sealed record AnomalyMetrics(int Accounts, int QualifiedAccounts, double NormalAccountDays, int Events,
-        int Detected, int FalseAlerts, int AlertEvents, int LegitimateBursts, int AlertedLegitimateBursts,
+        int Detected, int FalseAlerts, int AlertEvents, int LegitimateBursts, int AlertedLegitimateBursts, int MissingNativeScores,
         int[] DetectionDelayMinutes, Dictionary<LongitudinalEventKind, (int Events, int Detected)> Families)
     {
         public double? Recall => Events == 0 ? null : (double)Detected / Events;
@@ -112,6 +113,7 @@ internal static class R7RollingEvaluation
         var allAlerts = 0;
         var legitimate = 0;
         var legitimateAlerts = 0;
+        var missing = 0;
         var delays = new List<int>();
         var families = new Dictionary<LongitudinalEventKind, (int Events, int Detected)>();
         foreach (var (_, scores, labels) in input)
@@ -119,6 +121,7 @@ internal static class R7RollingEvaluation
             accounts++;
             if (scores.Length == 0) continue;
             qualified++;
+            missing += scores.Count(s => s.PValue is null || s.Raw is null);
             var positives = labels.Where(e => e.Kind is LongitudinalEventKind.VelocityAnomaly or LongitudinalEventKind.FraudAssociatedVelocityAnomaly)
                 .Where(e => e.Start >= Warmup).OrderBy(e => e.Start).ToArray();
             var hard = labels.Where(e => e.Kind == LongitudinalEventKind.LegitimateBurst && e.Start >= Warmup).ToArray();
@@ -143,7 +146,7 @@ internal static class R7RollingEvaluation
             legitimateAlerts += hard.Count(e => alerts.Any(a => a >= e.Start && a <= e.End + LateMatch));
         }
         return new(accounts, qualified, (double)normalBuckets / 288, anomalies, delays.Count, falseAlerts, allAlerts, legitimate,
-            legitimateAlerts, delays.ToArray(), families);
+            legitimateAlerts, missing, delays.ToArray(), families);
     }
 
     internal static int[] Coalesce(IEnumerable<int> buckets, int cooldown)

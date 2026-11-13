@@ -142,7 +142,8 @@ public sealed class R7QualificationEvaluationTests
             {
                 Split = roots[0].Manifest.Root.Split, Anomaly = anomaly, Comparator = comparator,
                 Horizons = horizons, Warnings = warnings, ActiveSkill = skill, OverallErrorRatio = overallRatio,
-                PromoteAnomaly = anomaly.FalseAlertsPerNormalDay is <= .1 && anomaly.Detected > comparator.Detected
+                PromoteAnomaly = anomaly.MissingNativeScores == 0 && anomaly.FalseAlertsPerNormalDay is <= .1
+                    && anomaly.Detected > comparator.Detected
                     && anomaly.FalseAlertsPerNormalDay <= comparator.FalseAlertsPerNormalDay,
                 PromoteForecast = skill >= .05 && overallRatio <= 1.05
                     && horizons.All(h => h.CalibratedCoverage is >= .90)

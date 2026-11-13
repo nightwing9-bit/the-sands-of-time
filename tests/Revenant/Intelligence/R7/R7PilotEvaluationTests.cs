@@ -47,6 +47,12 @@ public sealed class R7PilotEvaluationTests
                 Anomaly = anomalyConfig, Forecast = forecastConfig,
                 AnomalySha256 = ObservationEncoding.Hash(File.ReadAllBytes(anomalyPath)),
                 ForecastSha256 = ObservationEncoding.Hash(File.ReadAllBytes(forecastPath)),
+                InvalidNativeScoreRuns = account.Select(a => new
+                {
+                    Subject = a.s.SubjectId,
+                    Count = a.Item2.Count(s => s.Raw is null || s.PValue is null),
+                    Examples = a.Item2.Where(s => s.Raw is null || s.PValue is null).Take(4),
+                }).ToArray(),
                 ThresholdDiagnostics = new[] { .001, .0025, .005, .01, .025, .05 }.Select(threshold => new
                 {
                     Threshold = threshold,
