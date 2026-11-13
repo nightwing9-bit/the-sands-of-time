@@ -46,7 +46,7 @@ jobs:
 
       # Remaining cheap unit tests. Integration and E2E tests must carry these traits to stay out of the fast job.
       - name: Cheap unit tests
-        run: dotnet test TheSandsOfTime.slnx --configuration Release --no-build --filter "Category!=Integration&Category!=E2E&Category!=MlSsaX64&Category!=OfflineTraining&Category!=R4Cohort&Category!=R5Cohort&Category!=R5ArtifactX64&Category!=R6Qualification&Category!=R7SsaTransfer"
+        run: dotnet test TheSandsOfTime.slnx --configuration Release --no-build --filter "Category!=Integration&Category!=E2E&Category!=MlSsaX64&Category!=OfflineTraining&Category!=R4Cohort&Category!=R5Cohort&Category!=R5ArtifactX64&Category!=R6Qualification&Category!=R7SsaTransfer&Category!=R7Longitudinal"
       # SSA tests are excluded above on purpose (they need MKL/OpenMP on Linux x64 and must never be skipped silently):
       # the ml-platform-x64 job below runs them and fails unless the expected probe tests executed and passed.
       - name: Fit the bounded R5 candidates and freeze Calibration
@@ -537,6 +537,44 @@ jobs:
         with:
           name: r5-offline-evaluation
           path: TestResults/r5-offline-evaluate
+          retention-days: 14
+  r7-longitudinal:
+    name: R7 seven-day longitudinal pilot (Linux AMD64 and PostgreSQL)
+    if: >-
+      ${{ github.event.pull_request.head.repo.full_name == github.repository
+          && github.event.pull_request.head.ref == 'codex/r7-ssa-anomaly-liquidity-20261113'
+          && contains(github.event.pull_request.body, format('R7-longitudinal-pilot: {0}', github.event.pull_request.head.sha)) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 43
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - name: Generate and verify the two pilot roots
+        env:
+          REVENANT_R7_LONGITUDINAL_OUTPUT: ${{ github.workspace }}/TestResults/r7-pilot
+          REVENANT_R7_SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          case_name=Generate_the_two_seven_day_PostgreSQL_pilot_roots
+          dotnet test tests/Revenant/Revenant.Tests.csproj --configuration Release \
+            --filter "Category=R7Longitudinal&FullyQualifiedName~$case_name" \
+            --logger "trx;LogFileName=r7-pilot.trx" --results-directory "$REVENANT_R7_LONGITUDINAL_OUTPUT"
+          report="$REVENANT_R7_LONGITUDINAL_OUTPUT/r7-pilot.trx"
+          counters=$(rg -o '<Counters [^>]*>' "$report")
+          for field in 'total="1"' 'executed="1"' 'passed="1"' 'failed="0"' 'notExecuted="0"'; do
+            [[ " $counters" == *" $field "* ]]
+          done
+          rg -q "<UnitTestResult [^>]*testName=\"[^\"]*\.$case_name\"[^>]*outcome=\"Passed\"" "$report"
+          jq -e '.Roots | length == 2 and all(.[]; .Seals == 2016 and (.Banks | length) == 6)' "$REVENANT_R7_LONGITUDINAL_OUTPUT/pilot.json"
+      - name: Upload the pilot streams and executed test report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: r7-longitudinal-pilot
+          path: TestResults/r7-pilot
+          if-no-files-found: error
           retention-days: 14
   web:
     name: npm ci/typecheck/test/build

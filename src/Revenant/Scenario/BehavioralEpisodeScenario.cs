@@ -12,6 +12,7 @@ internal static class BehavioralEpisodeScenario
     internal const string Version = "revenant-behavioral-episodes/1";
     internal const string GeneratorVersion = "revenant-episode-generator/1";
     internal const string GeneratorVersionV2 = "revenant-episode-generator/2";
+    internal const string GeneratorVersionV3 = "revenant-episode-generator/3";
     internal const int BankCount = 6;
     private const ulong PopulationStream = 0x52563401;
     private const string ManifestExtension = "revenant-behavioral-episode-manifest/1";
@@ -84,7 +85,7 @@ internal static class BehavioralEpisodeScenario
         && ObservedFinanceVersion.IsBoundary(durationMs)
         && !populations.IsDefault && populations.Length == BankCount && populations.All(n => n is >= 2 and <= 1_000);
 
-    private static bool ValidGenerator(string? generator) => generator is null or GeneratorVersionV2;
+    private static bool ValidGenerator(string? generator) => generator is null or GeneratorVersionV2 or GeneratorVersionV3;
 
     private static ScenarioManifest BuildManifest(long seed, long origin, long duration, ImmutableArray<int> populations,
         string? generator)

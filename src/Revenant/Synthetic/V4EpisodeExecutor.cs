@@ -22,7 +22,8 @@ internal sealed class V4EpisodeExecutor(V4SimulationStore store, V4BranchExecuti
     Func<V4ScheduledCommand, long, CancellationToken, Task<V4Step?>>? dispatchOverride = null)
 {
     internal async Task<V4ExecutedEpisode> ExecuteAsync(string tenant, string owner, V4EpisodePlan plan, CancellationToken ct,
-        ObservedRiskMode riskMode = ObservedRiskMode.NotRequired, bool complete = true, long? sealThrough = null)
+        ObservedRiskMode riskMode = ObservedRiskMode.NotRequired, bool complete = true, long? sealThrough = null,
+        IReadOnlyDictionary<string, long>? reviewTimes = null)
     {
         var timer = Stopwatch.StartNew();
         var run = plan.Opening;
@@ -48,10 +49,12 @@ internal sealed class V4EpisodeExecutor(V4SimulationStore store, V4BranchExecuti
         var factCount = 0;
         var bands = new SortedDictionary<int, (int Count, TimeSpan Elapsed)>();
         var outcomes = ImmutableArray.CreateBuilder<V4AttemptOutcome>(plan.Payments.Length);
+        var reviews = new PriorityQueue<PaymentIntent, (long Time, long Sequence)>();
         foreach (var proposed in plan.Payments)
         {
             var p = proposed.Intent;
             var at = p.EventTimeUtcMs;
+            await ReviewThrough(at);
             var intake = await Dispatch(new(p.IntentId + ":intake", V4CommandClass.Exogenous, "PaymentIntent",
                 ScenarioSchemas.InputSchemaVersion, [.. PaymentIntentCodec.Instance.EncodeCanonical(p)], at, at));
             if (intake.Status != V4CommandStatus.Completed)
@@ -60,6 +63,13 @@ internal sealed class V4EpisodeExecutor(V4SimulationStore store, V4BranchExecuti
                 continue;
             }
             var screening = await Dispatch(Opportunity("Screening", p));
+            if (screening.OutcomeCode == nameof(PaymentStatus.Held) && reviewTimes is not null
+                && reviewTimes.TryGetValue(p.IntentId, out var reviewTime))
+            {
+                if (reviewTime <= at || reviewTime >= finalBoundary || ReviewPolicy.RequiredApprovals("USD", p.Amount.MinorUnits) != 1)
+                    throw new InvalidOperationException("The synthetic review must be after intake, before closure, and eligible for one approval.");
+                reviews.Enqueue(p, (reviewTime, p.Sequence));
+            }
             string? settlement = null;
             string? returned = null;
             if (screening.Status == V4CommandStatus.Completed && screening.OutcomeCode == nameof(PaymentStatus.Cleared))
@@ -80,6 +90,7 @@ internal sealed class V4EpisodeExecutor(V4SimulationStore store, V4BranchExecuti
             outcomes.Add(new(p.IntentId, Code(intake), Code(screening), settlement, returned));
         }
 
+        await ReviewThrough(finalBoundary);
         while (latest < finalBoundary)
         {
             var boundary = ObservedFinanceVersion.NextBoundary(latest);
@@ -100,6 +111,29 @@ internal sealed class V4EpisodeExecutor(V4SimulationStore store, V4BranchExecuti
         return new(history, outcomes.MoveToImmutable(),
             new(timer.Elapsed, Stopwatch.GetElapsedTime(replayStart),
                 [.. bands.Select(x => new V4DispatchBand(x.Key, x.Value.Count, x.Value.Elapsed))]));
+
+        async Task ReviewThrough(long at)
+        {
+            while (reviews.TryPeek(out var p, out var priority) && priority.Time <= at)
+            {
+                reviews.Dequeue();
+                var review = await ledger.GetCaseAsync(tenant, id, p.IntentId, ct)
+                    ?? throw new InvalidOperationException("The committed review case is unreadable.");
+                var reviewed = await Dispatch(new(p.IntentId + ":review", V4CommandClass.ConditionalHumanRequest,
+                    "ReviewDecision", "v4-human-request/1",
+                    [.. new CanonicalWriter().WriteInt32(1).WriteString(p.IntentId).WriteString(owner)
+                        .WriteInt64(review.Version).WriteBoolean(true).WriteByte((byte)CaseAction.Approve).ToArray()],
+                    priority.Time, priority.Time));
+                if (reviewed.OutcomeCode != "reviewed")
+                    throw new InvalidOperationException($"Synthetic review failed for {p.IntentId}: {reviewed.OutcomeCode}.");
+                var settlement = await Dispatch(Opportunity("Settlement", p) with
+                {
+                    RequestedTimeMs = priority.Time, DueTimeMs = priority.Time,
+                });
+                if (settlement.OutcomeCode != nameof(PaymentStatus.Settled))
+                    throw new InvalidOperationException($"Reviewed synthetic payment did not settle: {settlement.OutcomeCode}.");
+            }
+        }
 
         void AcceptSeal(V4Step step)
         {
