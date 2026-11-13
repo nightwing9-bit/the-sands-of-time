@@ -726,8 +726,7 @@ jobs:
     name: R7 published Worker advisory proof (Linux AMD64)
     if: >-
       ${{ github.event.pull_request.head.repo.full_name == github.repository
-          && github.event.pull_request.head.ref == 'codex/r7-ssa-anomaly-liquidity-20261113'
-          && contains(github.event.pull_request.body, format('R7-published-worker: {0}', github.event.pull_request.head.sha)) }}
+          && github.event.pull_request.head.ref == 'codex/r7-ssa-anomaly-liquidity-20261113' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:

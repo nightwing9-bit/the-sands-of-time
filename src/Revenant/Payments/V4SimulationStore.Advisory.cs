@@ -22,7 +22,7 @@ internal sealed partial class V4SimulationStore
             VALUES (@tenant, @run, @subject, @boundary, @schema, @model, @policy, @seq, @prefix, @canonical, @digest)
             ON CONFLICT DO NOTHING
             """, ct, ("tenant", tenant), ("run", series.ExecutionRunId.Value), ("subject", series.SubjectId),
-            ("boundary", seal.BoundaryMs), ("schema", evidence.Schema), ("model", evidence.Model.ModelId), ("policy", evidence.Policy),
+            ("boundary", seal.BoundaryMs), ("schema", evidence.Schema), ("model", evidence.ProducerId), ("policy", evidence.Policy),
             ("seq", seal.FactSequence), ("prefix", Convert.FromHexString(seal.PrefixDigest)), ("canonical", canonical),
             ("digest", Convert.FromHexString(digest)));
         await using var query = Sql(tx, """
@@ -30,7 +30,7 @@ internal sealed partial class V4SimulationStore
             WHERE tenant_id = @tenant AND execution_run_id = @run AND subject_id = @subject AND boundary_ms = @boundary
                 AND schema_id = @schema AND model_id = @model AND policy_id = @policy
             """, ("tenant", tenant), ("run", series.ExecutionRunId.Value), ("subject", series.SubjectId),
-            ("boundary", seal.BoundaryMs), ("schema", evidence.Schema), ("model", evidence.Model.ModelId), ("policy", evidence.Policy));
+            ("boundary", seal.BoundaryMs), ("schema", evidence.Schema), ("model", evidence.ProducerId), ("policy", evidence.Policy));
         if (await query.ExecuteScalarAsync(ct) is not byte[] saved || !saved.AsSpan().SequenceEqual(Convert.FromHexString(digest)))
             throw new InvalidOperationException("Conflicting advisory evidence for an immutable origin.");
         await tx.CommitAsync(ct);

@@ -1,11 +1,15 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
+using Hosts.Worker;
 using Marrow.Infrastructure.Timeline;
 using Marrow.Timeline;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Revenant.Contracts;
+using Revenant.Cases;
+using Revenant.Finance;
+using Revenant.Scenario;
 using Revenant.Intelligence;
 using Revenant.Observations;
 using Revenant.Payments;
@@ -51,11 +55,11 @@ public sealed class R7PublishedWorkerTests(LedgerDatabase db)
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             store.PersistAdvisoryAsync(tenant, fixture with { Anomaly = fixture.Anomaly! with { RawScore = 1 } }, ct));
         var wrongTenant = await Assert.ThrowsAsync<PostgresException>(() => store.PersistAdvisoryAsync(PaymentKit.TenantB,
-            fixture with { Model = fixture.Model with { ModelId = "different-test-pin" } }, ct));
+            fixture with { Model = fixture.Model! with { ModelId = "different-test-pin" } }, ct));
         Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, wrongTenant.SqlState);
         var v2 = fixture with
         {
-            Model = fixture.Model with { ModelId = "test-pinned-model-v2" },
+            Model = fixture.Model! with { ModelId = "test-pinned-model-v2" },
             Policy = SsaAdvisory.Policy,
             Anomaly = null,
             AnomalyV2 = new(0, 0, 0, SsaAlertStatistic.PoissonSurprise, 0, 3, false, false, null, 576, 6),
@@ -67,7 +71,15 @@ public sealed class R7PublishedWorkerTests(LedgerDatabase db)
         Assert.Equal(1L, await PaymentKit.Scalar<long>(db.Owner,
             "SELECT count(*) FROM revenant.v4_advisory_evidence WHERE execution_run_id = @run AND schema_id = 'anomaly-evidence/2'",
             ("run", id.Value)));
-        Assert.Equal(2L, await PaymentKit.Scalar<long>(db.Owner,
+        var bank = V4ObservationProjector.Project(execution.History).BankAvailableSeries("BANK-A", first);
+        var baseline = AdvisoryLiquidityProjection.Project(bank, id);
+        var baselineDigest = await store.PersistAdvisoryAsync(tenant, baseline, ct);
+        Assert.Equal(baselineDigest, await store.PersistAdvisoryAsync(tenant, baseline, ct));
+        Assert.Equal(1L, await PaymentKit.Scalar<long>(db.Owner, """
+            SELECT count(*) FROM revenant.v4_advisory_evidence WHERE execution_run_id = @run
+              AND schema_id = 'liquidity-projection-evidence/1' AND model_id = 'LiquidityPersistenceBaseline/1'
+            """, ("run", id.Value)));
+        Assert.Equal(3L, await PaymentKit.Scalar<long>(db.Owner,
             "SELECT count(*) FROM revenant.v4_advisory_evidence WHERE execution_run_id = @run", ("run", id.Value)));
         Assert.Equal(1, (await store.ReadFinanceHistoryAsync(tenant, id, id, ct)).LastFact);
     }
@@ -79,9 +91,11 @@ public sealed class R7PublishedWorkerTests(LedgerDatabase db)
         const string tenant = PaymentKit.TenantA;
         var worker = Environment.GetEnvironmentVariable("REVENANT_R7_WORKER_DLL") ?? throw new InvalidOperationException("Publish Worker first.");
         var artifactRoot = Path.Combine(Path.GetDirectoryName(worker)!, "Intelligence", "Artifacts", "revenant-ssa");
-        var (anomaly, anomalyZip) = ReadPin("anomaly");
-        var (forecast, forecastZip) = ReadPin("forecast");
-        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(40));
+        var anomaly = RevenantAdvisoryWorker.SupportedAnomaly;
+        var anomalyZip = Path.Combine(artifactRoot, "anomaly", anomaly.ModelId.Split('/')[1], "anomaly.zip");
+        Assert.Equal(anomaly.ArtifactSha256, ObservationEncoding.Hash(File.ReadAllBytes(anomalyZip)));
+        var retiredPin = new ObservedModelPin("revenant-ssa-forecast/" + new string('a', 64), new string('b', 64));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(8));
         var ct = timeout.Token;
         var logins = await db.ProvisionDeployedLoginsAsync();
         await using var writer = NpgsqlDataSource.Create(logins.WorkerLedger);
@@ -97,37 +111,76 @@ public sealed class R7PublishedWorkerTests(LedgerDatabase db)
         var branch = new V4BranchExecution(store,
             host.GetRequiredService<ITimelineEngine<ObservedFinanceState, ObservedFinanceInput, ObservedFinanceContext>>());
         var id = new ScenarioRunId(Guid.NewGuid());
-        // Generator 4 Pilot root 0 through bucket 1,160: past the 1,152-bucket anomaly warm-up and the 288-bucket forecast warm-up.
-        var episode = V4LongitudinalPlannerG4.Plan(V4LongitudinalPlannerG4.Roots(LongitudinalSplit.Pilot).First(), id);
-        var origin = episode.Financial.Opening.Manifest.StartUtcMs;
-        var seal = origin + 1_160 * ObservedFinanceVersion.BucketMs;
-        var plan = episode.Financial with
-        {
-            Payments = [.. episode.Financial.Payments.Where(p => p.Intent.EventTimeUtcMs < seal)],
-        };
-        var reviews = episode.ReviewTimes.Where(p => p.Value < seal).ToDictionary();
+        // One sparse runtime fixture, not a research root. Use the existing planner's opening and
+        // real scheduler/ledger for every payment and seal. Only nine intakes are needed for warmup and scoring.
+        const long bucket = ObservedFinanceVersion.BucketMs;
+        var config = V4EpisodeConfig.Smoke with { Hours = 97 };
+        var opening = V4EpisodePlanner.Plan(config, config.Roots().Single(), id).Financial;
+        var origin = opening.Opening.Manifest.StartUtcMs;
+        var seal = opening.EndMs - bucket;
+        var payer = opening.Opening.Manifest.Accounts[0];
+        var payee = opening.Opening.Manifest.Accounts.First(a => a.BankId != payer.BankId);
+        var payments = Enumerable.Range(0, 8).Select(i => Payment(i + 1, origin + (300 + i) * bucket, 100))
+            .Append(Payment(9, seal - 1, 100)).Select(p => new V4PlannedPayment(p, false));
+        var plan = opening with { Payments = [.. payments] };
         var result = await new V4EpisodeExecutor(store, branch, ledger).ExecuteAsync(tenant, PaymentKit.Operator,
-            plan, ct, ObservedRiskMode.ModelRequired, complete: false, sealThrough: seal, reviewTimes: reviews,
-            anomalyModels: [anomaly], liquidityModels: [forecast]);
+            plan, ct, ObservedRiskMode.ModelRequired, liquidityModels: [retiredPin]);
         var projection = V4ObservationProjector.Project(result.History);
-        var account = plan.Opening.Manifest.Accounts.Select(a => projection.AccountOutgoingSeries(a.AccountId, seal))
-            .OrderByDescending(a => a.Points.Take(1_152).Count(p => p.Value > 0)).First();
-        Assert.True(result.History.Segments[0].Facts.Count(f => f.Input.Kind == ObservedFactKind.Screening
-            && f.Input.PayloadSchema == V4ModelScreeningEvidence.Schema) > 0);
+        var account = projection.AccountOutgoingSeries(payer.AccountId, seal);
+        Assert.Equal(8, account.Points.Take(1_152).Count(p => p.Value > 0));
+        Assert.Equal(1, account.Points[^1].Value);
+        Assert.Contains(result.History.Segments[0].Facts, f => f.Input.Kind == ObservedFactKind.Screening
+            && f.Input.PayloadSchema == V4ModelScreeningEvidence.Schema);
 
         var goodBank = await Score(seal, null);
         Assert.Equal(6, goodBank.Length);
         Assert.All(goodBank, row =>
         {
             Assert.Equal("Available", row.GetProperty("Status").GetString());
-            var forecastResult = row.GetProperty("Forecast");
-            Assert.Equal(8, forecastResult.GetProperty("Horizons").GetArrayLength());
+            Assert.Equal("StatisticalLiquidityProjection", row.GetProperty("Kind").GetString());
+            Assert.Equal("liquidity-projection-evidence/1", row.GetProperty("Schema").GetString());
+            Assert.Equal("LiquidityPersistenceBaseline/1", row.GetProperty("ProducerId").GetString());
+            Assert.Equal(JsonValueKind.Null, row.GetProperty("ModelId").ValueKind);
+            Assert.Equal(JsonValueKind.Null, row.GetProperty("ArtifactSha256").ValueKind);
+            var liquidity = row.GetProperty("Liquidity");
+            Assert.Equal("Uncalibrated", liquidity.GetProperty("Uncertainty").GetString());
+            Assert.Equal(8, liquidity.GetProperty("Horizons").GetArrayLength());
+            var observed = projection.Banks.Single(b => b.BankId == row.GetProperty("Subject").GetString()
+                && b.Seal.BoundaryMs == seal).Balance;
+            Assert.Equal(observed.Posted - observed.Reserved, liquidity.GetProperty("ObservedAvailableMinor").GetInt64());
+            var h = 0;
+            foreach (var step in liquidity.GetProperty("Horizons").EnumerateArray())
+            {
+                Assert.Equal(seal + ++h * bucket, step.GetProperty("BoundaryMs").GetInt64());
+                Assert.Equal(observed.Available, step.GetProperty("ProjectedAvailableMinor").GetInt64());
+            }
+            Assert.False(liquidity.TryGetProperty("FirstCrossingHorizon", out _));
             Assert.NotEmpty(row.GetProperty("EvidenceSha256").GetString()!);
         });
         var goodAccount = Assert.Single(await Score(seal, account.SubjectId));
         Assert.Equal("Available", goodAccount.GetProperty("Status").GetString());
         Assert.Equal(account.Digest, goodAccount.GetProperty("SeriesSha256").GetString());
-        Assert.Equal(account.Points[^1].Value, goodAccount.GetProperty("Anomaly").GetProperty("Count").GetInt64());
+        Assert.Equal("anomaly-evidence/2", goodAccount.GetProperty("Schema").GetString());
+        Assert.Equal(anomaly.ModelId, goodAccount.GetProperty("ModelId").GetString());
+        Assert.Equal(anomaly.ArtifactSha256, goodAccount.GetProperty("ArtifactSha256").GetString());
+        Assert.Equal(AdvisoryEvidence.GlobalAnomalyPolicy, goodAccount.GetProperty("PolicyId").GetString());
+        var score = goodAccount.GetProperty("Anomaly");
+        Assert.Equal(account.Points[^1].Value, score.GetProperty("Count").GetInt64());
+        Assert.True(double.IsFinite(score.GetProperty("ExpectedCount").GetDouble()));
+        var surprise = score.GetProperty("StatisticValue").GetDouble();
+        Assert.True(double.IsFinite(surprise));
+        const double threshold = 3.4120270786372;
+        Assert.Equal(threshold, score.GetProperty("Threshold").GetDouble());
+        Assert.Equal(surprise >= threshold, score.GetProperty("Alert").GetBoolean());
+        var saved = await PaymentKit.Scalar<string>(db.Owner, """
+            SELECT encode(evidence_digest, 'hex') FROM revenant.v4_advisory_evidence
+            WHERE execution_run_id = @run AND schema_id = 'anomaly-evidence/2'
+              AND model_id = @model AND policy_id = @policy
+            """, ("run", id.Value), ("model", anomaly.ModelId), ("policy", AdvisoryEvidence.GlobalAnomalyPolicy));
+        Assert.Equal(saved, goodAccount.GetProperty("EvidenceSha256").GetString());
+        var evidence = RevenantAdvisoryWorker.ScoreSupported(account, id, artifactRoot);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => store.PersistAdvisoryAsync(tenant,
+            evidence with { AnomalyV2 = evidence.AnomalyV2! with { Residual = evidence.AnomalyV2.Residual + 1 } }, ct));
         Assert.Equal(goodBank.Select(x => x.GetRawText()), (await Score(seal, null)).Select(x => x.GetRawText()));
         Assert.Equal(goodAccount.GetRawText(), Assert.Single(await Score(seal, account.SubjectId)).GetRawText());
         var early = Assert.Single(await Score(origin + ObservedFinanceVersion.BucketMs, account.SubjectId));
@@ -138,35 +191,75 @@ public sealed class R7PublishedWorkerTests(LedgerDatabase db)
         try
         {
             var missing = Assert.Single(await Score(seal, account.SubjectId));
-            Assert.Equal("ArtifactMissing", missing.GetProperty("Status").GetString());
+            Unavailable(missing, "ArtifactMissing");
             File.WriteAllBytes(anomalyZip, [0, 1, 2]);
             var corrupt = Assert.Single(await Score(seal, account.SubjectId));
-            Assert.Equal("ArtifactInvalid", corrupt.GetProperty("Status").GetString());
+            Unavailable(corrupt, "ArtifactInvalid");
+
+            // Keep the advisory ZIP corrupt while a real ModelRequired screening reserves money in a child.
+            var context = result.History.Segments[0].Context;
+            var childContext = new ObservedFinanceContext(context.ScenarioVersion, context.ManifestSha256, context.OriginMs,
+                PolicyCatalog.RefOf(PolicyCatalog.V8), context.ReviewPolicy, context.RiskMode, context.RiskFeatureSchema,
+                context.RiskModel, context.AnomalyModels, context.LiquidityModels);
+            var child = new ScenarioRunId(Guid.NewGuid());
+            await branch.ForkAsync(tenant, PaymentKit.Operator, plan.Opening, id, child, seal, "r7-option-a", childContext, ct);
+            var inherited = await Score(seal, null, child);
+            Assert.Equal(goodBank.Select(r => r.GetProperty("SeriesSha256").GetString()),
+                inherited.Select(r => r.GetProperty("SeriesSha256").GetString()));
+            Assert.Equal(goodBank.Select(r => r.GetProperty("Liquidity").GetRawText()),
+                inherited.Select(r => r.GetProperty("Liquidity").GetRawText()));
+
+            var payment = Payment(10, seal, ReviewPolicy.HighValueThresholdMinor, childOnly: true);
+            await Dispatch(new(payment.IntentId + ":intake", V4CommandClass.Exogenous, "PaymentIntent",
+                ScenarioSchemas.InputSchemaVersion, [.. PaymentIntentCodec.Instance.EncodeCanonical(payment)], seal, seal));
+            var screen = await Dispatch(new(payment.IntentId + ":screen", V4CommandClass.DerivedOpportunity, "Screening",
+                "v4-payment-opportunity/1", [.. new Marrow.Kernel.Canonical.CanonicalWriter().WriteInt32(1)
+                    .WriteString(payment.IntentId).ToArray()], seal, seal));
+            Assert.Equal(nameof(PaymentStatus.Held), screen.OutcomeCode);
+            Assert.Equal(V4StepKind.Sealed, (await store.SealAsync(tenant, child, opening.EndMs, ct)).Kind);
+            var childHistory = await branch.ReadProjectionHistoryAsync(tenant, child, ct);
+            var screening = Assert.Single(childHistory.Segments[^1].Facts, f => f.Input.Kind == ObservedFactKind.Screening);
+            Assert.Equal(BehavioralRiskScorerV2.PublishedPin, V4ModelScreeningEvidence.Decode(screening.Input).Model);
+            Assert.Null(await ledger.GetPaymentAsync(tenant, id, payment.IntentId, ct));
+            var sourceNext = await Score(opening.EndMs, null);
+            var childNext = await Score(opening.EndMs, null, child);
+            long Available(JsonElement[] rows) => rows.Single(r => r.GetProperty("Subject").GetString() == payer.BankId)
+                .GetProperty("Liquidity").GetProperty("ObservedAvailableMinor").GetInt64();
+            Assert.Equal(Available(sourceNext) - payment.Amount.MinorUnits, Available(childNext));
+
+            async Task<V4ScheduledCommand> Dispatch(V4CommandRequest command)
+            {
+                await store.AdmitAsync(tenant, child, command, ct);
+                var step = await store.AdvanceOneStepAsync(tenant, child, ct);
+                Assert.Equal(V4StepKind.ProcessedCommand, step.Kind);
+                Assert.NotNull(step.Command);
+                Assert.Equal(V4CommandStatus.Completed, step.Command.Status);
+                return step.Command;
+            }
         }
         finally
         {
             File.Move(backup, anomalyZip, overwrite: true);
         }
-        Assert.True(File.Exists(forecastZip));
-        Assert.Equal(7L, await PaymentKit.Scalar<long>(db.Owner,
+        Assert.Equal(13L, await PaymentKit.Scalar<long>(db.Owner,
             "SELECT count(*) FROM revenant.v4_advisory_evidence WHERE execution_run_id = @run", ("run", id.Value)));
         Assert.Equal(result.History.Segments[0].LastFact, (await store.ReadFinanceHistoryAsync(tenant, id, id, ct)).LastFact);
 
-        (ObservedModelPin Pin, string Zip) ReadPin(string kind)
+        PaymentIntent Payment(int sequence, long at, long amount, bool childOnly = false) =>
+            new(id, $"r7-runtime-{sequence}", sequence, at, payer.BankId, payer.AccountId, payee.BankId, payee.AccountId,
+                Money.Usd(amount), SyntheticTruth.Legitimate, new(childOnly, false));
+
+        static void Unavailable(JsonElement receipt, string expected)
         {
-            var directory = Assert.Single(Directory.GetDirectories(Path.Combine(artifactRoot, kind)));
-            var bytes = File.ReadAllBytes(Path.Combine(directory, "manifest.json"));
-            using var manifest = JsonDocument.Parse(bytes);
-            var sha = manifest.RootElement.GetProperty("ArtifactSha256").GetString()!;
-            var zip = Path.Combine(directory, kind + ".zip");
-            Assert.Equal(sha, ObservationEncoding.Hash(File.ReadAllBytes(zip)));
-            return (new($"revenant-ssa-{kind}/{ObservationEncoding.Hash(bytes)}", sha), zip);
+            Assert.Equal(expected, receipt.GetProperty("Status").GetString());
+            Assert.Equal(JsonValueKind.Null, receipt.GetProperty("EvidenceSha256").ValueKind);
+            Assert.Equal(JsonValueKind.Null, receipt.GetProperty("Anomaly").ValueKind);
         }
 
-        async Task<JsonElement[]> Score(long boundary, string? subject)
+        async Task<JsonElement[]> Score(long boundary, string? subject, ScenarioRunId? execution = null)
         {
             var start = new ProcessStartInfo("dotnet") { RedirectStandardOutput = true, RedirectStandardError = true };
-            foreach (var value in new[] { worker, "--v4-advisory", id.Value.ToString("D"), boundary.ToString(CultureInfo.InvariantCulture) })
+            foreach (var value in new[] { worker, "--v4-advisory", (execution ?? id).Value.ToString("D"), boundary.ToString(CultureInfo.InvariantCulture) })
                 start.ArgumentList.Add(value);
             if (subject is not null) start.ArgumentList.Add(subject);
             start.Environment["ConnectionStrings__Postgres"] = logins.Worker;

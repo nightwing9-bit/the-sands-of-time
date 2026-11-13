@@ -1,3 +1,4 @@
+using Hosts.Worker;
 using Revenant.Finance;
 using Revenant.Intelligence;
 using Revenant.Observations;
@@ -159,6 +160,40 @@ public sealed class V4AdvisorySeriesTests
         Assert.Equal(a.BankAvailableSeries(p.SourceBankId, cutoff + Bucket).Points[^1].Value - p.Amount.MinorUnits,
             b.BankAvailableSeries(p.SourceBankId, cutoff + Bucket).Points[^1].Value);
         Assert.All(b.BankAvailableSeries(p.SourceBankId, cutoff + Bucket).Points, x => Assert.Equal(childPhysical, x.Seal.ExecutionRunId));
+
+        // The supported bank route works with no artifacts and exposes the child's physical seal separately.
+        var absentArtifacts = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var aInherited = Score(a, cutoff);
+        var bInherited = Score(b, cutoff);
+        Assert.Equal(aInherited.Series.Digest, bInherited.Series.Digest);
+        Assert.Equal(aInherited.Liquidity!.Horizons, bInherited.Liquidity!.Horizons);
+        Assert.NotEqual(aInherited.Series.ExecutionRunId, bInherited.Series.ExecutionRunId);
+        var sourceLater = Score(a, cutoff + Bucket);
+        var childLater = Score(b, cutoff + Bucket);
+        Assert.NotEqual(sourceLater.Series.Digest, childLater.Series.Digest);
+        var receipt = RevenantAdvisoryWorker.Describe(childLater, ObservationEncoding.Hash(childLater.Encode()));
+        Assert.Equal(AdvisoryStatus.Available, receipt.Status);
+        Assert.Equal(RevenantAdvisoryWorker.AdvisoryKind.StatisticalLiquidityProjection, receipt.Kind);
+        Assert.Equal("LiquidityPersistenceBaseline/1", receipt.ProducerId);
+        Assert.Equal("liquidity-projection-evidence/1", receipt.Schema);
+        Assert.Equal(childPhysical.Value, receipt.Execution);
+        Assert.Null(receipt.ModelId);
+        Assert.Null(receipt.ArtifactSha256);
+        Assert.Null(receipt.Anomaly);
+        Assert.Equal(AdvisoryUncertainty.Uncalibrated, receipt.Liquidity!.Uncertainty);
+        Assert.Equal(8, receipt.Liquidity.Horizons.Length);
+        var balance = b.Banks.Single(r => r.BankId == p.SourceBankId && r.Seal.BoundaryMs == cutoff + Bucket).Balance;
+        Assert.Equal(balance.Posted - balance.Reserved, receipt.Liquidity.ObservedAvailableMinor);
+        Assert.Equal(Enumerable.Range(1, 8).Select(h => new LiquidityProjectionStep(cutoff + (h + 1) * Bucket, balance.Available)),
+            receipt.Liquidity.Horizons);
+        Assert.Equal(sourceLater.Liquidity!.ObservedAvailableMinor - p.Amount.MinorUnits, receipt.Liquidity.ObservedAvailableMinor);
+        var unsealed = Score(b, cutoff + 2 * Bucket);
+        Assert.Equal(AdvisoryStatus.UnobservedOrigin, unsealed.Status);
+        Assert.Null(unsealed.Liquidity);
+
+        AdvisoryEvidence Score(V4ObservationProjector projector, long boundary) =>
+            RevenantAdvisoryWorker.ScoreSupported(projector.BankAvailableSeries(p.SourceBankId, boundary),
+                source.Run.RunId, absentArtifacts);
     }
 
     [Fact]
