@@ -43,10 +43,24 @@ internal static class RevenantSsaInference
         if (!spec.IsValid || start < 0 || start + spec.TrainSize > available.Count)
             throw new InvalidDataException("Forecast training requires one valid specification and a contiguous training slice.");
         var scale = SsaAdvisory.Scale(opening, spec.ScaleDivisor);
-        var data = ml.Data.LoadFromEnumerable(Enumerable.Range(start, spec.TrainSize).Select(i => new SeriesPoint
-        {
-            Value = SsaAdvisory.ForecastInput(spec.Representation, opening, scale, i == 0 ? opening : available[i - 1], available[i]),
-        }).ToArray());
+        return FitForecastSeries(ml, spec, Enumerable.Range(start, spec.TrainSize).Select(i =>
+            SsaAdvisory.ForecastInput(spec.Representation, opening, scale, i == 0 ? opening : available[i - 1], available[i])));
+    }
+
+    /// <summary>Fits on every valid trailing rate in one contiguous bank history.</summary>
+    internal static byte[] FitTrailingRate(MLContext ml, SsaForecastSpec spec, long opening, IReadOnlyList<long> available)
+    {
+        RequireSupportedPlatform();
+        if (!spec.IsValid || available.Count - SsaTrailingRate.FirstRate != spec.TrainSize)
+            throw new InvalidDataException("Trailing-rate training needs the specified number of complete rates.");
+        var scale = SsaAdvisory.Scale(opening, spec.ScaleDivisor);
+        return FitForecastSeries(ml, spec, Enumerable.Range(SsaTrailingRate.FirstRate, spec.TrainSize)
+            .Select(i => SsaTrailingRate.Input(available, opening, scale, i)));
+    }
+
+    private static byte[] FitForecastSeries(MLContext ml, SsaForecastSpec spec, IEnumerable<float> observations)
+    {
+        var data = ml.Data.LoadFromEnumerable(observations.Select(value => new SeriesPoint { Value = value }).ToArray());
         var estimator = ml.Forecasting.ForecastBySsa(nameof(ForecastOutput.Forecast), nameof(SeriesPoint.Value),
             windowSize: spec.Window, seriesLength: spec.SeriesLength, trainSize: spec.TrainSize, horizon: SsaAdvisory.Horizon,
             isAdaptive: false, confidenceLevel: .95f,
@@ -55,6 +69,31 @@ internal static class RevenantSsaInference
         using var stream = new MemoryStream();
         ml.Model.Save(estimator.Fit(data), data.Schema, stream);
         return stream.ToArray();
+    }
+
+    internal sealed record TrailingRateStep(int Bucket, long Sigma, float[] Rates, long[] ExactInverse, long[] IntegratedExtrapolation);
+
+    internal static TrailingRateStep[] ForecastTrailingRate(MLContext ml, ReadOnlySpan<byte> artifact, SsaForecastSpec spec,
+        long opening, IReadOnlyList<long> available)
+    {
+        if (!spec.IsValid) throw new InvalidDataException("Invalid trailing-rate forecast specification.");
+        var first = SsaTrailingRate.FirstRate + spec.Warmup;
+        if (available.Count <= first) return [];
+        var scale = SsaAdvisory.Scale(opening, spec.ScaleDivisor);
+        using var stream = new MemoryStream(artifact.ToArray(), writable: false);
+        using var engine = Load<ForecastOutput>(ml, stream);
+        var steps = new TrailingRateStep[available.Count - first];
+        for (var i = SsaTrailingRate.FirstRate; i < available.Count; i++)
+        {
+            var result = ObserveBank(engine, SsaTrailingRate.Input(available, opening, scale, i));
+            if (i < first) continue;
+            VerifyForecast(result, SsaAdvisory.Horizon);
+            steps[i - first] = new(i, SsaAdvisory.Sigma(available, opening, scale, i, SsaTrailingRate.Window),
+                (float[])result.Forecast.Clone(),
+                SsaTrailingRate.Decode(SsaTrailingRateDecoder.TrailingRateExactInverse, available, scale, i, result.Forecast),
+                SsaTrailingRate.Decode(SsaTrailingRateDecoder.TrailingRateIntegratedExtrapolation, available, scale, i, result.Forecast));
+        }
+        return steps;
     }
 
     /// <summary>
