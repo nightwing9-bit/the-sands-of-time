@@ -68,6 +68,13 @@ public sealed class V4AdvisorySeriesTests
         var projector = V4ObservationProjector.Project(fixture.History());
         var account = projector.AccountOutgoingSeries(payer.AccountId, first + 2 * Bucket);
         Assert.Equal([1L, 1L, 0L], account.Points.Select(p => p.Value));
+        var bytes = account.Encode();
+        var decoded = V4AdvisorySeries.Decode(bytes, account.Digest, account.ExecutionRunId);
+        Assert.Equal(bytes, decoded.Encode());
+        Assert.Equal(account.Origin, decoded.Origin);
+        var trailing = bytes.Append((byte)0).ToArray();
+        Assert.Throws<Marrow.Kernel.Canonical.CanonicalFormatException>(() =>
+            V4AdvisorySeries.Decode(trailing, ObservationEncoding.Hash(trailing), account.ExecutionRunId));
         Assert.Equal(firstPrefix.Encode(), projector.AccountOutgoingSeries(payer.AccountId, first).Encode());
         Assert.Equal(firstPrefix.Digest, projector.AccountOutgoingSeries(payer.AccountId, first).Digest);
         Assert.Equal(AdvisorySeriesCoverage.UnobservedOrigin, projector.AccountOutgoingSeries(payer.AccountId, origin).Coverage);

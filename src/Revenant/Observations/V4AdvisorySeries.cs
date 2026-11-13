@@ -59,6 +59,42 @@ internal sealed record V4AdvisorySeries(string Schema, ScenarioRunId ExecutionRu
             throw new CanonicalFormatException("An eligible advisory series must end at its requested completed seal.");
         return w.ToArray();
     }
+
+    internal static V4AdvisorySeries Decode(ReadOnlySpan<byte> bytes, string digest, ScenarioRunId executionRunId)
+    {
+        ObservationEncoding.RequireDigest(bytes, digest);
+        var reader = new CanonicalReader(bytes);
+        ObservedFinanceEncoding.ReadFormat(ref reader);
+        var schema = reader.ReadString();
+        var subject = reader.ReadString();
+        var unit = reader.ReadString();
+        var opening = reader.ReadInt64();
+        var requested = reader.ReadInt64();
+        var coverage = (AdvisorySeriesCoverage)reader.ReadByte();
+        var reference = ObservationEncoding.ReadOptional(ref reader);
+        var count = reader.ReadCount();
+        const int minimumPointBytes = 8 + 8 + 4 + 32 + 8;
+        if (count > bytes.Length / minimumPointBytes)
+            throw new CanonicalFormatException("Truncated advisory series points.");
+
+        var points = ImmutableArray.CreateBuilder<AdvisorySeriesPoint>(count);
+        var start = opening;
+        for (var i = 0; i < count; i++)
+        {
+            var boundary = reader.ReadInt64();
+            var sequence = reader.ReadInt64();
+            var prefix = ObservedFinanceEncoding.ReadHash(ref reader);
+            var value = reader.ReadInt64();
+            points.Add(new(new(executionRunId, start, boundary, sequence, prefix), value));
+            start = boundary;
+        }
+        reader.EnsureEnd();
+        var series = new V4AdvisorySeries(schema, executionRunId, subject, unit, opening, reference, requested, coverage,
+            points.MoveToImmutable());
+        if (!bytes.SequenceEqual(series.Encode()))
+            throw new CanonicalFormatException("Noncanonical advisory series.");
+        return series;
+    }
 }
 
 internal sealed partial class V4ObservationProjector
