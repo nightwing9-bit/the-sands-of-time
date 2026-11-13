@@ -25,7 +25,8 @@ internal sealed partial class V4ObservationProjector
     private readonly SortedDictionary<string, BankActivity> banks = new(StringComparer.Ordinal);
     private readonly Dictionary<string, long> pending = new(StringComparer.Ordinal);
     private readonly List<V4BankObservation> bankRows = [];
-    private Dictionary<string, ObservationBalance> openingBalances = null!;
+    private IReadOnlyDictionary<string, ObservationBalance> openingBalances = null!;
+    private IReadOnlyDictionary<string, ObservationBalance> previousBalances = null!;
 
     private ObservedFinanceState prefix = null!;
 
@@ -39,8 +40,8 @@ internal sealed partial class V4ObservationProjector
         }
 
         projector.openingBalances = BankBalances(state);
-        var catalog = Enumerable.Range(0, BehavioralEpisodeScenario.BankCount).Select(FridayRingScenario.BankId);
-        if (!catalog.SequenceEqual(projector.openingBalances.Keys.Order(StringComparer.Ordinal)))
+        projector.previousBalances = projector.openingBalances;
+        if (!BankIds.SequenceEqual(projector.openingBalances.Keys.Order(StringComparer.Ordinal)))
         {
             throw new InvalidOperationException("Observation genesis does not contain the six supported banks.");
         }
@@ -162,7 +163,7 @@ internal sealed partial class V4ObservationProjector
         foreach (var (id, a) in banks)
         {
             var balance = closing[id];
-            var previous = openingBalances[id];
+            var previous = previousBalances[id];
             var row = new V4BankObservation(seal, id, balance, a.Intents, a.Submitted, a.Senders.Count, a.Receivers.Count,
                 a.Screened, a.Cleared, a.Held, a.Rejected, pending[id], a.SettledIn, a.SettledOut, a.SettledTransfers,
                 a.ReturnedIn, a.ReturnedOut, a.Returns, a.Reserved, a.Released);
@@ -181,7 +182,7 @@ internal sealed partial class V4ObservationProjector
             throw new InvalidOperationException("Internal transfers must conserve system principal.");
         }
         foreach (var bank in closing.Keys) banks[bank] = new();
-        openingBalances = closing;
+        previousBalances = closing;
     }
 
     private static Dictionary<string, ObservationBalance> BankBalances(ObservedFinanceState state)

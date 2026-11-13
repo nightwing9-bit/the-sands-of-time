@@ -46,7 +46,7 @@ jobs:
 
       # Remaining cheap unit tests. Integration and E2E tests must carry these traits to stay out of the fast job.
       - name: Cheap unit tests
-        run: dotnet test TheSandsOfTime.slnx --configuration Release --no-build --filter "Category!=Integration&Category!=E2E&Category!=MlSsaX64&Category!=OfflineTraining&Category!=R4Cohort&Category!=R5Cohort&Category!=R5ArtifactX64&Category!=R6Qualification"
+        run: dotnet test TheSandsOfTime.slnx --configuration Release --no-build --filter "Category!=Integration&Category!=E2E&Category!=MlSsaX64&Category!=OfflineTraining&Category!=R4Cohort&Category!=R5Cohort&Category!=R5ArtifactX64&Category!=R6Qualification&Category!=R7SsaTransfer"
       # SSA tests are excluded above on purpose (they need MKL/OpenMP on Linux x64 and must never be skipped silently):
       # the ml-platform-x64 job below runs them and fails unless the expected probe tests executed and passed.
       - name: Fit the bounded R5 candidates and freeze Calibration
@@ -360,6 +360,42 @@ jobs:
           name: r6-live-financial-evidence
           path: TestResults/r6-qualification
           retention-days: 30
+      - name: Run the R7 native SSA transfer gate on committed PostgreSQL histories
+        id: r7-ssa-transfer
+        if: >-
+          ${{ steps.revenant-coverage.outcome == 'success'
+              && github.event.pull_request.head.repo.full_name == github.repository
+              && github.event.pull_request.head.ref == 'codex/r7-ssa-anomaly-liquidity-20261113'
+              && (github.event.action == 'opened'
+                  || contains(github.event.pull_request.body, format('R7-ssa-transfer: {0}', github.event.pull_request.head.sha))) }}
+        timeout-minutes: 10
+        shell: bash
+        env:
+          REVENANT_R7_TRANSFER_OUTPUT: ${{ github.workspace }}/TestResults/r7-transfer
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends libomp-dev
+          test -e /usr/lib/x86_64-linux-gnu/libiomp5.so
+          case_name=Frozen_SSA_models_transfer_across_independent_committed_histories
+          dotnet test tests/Revenant/Revenant.Tests.csproj --configuration Release --no-build \
+            --filter "Category=R7SsaTransfer&FullyQualifiedName~$case_name" \
+            --logger "trx;LogFileName=r7-transfer.trx" --results-directory "$REVENANT_R7_TRANSFER_OUTPUT"
+          report="$REVENANT_R7_TRANSFER_OUTPUT/r7-transfer.trx"
+          counters=$(grep -o '<Counters [^>]*>' "$report")
+          for field in 'total="1"' 'executed="1"' 'passed="1"' 'failed="0"' 'notExecuted="0"'; do
+            [[ " $counters" == *" $field "* ]]
+          done
+          grep -Eq "<UnitTestResult [^>]*testName=\"[^\"]*\.$case_name\"[^>]*outcome=\"Passed\"" "$report"
+          test -s "$REVENANT_R7_TRANSFER_OUTPUT/transfer.json"
+      - name: Upload R7 native transfer evidence
+        if: ${{ !cancelled() && steps.r7-ssa-transfer.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: r7-native-ssa-transfer
+          path: TestResults/r7-transfer
+          if-no-files-found: error
+          retention-days: 14
       - name: Run explicitly selected R4 cohort on native PostgreSQL
         id: r4-cohort
         if: >-
