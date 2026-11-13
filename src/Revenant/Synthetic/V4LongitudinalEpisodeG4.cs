@@ -80,7 +80,9 @@ internal static class V4LongitudinalPlannerG4
     private sealed record Episode(int Account, LongitudinalEventKind Kind, VelocityMechanism Mechanism, EventIntent Intent,
         int Start, int End);
 
-    internal static V4LongitudinalEpisode Plan(LongitudinalRoot root, ScenarioRunId execution)
+    internal static V4LongitudinalEpisode Plan(LongitudinalRoot root, ScenarioRunId execution) => Plan(root, execution, Version);
+
+    internal static V4LongitudinalEpisode Plan(LongitudinalRoot root, ScenarioRunId execution, string version)
     {
         var calendar = SeededRandom.ForStream(root.Seed, 41);
         var ordinary = SeededRandom.ForStream(root.Seed, 42);
@@ -93,7 +95,7 @@ internal static class V4LongitudinalPlannerG4
         var duration = root.Days * BucketsPerDay;
         var origin = 1_772_323_200_000L + calendar.NextInt(0, 84 * BucketsPerDay) * Bucket;
         var run = BehavioralEpisodeScenario.Create(execution, root.Seed, origin, duration * Bucket,
-            [.. Enumerable.Repeat(AccountsPerBank, BankCount)], Version);
+            [.. Enumerable.Repeat(AccountsPerBank, BankCount)], version);
         var accounts = run.Manifest.Accounts;
         if (accounts.Length != BankCount * AccountsPerBank) throw new InvalidOperationException("Unexpected generator-4 population.");
         var opening = accounts.Select(a => a.OpeningBalance.MinorUnits).ToArray();
@@ -152,19 +154,25 @@ internal static class V4LongitudinalPlannerG4
         }
 
         // Developing pressure and one sudden shock, sized from the planned balances so every drain is fundable.
+        if (version == V4LongitudinalPlannerG5.Version)
+            foreach (var sweep in V4LongitudinalPlannerG5.OperationalSweeps(root, bankOpening))
+                Add(sweep.Bucket, Treasury(sweep.From), Treasury(sweep.To), sweep.Amount);
         var walk = Walk();
         var stressed = Enumerable.Range(0, BankCount).ToArray();
         stress.Shuffle(stressed);
         var stressDays = Enumerable.Range(1, root.Days - 1).ToArray();
         stress.Shuffle(stressDays);
-        var suddenIndex = stress.NextInt(0, 3);
+        var newPressure = version == V4LongitudinalPlannerG5.Version;
+        var suddenIndex = newPressure ? BankCount : stress.NextInt(0, 3);
         var bankEvents = new List<(string Bank, LongitudinalEventKind Kind, int Start, int End)>();
-        for (var i = 0; i < 3; i++)
+        for (var i = 0; i < (newPressure ? BankCount + 1 : 3); i++)
         {
-            var bank = stressed[i];
-            var recipient = stressed[i + 3];
-            var start = stressDays[i] * BucketsPerDay + stress.NextInt(65, 215);
+            var bank = stressed[i % BankCount];
+            var recipient = stressed[(i + 3) % BankCount];
+            var start = stressDays[i % stressDays.Length] * BucketsPerDay + stress.NextInt(65, 215);
             var sudden = i == suddenIndex;
+            if (newPressure && i >= stressDays.Length)
+                start = stressDays[0] * BucketsPerDay + 10;
             var installments = sudden ? 1 : stress.NextInt(8, 17);
             var gap = sudden ? 1 : stress.NextInt(1, shifted ? 4 : 3);
             var pause = stress.NextInt(9, 21);
@@ -172,7 +180,7 @@ internal static class V4LongitudinalPlannerG4
             start = Math.Min(start, duration - 1 - ((installments - 1) * gap + pause + installments));
             var drainEnd = start + (installments - 1) * gap;
             var recover = drainEnd + pause;
-            var keepPermille = stress.NextInt(40, 81);
+            var keepPermille = stress.NextInt(40, newPressure && !sudden ? 131 : 81);
             var members = Enumerable.Range(bank * AccountsPerBank, AccountsPerBank).ToArray();
             var planned = members.Select(a => Math.Max(0, walk.BalanceAt(a, start))).ToArray();
             var total = planned.Sum();
@@ -229,7 +237,7 @@ internal static class V4LongitudinalPlannerG4
         var payments = ImmutableArray.CreateBuilder<V4PlannedPayment>(ordered.Count);
         var reviews = new Dictionary<string, long>(StringComparer.Ordinal);
         var seen = new HashSet<(int, int)>();
-        var canonical = ObservationEncoding.Begin(Version).WriteInt64(origin).WriteCount(ordered.Count);
+        var canonical = ObservationEncoding.Begin(version).WriteInt64(origin).WriteCount(ordered.Count);
         var previous = -1;
         var slotOffset = 0;
         var timing = SeededRandom.ForStream(root.Seed, 49);
@@ -256,7 +264,7 @@ internal static class V4LongitudinalPlannerG4
         return new(root, new(run, origin + duration * Bucket, payments.MoveToImmutable()), labels, reviews,
             ObservationEncoding.Hash(canonical.ToArray()),
             accounts.Select((a, i) => (a.AccountId, rhythms[i].Kind.ToString())).ToDictionary(x => x.AccountId, x => x.Item2, StringComparer.Ordinal),
-            Version, TruthSchema);
+            version, TruthSchema);
 
         int Treasury(int bank) => bank * AccountsPerBank;
 

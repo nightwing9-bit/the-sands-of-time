@@ -67,6 +67,13 @@ public sealed class R7LongitudinalPostgresTests(LedgerDatabase db)
         var minutes = int.TryParse(Environment.GetEnvironmentVariable("REVENANT_R7_GENERATION_TIMEOUT_MINUTES"), out var m) && m > 0 ? m : 35;
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(minutes));
         var logins = await db.ProvisionDeployedLoginsAsync();
+        await ExecutePilot(roots, manifestName, generator, path, logins, timeout.Token);
+    }
+
+    internal static async Task ExecutePilot(LongitudinalRoot[] roots, string manifestName, string generator, string path,
+        LedgerDatabase.DeployedLogins logins, CancellationToken cancellation)
+    {
+        Directory.CreateDirectory(path);
         await using var writer = NpgsqlDataSource.Create(logins.WorkerLedger);
         var services = new ServiceCollection();
         services.AddSingleton(_ => NpgsqlDataSource.Create(logins.Worker));
@@ -82,9 +89,14 @@ public sealed class R7LongitudinalPostgresTests(LedgerDatabase db)
         var summaries = await Task.WhenAll(roots.Select(async root =>
         {
             var id = new ScenarioRunId(new Guid(Convert.FromHexString(root.Key[..32]), bigEndian: true));
-            var episode = generator == V4LongitudinalPlannerG4.Version ? V4LongitudinalPlannerG4.Plan(root, id) : V4LongitudinalPlanner.Plan(root, id);
+            var episode = generator switch
+            {
+                V4LongitudinalPlannerG5.Version => V4LongitudinalPlannerG5.Plan(root, id),
+                V4LongitudinalPlannerG4.Version => V4LongitudinalPlannerG4.Plan(root, id),
+                _ => V4LongitudinalPlanner.Plan(root, id),
+            };
             var riskMode = root.Split == LongitudinalSplit.Challenge ? ObservedRiskMode.ModelRequired : ObservedRiskMode.NotRequired;
-            var result = await executor.ExecuteAsync(Tenant, Owner, episode.Financial, timeout.Token, riskMode,
+            var result = await executor.ExecuteAsync(Tenant, Owner, episode.Financial, cancellation, riskMode,
                 reviewTimes: episode.ReviewTimes);
             return Export(path, episode, result);
         }));
@@ -191,7 +203,7 @@ public sealed class R7LongitudinalPostgresTests(LedgerDatabase db)
         {
             episode.Root, episode.BehaviorSha256, plan.Opening.Manifest.ContentHash, Execution = plan.Opening.RunId.Value, Seals = seals,
             Streams = streams, Accounts = accounts, Banks = banks,
-            Attempted = plan.Payments.Length, Accepted = accepted.Sum(g => g.Count()),
+            Attempted = plan.Payments.Length, Accepted = accepted.Sum(g => g.Count()), FinanceFacts = facts.Length,
             PostedSettlements = projection.Banks.Sum(b => b.SettledTransfers) / 2,
             SettlementFacts = facts.Count(f => f.Input.Kind == ObservedFactKind.Settlement),
             Held = projection.Banks.Sum(b => b.Held), ReservedMinor = projection.Banks.Sum(b => b.Reserved),
@@ -208,4 +220,23 @@ public sealed class R7LongitudinalPostgresTests(LedgerDatabase db)
             streams.Add(name, ObservationEncoding.Hash(bytes));
         }
     }
+}
+
+public sealed class R7IsolatedDrainPostgresTests
+{
+    [Fact]
+    [Trait("Category", "R7Longitudinal")]
+    public async Task Execute_G5_drain_pilot_on_isolated_PostgreSQL()
+    {
+        var path = Environment.GetEnvironmentVariable("REVENANT_R7_LONGITUDINAL_OUTPUT")
+            ?? throw new InvalidOperationException("Set the longitudinal evidence directory.");
+        // This entry point uses a caller-created disposable PostgreSQL instance without Testcontainers.
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(90));
+        await R7LongitudinalPostgresTests.ExecutePilot(V4LongitudinalPlannerG5.Roots().ToArray(), "pilot.json", V4LongitudinalPlannerG5.Version,
+            path, new(Required("R7_PG_WORKER"), Required("R7_PG_LEDGER"), "", "", ""), timeout.Token);
+
+        static string Required(string key) => Environment.GetEnvironmentVariable(key)
+            ?? throw new InvalidOperationException($"Set {key} for the isolated development database.");
+    }
+
 }

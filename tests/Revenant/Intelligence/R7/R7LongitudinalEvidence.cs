@@ -16,7 +16,7 @@ internal sealed record LongitudinalSample(LongitudinalRootEvidence Manifest, V4A
     V4AdvisorySeries[] Banks, LongitudinalEvent[] Events, IReadOnlyDictionary<string, long?[][]> Targets,
     IReadOnlyDictionary<string, string>? Rhythms = null, IReadOnlyDictionary<string, V4FutureFlow?[]>? Flows = null)
 {
-    internal static readonly string[] Generators = [V4LongitudinalPlanner.Version, V4LongitudinalPlannerG4.Version];
+    internal static readonly string[] Generators = [V4LongitudinalPlanner.Version, V4LongitudinalPlannerG4.Version, V4LongitudinalPlannerG5.Version];
 
     private static readonly JsonSerializerOptions Json = new() { Converters = { new JsonStringEnumConverter() } };
 

@@ -16,6 +16,7 @@ internal static class BehavioralEpisodeScenario
 
     /// <summary>R7/2 longitudinal generator: persistent account rhythms and treasury cycles (V4LongitudinalPlannerG4).</summary>
     internal const string GeneratorVersionV4 = "revenant-episode-generator/4";
+    internal const string GeneratorVersionV5 = "revenant-episode-generator/5";
     internal const int BankCount = 6;
     private const ulong PopulationStream = 0x52563401;
     private const string ManifestExtension = "revenant-behavioral-episode-manifest/1";
@@ -89,7 +90,7 @@ internal static class BehavioralEpisodeScenario
         && !populations.IsDefault && populations.Length == BankCount && populations.All(n => n is >= 2 and <= 1_000);
 
     private static bool ValidGenerator(string? generator) =>
-        generator is null or GeneratorVersionV2 or GeneratorVersionV3 or GeneratorVersionV4;
+        generator is null or GeneratorVersionV2 or GeneratorVersionV3 or GeneratorVersionV4 or GeneratorVersionV5;
 
     private static ScenarioManifest BuildManifest(long seed, long origin, long duration, ImmutableArray<int> populations,
         string? generator)
