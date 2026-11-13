@@ -18,12 +18,12 @@ public sealed partial class R7Generator4DevelopmentTests
 {
     private const long Bucket = ObservedFinanceVersion.BucketMs;
 
-    private static LongitudinalSample[] ReadExecutedPilot(string input)
+    private static LongitudinalSample[] ReadExecutedPilot(string input, bool readFlows = false)
     {
         var manifest = LongitudinalSample.ReadManifest(input, "pilot.json");
         Assert.Equal(V4LongitudinalPlannerG4.Version, manifest.Generator);
         Assert.Equal(V4LongitudinalPlannerG4.Roots(LongitudinalSplit.Pilot).Take(3), manifest.Roots.Select(r => r.Root));
-        return manifest.Roots.Select(r => LongitudinalSample.Read(input, r, requirePilotTargets: true)).ToArray();
+        return manifest.Roots.Select(r => LongitudinalSample.Read(input, r, requirePilotTargets: true, readFlows: readFlows)).ToArray();
     }
 
     [Fact]

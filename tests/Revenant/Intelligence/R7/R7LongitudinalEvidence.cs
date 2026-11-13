@@ -14,7 +14,7 @@ internal sealed record LongitudinalTruth(string Schema, string DefaultAccountBuc
     Dictionary<string, string>? Rhythms = null);
 internal sealed record LongitudinalSample(LongitudinalRootEvidence Manifest, V4AdvisorySeries[] Accounts,
     V4AdvisorySeries[] Banks, LongitudinalEvent[] Events, IReadOnlyDictionary<string, long?[][]> Targets,
-    IReadOnlyDictionary<string, string>? Rhythms = null)
+    IReadOnlyDictionary<string, string>? Rhythms = null, IReadOnlyDictionary<string, V4FutureFlow?[]>? Flows = null)
 {
     internal static readonly string[] Generators = [V4LongitudinalPlanner.Version, V4LongitudinalPlannerG4.Version];
 
@@ -31,7 +31,8 @@ internal sealed record LongitudinalSample(LongitudinalRootEvidence Manifest, V4A
         return manifest;
     }
 
-    internal static LongitudinalSample Read(string directory, LongitudinalRootEvidence root, bool requirePilotTargets = false)
+    internal static LongitudinalSample Read(string directory, LongitudinalRootEvidence root, bool requirePilotTargets = false,
+        bool readFlows = false)
     {
         if (root.Root.Key.Length != 64 || root.Root.Key.Any(c => !char.IsAsciiHexDigitLower(c))
             || root.Seals != root.Root.Days * V4LongitudinalPlanner.BucketsPerDay)
@@ -57,6 +58,7 @@ internal sealed record LongitudinalSample(LongitudinalRootEvidence Manifest, V4A
             if (!s.Points.Select(p => p.Seal).SequenceEqual(banks[0].Points.Select(p => p.Seal)))
                 throw new InvalidDataException("Series do not refer to the same completed seals.");
         var targets = new Dictionary<string, long?[][]>(StringComparer.Ordinal);
+        var flows = readFlows ? new Dictionary<string, V4FutureFlow?[]>(StringComparer.Ordinal) : null;
         if (requirePilotTargets || root.Root.Split != LongitudinalSplit.Pilot)
             foreach (var bank in banks)
             {
@@ -65,6 +67,7 @@ internal sealed record LongitudinalSample(LongitudinalRootEvidence Manifest, V4A
                 ObservationEncoding.Expect(ref reader, V4BankTargets.Schema);
                 if (reader.ReadCount() != root.Seals) throw new InvalidDataException("Incomplete bank target stream.");
                 var horizons = new long?[root.Seals][];
+                var flow = readFlows ? new V4FutureFlow?[root.Seals] : null;
                 for (var i = 0; i < horizons.Length; i++)
                 {
                     var bytes = reader.ReadBytes();
@@ -72,6 +75,7 @@ internal sealed record LongitudinalSample(LongitudinalRootEvidence Manifest, V4A
                     if (target.Origin != bank.Points[i].Seal || target.BankId != bank.SubjectId)
                         throw new InvalidDataException("Bank target origin does not match its causal series.");
                     horizons[i] = target.Horizons.Select(h => h?.Balance.Available).ToArray();
+                    if (flow is not null && i + 1 < flow.Length) flow[i + 1] = target.Horizons[0];
                     for (var h = 0; h < horizons[i].Length; h++)
                     {
                         var future = i + h + 1;
@@ -81,8 +85,9 @@ internal sealed record LongitudinalSample(LongitudinalRootEvidence Manifest, V4A
                 }
                 reader.EnsureEnd();
                 targets.Add(bank.SubjectId, horizons);
+                if (flow is not null) flows!.Add(bank.SubjectId, flow);
             }
-        return new(root, accounts, banks, truth.Events, targets, truth.Rhythms);
+        return new(root, accounts, banks, truth.Events, targets, truth.Rhythms, flows);
 
         byte[] ReadStream(string name, string hash)
         {

@@ -46,14 +46,14 @@ public sealed partial class R7Generator4DevelopmentTests
         });
     }
 
-    private static (LongitudinalSample[] Roots, string Output, string Manifest) DiagnosticInput()
+    private static (LongitudinalSample[] Roots, string Output, string Manifest) DiagnosticInput(bool readFlows = false)
     {
         var input = Environment.GetEnvironmentVariable("REVENANT_R7_PILOT_INPUT")
             ?? throw new InvalidOperationException("Set REVENANT_R7_PILOT_INPUT to the retained G4 pilot.");
         var output = Environment.GetEnvironmentVariable("REVENANT_R7_DIAGNOSTICS_OUTPUT")
             ?? throw new InvalidOperationException("Set REVENANT_R7_DIAGNOSTICS_OUTPUT.");
         Directory.CreateDirectory(output);
-        return (ReadExecutedPilot(input), output, ObservationEncoding.Hash(File.ReadAllBytes(Path.Combine(input, "pilot.json"))));
+        return (ReadExecutedPilot(input, readFlows), output, ObservationEncoding.Hash(File.ReadAllBytes(Path.Combine(input, "pilot.json"))));
     }
 
     private static object MeasureTransfer(LongitudinalSample[] roots, MLContext? ml)
