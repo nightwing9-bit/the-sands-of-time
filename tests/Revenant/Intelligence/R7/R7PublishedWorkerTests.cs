@@ -50,7 +50,9 @@ public sealed class R7PublishedWorkerTests(LedgerDatabase db)
         Assert.Equal(digest, await store.PersistAdvisoryAsync(tenant, fixture, ct));
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             store.PersistAdvisoryAsync(tenant, fixture with { Anomaly = fixture.Anomaly! with { RawScore = 1 } }, ct));
-        await Assert.ThrowsAsync<PostgresException>(() => store.PersistAdvisoryAsync(PaymentKit.TenantB, fixture, ct));
+        var wrongTenant = await Assert.ThrowsAsync<PostgresException>(() => store.PersistAdvisoryAsync(PaymentKit.TenantB,
+            fixture with { Model = fixture.Model with { ModelId = "different-test-pin" } }, ct));
+        Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, wrongTenant.SqlState);
         Assert.Equal(1L, await PaymentKit.Scalar<long>(db.Owner,
             "SELECT count(*) FROM revenant.v4_advisory_evidence WHERE execution_run_id = @run", ("run", id.Value)));
         Assert.Equal(1, (await store.ReadFinanceHistoryAsync(tenant, id, id, ct)).LastFact);
