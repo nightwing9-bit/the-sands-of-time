@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Buffers.Binary;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -28,7 +29,22 @@ public sealed class R7LongitudinalPostgresTests(LedgerDatabase db)
 
     [Fact]
     [Trait("Category", "R7Longitudinal")]
-    public async Task Generate_the_two_seven_day_PostgreSQL_pilot_roots()
+    public Task Generate_the_two_seven_day_PostgreSQL_pilot_roots() =>
+        Generate(V4LongitudinalPlanner.Roots(LongitudinalSplit.Pilot).ToArray(), "pilot.json");
+
+    [Fact]
+    [Trait("Category", "R7Longitudinal")]
+    public Task Generate_one_independent_PostgreSQL_qualification_root()
+    {
+        var split = Enum.Parse<LongitudinalSplit>(Environment.GetEnvironmentVariable("REVENANT_R7_COHORT_SPLIT") ?? "");
+        var ordinal = int.Parse(Environment.GetEnvironmentVariable("REVENANT_R7_COHORT_ORDINAL") ?? "",
+            System.Globalization.CultureInfo.InvariantCulture);
+        Assert.NotEqual(LongitudinalSplit.Pilot, split);
+        var root = V4LongitudinalPlanner.Roots(split).Single(r => r.Index == ordinal);
+        return Generate([root], "qualification.json");
+    }
+
+    private async Task Generate(LongitudinalRoot[] roots, string manifestName)
     {
         Assert.True(OperatingSystem.IsLinux() && RuntimeInformation.ProcessArchitecture == Architecture.X64);
         var path = Environment.GetEnvironmentVariable("REVENANT_R7_LONGITUDINAL_OUTPUT")
@@ -42,16 +58,21 @@ public sealed class R7LongitudinalPostgresTests(LedgerDatabase db)
         services.AddMarrowTimeline(ObservedFinanceTimelineVersions.All, ObservedFinanceTimelineVersions.CheckpointInterval);
         await using var host = services.BuildServiceProvider();
         var ledger = PaymentKit.Store(writer);
-        var store = new V4SimulationStore(writer, ledger: ledger);
+        var riskModel = new Lazy<Marrow.Kernel.Results.Result<BehavioralRiskScorerV2, BehavioralRiskFailureV2>>(() =>
+            BehavioralRiskScorerV2.Load(Path.Combine(AppContext.BaseDirectory, "Intelligence", "Artifacts",
+                BehavioralRiskScorerV2.ArtifactDirectory), BehavioralRiskScorerV2.FeatureSchema, BehavioralRiskScorerV2.PublishedPin));
+        var store = new V4SimulationStore(writer, ledger: ledger, model: riskModel);
         var branch = new V4BranchExecution(store, host.GetRequiredService<ITimelineEngine<ObservedFinanceState, ObservedFinanceInput, ObservedFinanceContext>>());
         var executor = new V4EpisodeExecutor(store, branch, ledger);
-        var summaries = await Task.WhenAll(V4LongitudinalPlanner.Roots(LongitudinalSplit.Pilot).Select(async root =>
+        var summaries = await Task.WhenAll(roots.Select(async root =>
         {
             var episode = V4LongitudinalPlanner.Plan(root, new ScenarioRunId(new Guid(Convert.FromHexString(root.Key[..32]), bigEndian: true)));
-            var result = await executor.ExecuteAsync(Tenant, Owner, episode.Financial, timeout.Token, reviewTimes: episode.ReviewTimes);
+            var riskMode = root.Split == LongitudinalSplit.Challenge ? ObservedRiskMode.ModelRequired : ObservedRiskMode.NotRequired;
+            var result = await executor.ExecuteAsync(Tenant, Owner, episode.Financial, timeout.Token, riskMode,
+                reviewTimes: episode.ReviewTimes);
             return Export(path, episode, result);
         }));
-        File.WriteAllBytes(Path.Combine(path, "pilot.json"), JsonSerializer.SerializeToUtf8Bytes(new
+        File.WriteAllBytes(Path.Combine(path, manifestName), JsonSerializer.SerializeToUtf8Bytes(new
         {
             Generator = V4LongitudinalPlanner.Version, Revision = Environment.GetEnvironmentVariable("REVENANT_R7_SOURCE_SHA"),
             Runtime = RuntimeInformation.FrameworkDescription, Platform = RuntimeInformation.RuntimeIdentifier, Roots = summaries,
@@ -106,6 +127,20 @@ public sealed class R7LongitudinalPostgresTests(LedgerDatabase db)
                 .Where(x => x > 0).Order().ToArray();
             var normalize = new AdvisoryBalanceNormalization(reference, 1_024);
             var actual = targets[b.BankId].ToArray();
+            using (var stream = new MemoryStream())
+            {
+                var header = ObservationEncoding.Begin(V4BankTargets.Schema).WriteCount(actual.Length).ToArray();
+                stream.Write(header);
+                Span<byte> size = stackalloc byte[4];
+                foreach (var target in actual)
+                {
+                    var bytes = target.Encode();
+                    BinaryPrimitives.WriteInt32BigEndian(size, bytes.Length);
+                    stream.Write(size);
+                    stream.Write(bytes);
+                }
+                Save(b.BankId + ".targets", stream.ToArray());
+            }
             var samples = actual.Select((t, i) => (t, i)).Where(x => x.t.FullyCovered).ToArray();
             foreach (var (t, i) in samples)
                 Assert.Equal(t.Horizons.Select(h => h!.Balance.Available), balances.Skip(i + 1).Take(8));
@@ -142,6 +177,8 @@ public sealed class R7LongitudinalPostgresTests(LedgerDatabase db)
             PostedSettlements = projection.Banks.Sum(b => b.SettledTransfers) / 2,
             SettlementFacts = facts.Count(f => f.Input.Kind == ObservedFactKind.Settlement),
             Held = projection.Banks.Sum(b => b.Held), ReservedMinor = projection.Banks.Sum(b => b.Reserved),
+            LearnedHolds = facts.Count(f => f.Input.Kind == ObservedFactKind.Screening
+                && f.Input.PayloadSchema == V4ModelScreeningEvidence.Schema && V4ModelScreeningEvidence.Decode(f.Input).Admitted),
             Releases = facts.Count(f => f.Input.Kind == ObservedFactKind.ReviewDecision),
             ReleasedMinor = projection.Banks.Sum(b => b.Released), ReturnFacts = facts.Count(f => f.Input.Kind == ObservedFactKind.ReturnInstruction),
             ExecuteMs = result.Timing.Total.TotalMilliseconds, ProjectionAndExportMs = timer.Elapsed.TotalMilliseconds, process.PeakWorkingSet64,

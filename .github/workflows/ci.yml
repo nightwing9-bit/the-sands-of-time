@@ -576,6 +576,147 @@ jobs:
           path: TestResults/r7-pilot
           if-no-files-found: error
           retention-days: 14
+  r7-pilot-evaluation:
+    name: R7 SSA evaluation on the frozen pilot (Linux AMD64)
+    if: >-
+      ${{ github.event.pull_request.head.repo.full_name == github.repository
+          && github.event.pull_request.head.ref == 'codex/r7-ssa-anomaly-liquidity-20261113'
+          && contains(github.event.pull_request.body, 'R7-pilot-evaluation: ') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - name: Read and verify the completed pilot artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          R7_PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          run_id=$(printf '%s\n' "$R7_PR_BODY" | sed -nE 's/^R7-pilot-evaluation: ([0-9]+)$/\1/p')
+          [[ "$run_id" =~ ^[0-9]+$ ]]
+          gh run download "$run_id" -n r7-longitudinal-pilot -D TestResults/r7-pilot-input
+          rg -q '<Counters [^>]*total="1" executed="1" passed="1" failed="0"' TestResults/r7-pilot-input/r7-pilot.trx
+      - name: Fit and score the two native starter configurations
+        env:
+          REVENANT_R7_PILOT_INPUT: ${{ github.workspace }}/TestResults/r7-pilot-input
+          REVENANT_R7_PILOT_EVAL: ${{ github.workspace }}/TestResults/r7-pilot-evaluation
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends libomp-dev
+          case_name=Measure_SSA_transfer_on_the_frozen_seven_day_pilot
+          dotnet test tests/Revenant/Revenant.Tests.csproj --configuration Release \
+            --filter "Category=R7Longitudinal&FullyQualifiedName~$case_name" \
+            --logger "trx;LogFileName=r7-pilot-evaluation.trx" --results-directory "$REVENANT_R7_PILOT_EVAL"
+          report="$REVENANT_R7_PILOT_EVAL/r7-pilot-evaluation.trx"
+          rg -q '<Counters [^>]*total="1" executed="1" passed="1" failed="0"' "$report"
+          rg -q "<UnitTestResult [^>]*testName=\"[^\"]*\.$case_name\"[^>]*outcome=\"Passed\"" "$report"
+          jq -e '.Candidates | length == 2 and all(.[]; (.Horizons | length) == 8)' "$REVENANT_R7_PILOT_EVAL/pilot-evaluation.json"
+      - uses: actions/upload-artifact@v6
+        if: ${{ !cancelled() }}
+        with:
+          name: r7-pilot-evaluation
+          path: TestResults/r7-pilot-evaluation
+          if-no-files-found: error
+          retention-days: 14
+  r7-qualification:
+    name: R7 qualification (${{ matrix.root.split }} ${{ matrix.root.ordinal }})
+    if: >-
+      ${{ github.event.pull_request.head.repo.full_name == github.repository
+          && github.event.pull_request.head.ref == 'codex/r7-ssa-anomaly-liquidity-20261113'
+          && contains(github.event.pull_request.body, format('R7-qualification: {0}', github.event.pull_request.head.sha)) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        root:
+          - {split: Train, ordinal: 0}
+          - {split: Train, ordinal: 1}
+          - {split: Train, ordinal: 2}
+          - {split: Train, ordinal: 3}
+          - {split: Train, ordinal: 4}
+          - {split: Train, ordinal: 5}
+          - {split: Validation, ordinal: 0}
+          - {split: Validation, ordinal: 1}
+          - {split: Validation, ordinal: 2}
+          - {split: Calibration, ordinal: 0}
+          - {split: Calibration, ordinal: 1}
+          - {split: Calibration, ordinal: 2}
+          - {split: FinalTest, ordinal: 0}
+          - {split: FinalTest, ordinal: 1}
+          - {split: FinalTest, ordinal: 2}
+          - {split: FinalTest, ordinal: 3}
+          - {split: Challenge, ordinal: 0}
+          - {split: Challenge, ordinal: 1}
+          - {split: Challenge, ordinal: 2}
+          - {split: Challenge, ordinal: 3}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - name: Generate and verify one independent financial history
+        env:
+          REVENANT_R7_LONGITUDINAL_OUTPUT: ${{ github.workspace }}/TestResults/r7-qualification
+          REVENANT_R7_SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+          REVENANT_R7_COHORT_SPLIT: ${{ matrix.root.split }}
+          REVENANT_R7_COHORT_ORDINAL: ${{ matrix.root.ordinal }}
+        run: |
+          set -euo pipefail
+          case_name=Generate_one_independent_PostgreSQL_qualification_root
+          dotnet test tests/Revenant/Revenant.Tests.csproj --configuration Release \
+            --filter "Category=R7Longitudinal&FullyQualifiedName~$case_name" \
+            --logger "trx;LogFileName=qualification.trx" --results-directory "$REVENANT_R7_LONGITUDINAL_OUTPUT"
+          report="$REVENANT_R7_LONGITUDINAL_OUTPUT/qualification.trx"
+          rg -q '<Counters [^>]*total="1" executed="1" passed="1" failed="0"' "$report"
+          rg -q "<UnitTestResult [^>]*testName=\"[^\"]*\.$case_name\"[^>]*outcome=\"Passed\"" "$report"
+          jq -e '.Roots | length == 1 and .[0].Seals == 2016 and (.[0].Banks | length) == 6' \
+            "$REVENANT_R7_LONGITUDINAL_OUTPUT/qualification.json"
+      - uses: actions/upload-artifact@v6
+        if: ${{ !cancelled() }}
+        with:
+          name: r7-cohort-${{ matrix.root.split }}-${{ matrix.root.ordinal }}
+          path: TestResults/r7-qualification
+          if-no-files-found: error
+          retention-days: 21
+  r7-model-evaluation:
+    name: R7 model selection or frozen independent evaluation
+    if: >-
+      ${{ github.event.pull_request.head.repo.full_name == github.repository
+          && github.event.pull_request.head.ref == 'codex/r7-ssa-anomaly-liquidity-20261113'
+          && (contains(github.event.pull_request.body, 'R7-select-models: ')
+              || contains(github.event.pull_request.body, 'R7-evaluate-frozen: ')) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 17
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - name: Run the requested evaluation against pinned artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVENANT_R7_SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+          R7_PR_BODY: ${{ github.event.pull_request.body }}
+        run: bash scripts/checks/r7-model-evaluation.sh
+      - uses: actions/upload-artifact@v6
+        if: ${{ !cancelled() }}
+        with:
+          name: r7-model-evaluation
+          path: TestResults/r7-model-evaluation
+          if-no-files-found: error
+          retention-days: 21
   web:
     name: npm ci/typecheck/test/build
     runs-on: ubuntu-latest
