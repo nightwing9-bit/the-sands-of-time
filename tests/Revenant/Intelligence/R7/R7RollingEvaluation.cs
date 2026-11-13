@@ -56,17 +56,16 @@ internal static class R7RollingEvaluation
     internal static BucketScore[] ScoreAccount(MLContext ml, V4AdvisorySeries series, string path)
     {
         if (!Eligible(series)) return [];
-        using var engine = ml.Model.Load(path, out _).CreateTimeSeriesEngine<SeriesPoint, SpikeOutput>(ml);
+        using var artifact = File.OpenRead(path);
+        using var engine = RevenantSsaInference.Load<SpikeOutput>(ml, artifact);
         var scores = new List<BucketScore>(series.Points.Length - Warmup);
         for (var i = 0; i < series.Points.Length; i++)
         {
             var count = series.Points[i].Value;
-            var raw = engine.Predict(new SeriesPoint { Value = count }).Prediction;
+            var raw = RevenantSsaInference.ObserveAccount(engine, count);
             if (i < Warmup) continue;
-            if (raw.Length != 3 || raw.Any(x => !double.IsFinite(x)) || raw[0] is not (0d or 1d) || raw[2] is < 0 or > 1)
-                throw new InvalidDataException("Invalid ML.NET anomaly output.");
             var exceed = series.Points.Skip(i - Warmup).Take(Warmup).Count(p => p.Value >= count);
-            scores.Add(new(i, count, raw[0] == 1, raw[1], raw[2], (exceed + 1d) / (Warmup + 1)));
+            scores.Add(new(i, count, raw.Alert, raw.RawScore, raw.PValue, (exceed + 1d) / (Warmup + 1)));
         }
         return scores.ToArray();
     }
@@ -74,15 +73,15 @@ internal static class R7RollingEvaluation
     internal static BankOrigin[] ForecastBank(MLContext ml, V4AdvisorySeries series, string path)
     {
         var normalize = new AdvisoryBalanceNormalization(series.ReferenceMinor!.Value, Scale);
-        using var engine = ml.Model.Load(path, out _).CreateTimeSeriesEngine<SeriesPoint, ForecastOutput>(ml);
+        using var artifact = File.OpenRead(path);
+        using var engine = RevenantSsaInference.Load<ForecastOutput>(ml, artifact);
         var predictions = new List<BankOrigin>();
         for (var i = 0; i < series.Points.Length; i++)
         {
             var available = series.Points[i].Value;
-            var result = engine.Predict(new SeriesPoint { Value = normalize.Normalize(available) });
+            var result = RevenantSsaInference.ObserveBank(engine, normalize.Normalize(available));
             if (i < Warmup) continue;
-            if (result.Forecast.Length != Horizon || result.LowerBound.Length != Horizon || result.UpperBound.Length != Horizon)
-                throw new InvalidDataException("Invalid ML.NET forecast dimensions.");
+            RevenantSsaInference.VerifyForecast(result, Horizon);
             var steps = Enumerable.Range(0, Horizon).Select(h => new ForecastPoint(normalize.Restore(result.Forecast[h]),
                 normalize.Restore(result.LowerBound[h]), normalize.Restore(result.UpperBound[h]))).ToArray();
             if (steps.Any(p => p.Lower > p.Central || p.Upper < p.Central))

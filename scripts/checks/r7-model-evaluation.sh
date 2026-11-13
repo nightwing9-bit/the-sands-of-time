@@ -20,7 +20,7 @@ elif [[ -n "$final_line" && -z "$select_line" ]]; then
   export REVENANT_R7_FROZEN_INPUT="$PWD/TestResults/r7-frozen-input"
   gh run download "$frozen_run" -n r7-model-evaluation -D "$REVENANT_R7_FROZEN_INPUT"
   printf '%s  %s\n' "$REVENANT_R7_FROZEN_SHA256" "$REVENANT_R7_FROZEN_INPUT/frozen.json" | sha256sum --check
-  rg -q '<Counters [^>]*total="1" executed="1" passed="1" failed="0"' "$REVENANT_R7_FROZEN_INPUT/model-evaluation.trx"
+  grep -Eq '<Counters [^>]*total="1" executed="1" passed="1" failed="0"' "$REVENANT_R7_FROZEN_INPUT/model-evaluation.trx"
   partitions=(FinalTest Challenge)
   case_name=Evaluate_the_frozen_SSA_models_on_final_and_shifted_histories
   expected=final-evaluation.json
@@ -35,7 +35,7 @@ for split in "${partitions[@]}"; do
 done
 gh run download "$REVENANT_R7_COHORT_RUN" "${download_args[@]}" -D "$REVENANT_R7_COHORT_INPUT"
 for report in "$REVENANT_R7_COHORT_INPUT"/r7-cohort-*/qualification.trx; do
-  rg -q '<Counters [^>]*total="1" executed="1" passed="1" failed="0"' "$report"
+  grep -Eq '<Counters [^>]*total="1" executed="1" passed="1" failed="0"' "$report"
 done
 
 test "$(uname -s)" = Linux
@@ -45,7 +45,7 @@ sudo apt-get install -y -qq --no-install-recommends libomp-dev
 dotnet test tests/Revenant/Revenant.Tests.csproj --configuration Release \
   --filter "Category=R7Longitudinal&FullyQualifiedName~$case_name" \
   --logger 'trx;LogFileName=model-evaluation.trx' --results-directory "$output"
-rg -q '<Counters [^>]*total="1" executed="1" passed="1" failed="0"' "$output/model-evaluation.trx"
-rg -q "<UnitTestResult [^>]*testName=\"[^\"]*\.$case_name\"[^>]*outcome=\"Passed\"" "$output/model-evaluation.trx"
+grep -Eq '<Counters [^>]*total="1" executed="1" passed="1" failed="0"' "$output/model-evaluation.trx"
+grep -Eq "<UnitTestResult [^>]*testName=\"[^\"]*\.$case_name\"[^>]*outcome=\"Passed\"" "$output/model-evaluation.trx"
 test -s "$output/$expected"
 sha256sum "$output/$expected"

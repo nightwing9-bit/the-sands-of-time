@@ -562,11 +562,11 @@ jobs:
             --filter "Category=R7Longitudinal&FullyQualifiedName~$case_name" \
             --logger "trx;LogFileName=r7-pilot.trx" --results-directory "$REVENANT_R7_LONGITUDINAL_OUTPUT"
           report="$REVENANT_R7_LONGITUDINAL_OUTPUT/r7-pilot.trx"
-          counters=$(rg -o '<Counters [^>]*>' "$report")
+          counters=$(grep -o '<Counters [^>]*>' "$report")
           for field in 'total="1"' 'executed="1"' 'passed="1"' 'failed="0"' 'notExecuted="0"'; do
             [[ " $counters" == *" $field "* ]]
           done
-          rg -q "<UnitTestResult [^>]*testName=\"[^\"]*\.$case_name\"[^>]*outcome=\"Passed\"" "$report"
+          grep -Eq "<UnitTestResult [^>]*testName=\"[^\"]*\\.$case_name\"[^>]*outcome=\"Passed\"" "$report"
           jq -e '.Roots | length == 2 and all(.[]; .Seals == 2016 and (.Banks | length) == 6)' "$REVENANT_R7_LONGITUDINAL_OUTPUT/pilot.json"
       - name: Upload the pilot streams and executed test report
         if: ${{ !cancelled() }}
@@ -601,7 +601,7 @@ jobs:
           run_id=$(printf '%s\n' "$R7_PR_BODY" | sed -nE 's/^R7-pilot-evaluation: ([0-9]+)$/\1/p')
           [[ "$run_id" =~ ^[0-9]+$ ]]
           gh run download "$run_id" -n r7-longitudinal-pilot -D TestResults/r7-pilot-input
-          rg -q '<Counters [^>]*total="1" executed="1" passed="1" failed="0"' TestResults/r7-pilot-input/r7-pilot.trx
+          grep -Eq '<Counters [^>]*total="1" executed="1" passed="1" failed="0"' TestResults/r7-pilot-input/r7-pilot.trx
       - name: Fit and score the two native starter configurations
         env:
           REVENANT_R7_PILOT_INPUT: ${{ github.workspace }}/TestResults/r7-pilot-input
@@ -615,8 +615,8 @@ jobs:
             --filter "Category=R7Longitudinal&FullyQualifiedName~$case_name" \
             --logger "trx;LogFileName=r7-pilot-evaluation.trx" --results-directory "$REVENANT_R7_PILOT_EVAL"
           report="$REVENANT_R7_PILOT_EVAL/r7-pilot-evaluation.trx"
-          rg -q '<Counters [^>]*total="1" executed="1" passed="1" failed="0"' "$report"
-          rg -q "<UnitTestResult [^>]*testName=\"[^\"]*\.$case_name\"[^>]*outcome=\"Passed\"" "$report"
+          grep -Eq '<Counters [^>]*total="1" executed="1" passed="1" failed="0"' "$report"
+          grep -Eq "<UnitTestResult [^>]*testName=\"[^\"]*\.$case_name\"[^>]*outcome=\"Passed\"" "$report"
           jq -e '.Candidates | length == 2 and all(.[]; (.Horizons | length) == 8)' "$REVENANT_R7_PILOT_EVAL/pilot-evaluation.json"
       - uses: actions/upload-artifact@v6
         if: ${{ !cancelled() }}
@@ -676,8 +676,8 @@ jobs:
             --filter "Category=R7Longitudinal&FullyQualifiedName~$case_name" \
             --logger "trx;LogFileName=qualification.trx" --results-directory "$REVENANT_R7_LONGITUDINAL_OUTPUT"
           report="$REVENANT_R7_LONGITUDINAL_OUTPUT/qualification.trx"
-          rg -q '<Counters [^>]*total="1" executed="1" passed="1" failed="0"' "$report"
-          rg -q "<UnitTestResult [^>]*testName=\"[^\"]*\.$case_name\"[^>]*outcome=\"Passed\"" "$report"
+          grep -Eq '<Counters [^>]*total="1" executed="1" passed="1" failed="0"' "$report"
+          grep -Eq "<UnitTestResult [^>]*testName=\"[^\"]*\.$case_name\"[^>]*outcome=\"Passed\"" "$report"
           jq -e '.Roots | length == 1 and .[0].Seals == 2016 and (.[0].Banks | length) == 6' \
             "$REVENANT_R7_LONGITUDINAL_OUTPUT/qualification.json"
       - uses: actions/upload-artifact@v6
