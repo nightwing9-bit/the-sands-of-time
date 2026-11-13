@@ -14,7 +14,7 @@ namespace Revenant.Tests.Intelligence.R7;
 /// Generator-4 development work on the three Pilot roots only (root 0 trains, root 1 selects and calibrates, root 2 measures).
 /// Qualification roots are never planned here. Executed and plan-derived development measurements have separate outputs.
 /// </summary>
-public sealed class R7Generator4DevelopmentTests
+public sealed partial class R7Generator4DevelopmentTests
 {
     private const long Bucket = ObservedFinanceVersion.BucketMs;
 
@@ -79,11 +79,19 @@ public sealed class R7Generator4DevelopmentTests
             Rank = Compare(calibration, measurement, R7Evaluation.Scorer.TrailingRank, null, b),
             Seasonal = Compare(calibration, measurement, R7Evaluation.Scorer.SeasonalExcess, null, b),
         }).ToArray();
+        var budget = R7Evaluation.FalseAlertBudget;
+        var primaryThreshold = R7Evaluation.Calibrate(calibration, R7Evaluation.Scorer.Ssa, policy,
+            budget * R7QualificationEvaluationTests.CalibrationMargin).Threshold;
+        var primary = R7Evaluation.Evaluate(measurement, R7Evaluation.Scorer.Ssa, policy, primaryThreshold);
+        var retrospective = new[] { R7Evaluation.Scorer.TrailingRank, R7Evaluation.Scorer.SeasonalExcess }.ToDictionary(scorer => scorer,
+            scorer => R7Evaluation.Calibrate(measurement, scorer, null, primary.FalseAlertsPerNormalDay ?? 0).Metrics);
         R7RetainedPilotDiagnosticsTests.Write(output, "generator-4-executed-anomaly-development.json", new
         {
             Reconciliation = reconciliation, Candidate = candidate.Name, candidate.Spec, Policy = policy,
             TrainingAccount = training.Subject, TrainingDigest = training.Digest,
             ArtifactSha256 = ObservationEncoding.Hash(artifact), Budgets = budgets,
+            RetrospectiveMatchedBurden = retrospective,
+            DevelopmentPassesAnomalyGate = R7QualificationEvaluationTests.PassesAnomalyGate(primary, retrospective.Values),
             PoissonAudit = measurement.Where(c => c.Steps.Length > 0).GroupBy(c => c.Rhythm).Select(group =>
             {
                 var normal = group.Select(c => c.Steps.Where(s => !c.Labels.Any(e =>

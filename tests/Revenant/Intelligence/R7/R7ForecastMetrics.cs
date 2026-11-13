@@ -99,7 +99,7 @@ internal static class R7ForecastMetrics
     /// Warning events: an origin at or above the floor whose central path falls below it within eight horizons, coalesced over
     /// eight buckets. A warning is true when an actual downward crossing follows within the eight horizons.
     /// </summary>
-    internal static WarningMetrics Warnings(BankCase[] cases)
+    internal static WarningMetrics Warnings(BankCase[] cases, Func<BankCase, BankOrigin, int, long>? warningLevel = null)
     {
         var warnings = 0;
         var falseWarnings = 0;
@@ -122,7 +122,8 @@ internal static class R7ForecastMetrics
             developing += kind.Values.Count(k => k == LongitudinalEventKind.DevelopingPressure);
             sudden += kind.Values.Count(k => k == LongitudinalEventKind.SuddenShock);
             var predicted = bank.Origins.Where(o => o.Available >= floor && o.Bucket + Horizon < bank.Actual.Length
-                && o.Path.Any(p => p.Central < floor)).Select(o => o.Bucket);
+                && Enumerable.Range(0, Horizon).Any(h => (warningLevel?.Invoke(bank, o, h) ?? o.Path[h].Central) < floor))
+                .Select(o => o.Bucket);
             var matched = new HashSet<int>();
             foreach (var alert in Coalesce(predicted, Horizon))
             {

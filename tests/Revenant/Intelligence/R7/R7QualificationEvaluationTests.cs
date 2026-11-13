@@ -67,6 +67,7 @@ public sealed class R7QualificationEvaluationTests
     internal sealed record Freeze(string Policy, string Revision, string CohortRun, string Generator, string AnomalyCandidate,
         string ForecastCandidate, SsaAdvisoryManifest Anomaly, SsaAdvisoryManifest Forecast, string AnomalyManifestSha256,
         string ForecastManifestSha256, Dictionary<string, double> SsaThresholds, Dictionary<string, double> BaselineThresholds,
+        Dictionary<string, double> SeasonalThresholds,
         string[] DevelopmentManifestHashes, double Budget, double CalibrationMargin, int Cooldown, int MatchingExtension,
         long ActiveChangeMinor, string Floor);
 
@@ -93,7 +94,7 @@ public sealed class R7QualificationEvaluationTests
         var forecastSha = WriteArtifact(forecastDir, "forecast", development.ForecastArtifact, forecastManifest);
         var pin = new Freeze(Policy, Required("REVENANT_R7_SOURCE_SHA"), Required("REVENANT_R7_COHORT_RUN"),
             V4LongitudinalPlannerG4.Version, development.AnomalyCandidate, development.ForecastCandidate, anomalyManifest, forecastManifest,
-            anomalySha, forecastSha, development.SsaThresholds, development.BaselineThresholds,
+            anomalySha, forecastSha, development.SsaThresholds, development.BaselineThresholds, development.SeasonalThresholds,
             ManifestHashes(data, [LongitudinalSplit.Train, LongitudinalSplit.Validation, LongitudinalSplit.Calibration]),
             R7Evaluation.FalseAlertBudget, CalibrationMargin, R7Evaluation.Cooldown, R7Evaluation.LateMatch,
             R7ForecastMetrics.ActiveChangeMinor, "synthetic-available-buffer-floor/1:10%");
@@ -126,7 +127,8 @@ public sealed class R7QualificationEvaluationTests
         VerifyIndependent([.. final, .. challenge]);
         var ml = new MLContext(seed: 7);
         var partitions = new[] { final, challenge }.Select(roots =>
-            Judge(ml, roots, anomaly, pin.Anomaly, pin.SsaThresholds, pin.BaselineThresholds, forecast, pin.Forecast)).ToArray();
+            Judge(ml, roots, anomaly, pin.Anomaly, pin.SsaThresholds, pin.BaselineThresholds, pin.SeasonalThresholds,
+                forecast, pin.Forecast)).ToArray();
         Write(output, "final-evaluation.json", new
         {
             FreezeSha256 = Hash(pinPath), pin, Partitions = partitions,
@@ -136,13 +138,14 @@ public sealed class R7QualificationEvaluationTests
     }
 
     internal sealed record AnomalyDevelopment(string Candidate, byte[] Artifact, SsaAdvisoryManifest Manifest,
-        Dictionary<string, double> SsaThresholds, Dictionary<string, double> BaselineThresholds, object Report);
+        Dictionary<string, double> SsaThresholds, Dictionary<string, double> BaselineThresholds,
+        Dictionary<string, double> SeasonalThresholds, object Report);
 
     internal sealed record ForecastDevelopment(string Candidate, byte[] Artifact, SsaAdvisoryManifest Manifest, object Report);
 
     internal sealed record Development(string AnomalyCandidate, string ForecastCandidate, byte[] AnomalyArtifact, byte[] ForecastArtifact,
         SsaAdvisoryManifest AnomalyManifest, SsaAdvisoryManifest ForecastManifest, Dictionary<string, double> SsaThresholds,
-        Dictionary<string, double> BaselineThresholds, object Report);
+        Dictionary<string, double> BaselineThresholds, Dictionary<string, double> SeasonalThresholds, object Report);
 
     internal static Development Develop(MLContext ml, LongitudinalSample[] train, LongitudinalSample[] validation,
         LongitudinalSample[] calibration)
@@ -151,7 +154,8 @@ public sealed class R7QualificationEvaluationTests
             V4LongitudinalPlannerG4.Version);
         var forecast = DevelopForecast(ml, train, validation, calibration, V4LongitudinalPlannerG4.Version);
         return new(anomaly.Candidate, forecast.Candidate, anomaly.Artifact, forecast.Artifact, anomaly.Manifest, forecast.Manifest,
-            anomaly.SsaThresholds, anomaly.BaselineThresholds, new { Anomaly = anomaly.Report, Forecast = forecast.Report });
+            anomaly.SsaThresholds, anomaly.BaselineThresholds, anomaly.SeasonalThresholds,
+            new { Anomaly = anomaly.Report, Forecast = forecast.Report });
     }
 
     /// <summary>
@@ -182,11 +186,13 @@ public sealed class R7QualificationEvaluationTests
             R7Evaluation.Scorer.Ssa, policy, b * CalibrationMargin).Threshold);
         var baselineThresholds = SensitivityBudgets.ToDictionary(Key, b => R7Evaluation.Calibrate(calibrationAccounts,
             R7Evaluation.Scorer.TrailingRank, null, b * CalibrationMargin).Threshold);
+        var seasonalThresholds = SensitivityBudgets.ToDictionary(Key, b => R7Evaluation.Calibrate(calibrationAccounts,
+            R7Evaluation.Scorer.SeasonalExcess, null, b * CalibrationMargin).Threshold);
         var manifest = new SsaAdvisoryManifest(SsaAdvisory.Policy, "anomaly", ObservationEncoding.Hash(selected.Artifact), generator,
             trainingAccount.Digest, selected.Candidate.Spec, policy with { Threshold = ssaThresholds[Key(R7Evaluation.FalseAlertBudget)] },
             null, null, SsaAdvisoryManifest.CausalAnomalyExpectation);
         Assert.True(manifest.IsValidFor("anomaly"));
-        return new(selected.Candidate.Name, selected.Artifact, manifest, ssaThresholds, baselineThresholds, new
+        return new(selected.Candidate.Name, selected.Artifact, manifest, ssaThresholds, baselineThresholds, seasonalThresholds, new
         {
             TrainingAccount = trainingAccount.Subject, TrainingAccountDigest = trainingAccount.Digest,
             Validation = anomalyResults.Select(r => new
@@ -195,6 +201,7 @@ public sealed class R7QualificationEvaluationTests
                 BaselineThreshold = r.Baseline.Threshold, BaselineMetrics = r.Baseline.Metrics,
             }),
             Selected = selected.Candidate.Name, SsaThresholds = ssaThresholds, BaselineThresholds = baselineThresholds,
+            SeasonalThresholds = seasonalThresholds,
         });
     }
 
@@ -242,10 +249,12 @@ public sealed class R7QualificationEvaluationTests
 
     internal sealed record Judgement(LongitudinalSplit Split, R7Evaluation.AnomalyMetrics Anomaly, R7Evaluation.AnomalyMetrics Comparator,
         Dictionary<string, object> Sensitivity, R7ForecastMetrics.HorizonMetrics[] Horizons, R7ForecastMetrics.WarningMetrics Warnings,
-        double ActiveSkill, double OverallErrorRatio, bool PromoteAnomaly, bool PromoteForecast, object ByRoot);
+        double ActiveSkill, double OverallErrorRatio, bool PromoteAnomaly, bool PromoteForecast, object ByRoot,
+        IReadOnlyDictionary<R7Evaluation.Scorer, R7Evaluation.AnomalyMetrics> RetrospectiveMatchedBurden);
 
     internal static Judgement Judge(MLContext ml, LongitudinalSample[] roots, byte[] anomalyArtifact, SsaAdvisoryManifest anomaly,
-        Dictionary<string, double> ssaThresholds, Dictionary<string, double> baselineThresholds, byte[] forecastArtifact,
+        Dictionary<string, double> ssaThresholds, Dictionary<string, double> baselineThresholds,
+        Dictionary<string, double> seasonalThresholds, byte[] forecastArtifact,
         SsaAdvisoryManifest forecast)
     {
         var accounts = Accounts(ml, R7Evaluation.Inputs(roots), anomalyArtifact, anomaly.Anomaly!, anomaly.Alert!);
@@ -253,6 +262,10 @@ public sealed class R7QualificationEvaluationTests
         var key = Key(R7Evaluation.FalseAlertBudget);
         var ssa = R7Evaluation.Evaluate(accounts, R7Evaluation.Scorer.Ssa, anomaly.Alert, ssaThresholds[key]);
         var comparator = R7Evaluation.Evaluate(accounts, R7Evaluation.Scorer.TrailingRank, null, baselineThresholds[key]);
+        // Test labels are used only to give the comparators their best retrospective operating points.
+        // The separately reported deployable metrics below always use frozen Calibration thresholds.
+        var matched = new[] { R7Evaluation.Scorer.TrailingRank, R7Evaluation.Scorer.SeasonalExcess }.ToDictionary(scorer => scorer,
+            scorer => R7Evaluation.Calibrate(accounts, scorer, null, ssa.FalseAlertsPerNormalDay ?? 0).Metrics);
         var horizons = R7ForecastMetrics.Evaluate(banks);
         var warnings = R7ForecastMetrics.Warnings(banks);
         var skill = Skill(horizons);
@@ -262,14 +275,10 @@ public sealed class R7QualificationEvaluationTests
             {
                 Ssa = R7Evaluation.Evaluate(accounts, R7Evaluation.Scorer.Ssa, anomaly.Alert, ssaThresholds[Key(b)]),
                 Comparator = R7Evaluation.Evaluate(accounts, R7Evaluation.Scorer.TrailingRank, null, baselineThresholds[Key(b)]),
+                Seasonal = R7Evaluation.Evaluate(accounts, R7Evaluation.Scorer.SeasonalExcess, null, seasonalThresholds[Key(b)]),
             }),
             horizons, warnings, skill, ratio,
-            // A comparator that never alerts has zero false alerts, so "SSA burden <= comparator burden" penalizes any useful
-            // detector. Compare at equal realized burden instead: each comparator gets its best threshold on these same cases with
-            // no more false alerts per normal day than the SSA realized. Choosing that threshold with test labels favors the comparator.
-            PromoteAnomaly: ssa.FalseAlertsPerNormalDay is <= R7Evaluation.FalseAlertBudget
-                && new[] { R7Evaluation.Scorer.TrailingRank, R7Evaluation.Scorer.SeasonalExcess }.All(scorer =>
-                    ssa.Detected > R7Evaluation.Calibrate(accounts, scorer, null, ssa.FalseAlertsPerNormalDay ?? 0).Metrics.Detected),
+            PromoteAnomaly: PassesAnomalyGate(ssa, matched.Values),
             PromoteForecast: skill >= .05 && ratio <= 1.05 && horizons.All(h => h.CalibratedCoverage is >= .90)
                 && warnings.DevelopingCrossings > 0 && warnings.WarnedDeveloping * 2 >= warnings.DevelopingCrossings
                 && warnings.Precision is >= .5,
@@ -281,7 +290,23 @@ public sealed class R7QualificationEvaluationTests
                 {
                     b.Bank, Horizons = R7RetainedPilotDiagnosticsTests.Summaries(R7ForecastMetrics.Evaluate([b])),
                 }).ToArray(),
-            }).ToArray());
+            }).ToArray(), RetrospectiveMatchedBurden: matched);
+    }
+
+    internal static bool PassesAnomalyGate(R7Evaluation.AnomalyMetrics ssa,
+        IEnumerable<R7Evaluation.AnomalyMetrics> retrospectiveComparators) =>
+        ssa.FalseAlertsPerNormalDay is <= R7Evaluation.FalseAlertBudget
+        && retrospectiveComparators.All(comparator => ssa.Detected > comparator.Detected);
+
+    [Fact]
+    public void Anomaly_gate_compares_event_hits_at_the_allowed_burden()
+    {
+        var ssa = new R7Evaluation.AnomalyMetrics(1, 1, 20, 5, 3, 0, 0, 2, 5, 0, 0, [], [], [], [], []);
+        var silent = ssa with { Detected = 0, FalseAlerts = 0, AlertEvents = 0 };
+        var competitive = ssa with { Detected = 2, AlertEvents = 4 };
+        Assert.True(PassesAnomalyGate(ssa, [silent, competitive]));
+        Assert.False(PassesAnomalyGate(ssa with { FalseAlerts = 3 }, [silent, competitive]));
+        Assert.False(PassesAnomalyGate(ssa, [silent, competitive with { Detected = 3 }]));
     }
 
     /// <summary>Active-slice skill against the stronger of persistence and the trailing-median comparator, averaged over horizons.</summary>

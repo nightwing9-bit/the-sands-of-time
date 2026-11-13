@@ -99,19 +99,23 @@ internal static class RevenantSsaInference
     /// eight-step forecast from that origin is decoded. No re-centering, no replay and no future observation.
     /// </summary>
     internal static SsaForecastStep[] ForecastBank(MLContext ml, ReadOnlySpan<byte> artifact, SsaForecastSpec spec,
-        SsaIntervalPolicy? interval, long opening, IReadOnlyList<long> available)
+        SsaIntervalPolicy? interval, long opening, IReadOnlyList<long> available, int? fittedPrefixLength = null)
     {
-        if (!spec.IsValid || interval is { IsValid: false }) throw new InvalidDataException("Invalid forecast specification.");
-        if (available.Count <= spec.Warmup) return [];
+        if (!spec.IsValid || interval is { IsValid: false }
+            || fittedPrefixLength is { } length && length != spec.TrainSize)
+            throw new InvalidDataException("Invalid forecast specification or fitted prefix length.");
+        var firstOrigin = fittedPrefixLength ?? spec.Warmup;
+        if (available.Count <= firstOrigin) return [];
         var scale = SsaAdvisory.Scale(opening, spec.ScaleDivisor);
         using var stream = new MemoryStream(artifact.ToArray(), writable: false);
         using var engine = Load<ForecastOutput>(ml, stream);
-        var steps = new SsaForecastStep[available.Count - spec.Warmup];
-        for (var i = 0; i < available.Count; i++)
+        var steps = new SsaForecastStep[available.Count - firstOrigin];
+        // Own-series research can continue directly from the fitted prefix. Independent subjects consume their own warmup.
+        for (var i = fittedPrefixLength ?? 0; i < available.Count; i++)
         {
             var input = SsaAdvisory.ForecastInput(spec.Representation, opening, scale, i == 0 ? opening : available[i - 1], available[i]);
             var result = engine.Predict(new SeriesPoint { Value = input });
-            if (i < spec.Warmup) continue;
+            if (i < firstOrigin) continue;
             var (central, lower, upper) = SsaAdvisory.DecodeLevels(spec.Representation, opening, scale, available[i],
                 result.Forecast, result.LowerBound, result.UpperBound);
             var sigma = SsaAdvisory.Sigma(available, opening, scale, i, interval?.SigmaWindow ?? 12);
@@ -120,7 +124,7 @@ internal static class RevenantSsaInference
             for (var h = 0; h < SsaAdvisory.Horizon; h++)
                 (calibratedLower[h], calibratedUpper[h]) = interval is null
                     ? (lower[h], upper[h]) : SsaAdvisory.Band(central[h], sigma, interval.Multipliers[h]);
-            steps[i - spec.Warmup] = new(i, available[i], sigma, central, lower, upper, calibratedLower, calibratedUpper);
+            steps[i - firstOrigin] = new(i, available[i], sigma, central, lower, upper, calibratedLower, calibratedUpper);
         }
         return steps;
     }
