@@ -2,6 +2,9 @@ using System.Globalization;
 using System.Text.Json;
 using Hosts.Worker;
 using Marrow.Infrastructure.Hosting;
+using Marrow.Timeline;
+using Npgsql;
+using Revenant.Counterfactual;
 using Marrow.Infrastructure.Messaging;
 using Marrow.Infrastructure.Timeline;
 using Revenant.Api;
@@ -17,6 +20,49 @@ if (args is ["--ml-runtime-selftest"])
 if (args is ["--r5-risk-selftest"])
 {
     return R5RiskRuntimeSelfTest.Run();
+}
+
+Guid replayJob = default;
+if (args is ["--replay"] || (args is ["--replay", var replayId] && Guid.TryParse(replayId, out replayJob) && replayJob != Guid.Empty))
+{
+    var replayBuilder = WebApplication.CreateBuilder([]);
+    replayBuilder.AddMarrowHostDefaults();
+    if (!string.IsNullOrWhiteSpace(replayBuilder.Configuration.GetConnectionString("RevenantLedger")))
+        throw new InvalidOperationException("Replay must not be configured with the live ledger credential.");
+    var configured = replayBuilder.Configuration.GetConnectionString("RevenantReplay")
+        ?? throw new InvalidOperationException("Replay connection is not configured.");
+    var tenant = replayBuilder.Configuration["Revenant:Ledger:TenantId"]
+        ?? throw new InvalidOperationException("Replay tenant is not configured.");
+    var dbOptions = new NpgsqlConnectionStringBuilder(configured) { Options = $"-c revenant.tenant_id={tenant}" };
+    if (dbOptions.Username != "sands_replay" || tenant.Length == 0
+        || tenant.Any(c => !(char.IsAsciiLetterOrDigit(c) || c is '_' or '.' or '-')))
+        throw new InvalidOperationException("Replay requires its dedicated login and a valid tenant.");
+    replayBuilder.Services.AddSingleton(_ => NpgsqlDataSource.Create(dbOptions.ConnectionString));
+    replayBuilder.Services.AddMarrowTimeline(ObservedFinanceTimelineVersions.All, ObservedFinanceTimelineVersions.CheckpointInterval);
+    replayBuilder.Services.AddSingleton<V4ReplayWorker>();
+    await using var replayHost = replayBuilder.Build();
+    var replay = replayHost.Services.GetRequiredService<V4ReplayWorker>();
+    if (replayJob != Guid.Empty) return await replay.ProcessAsync(tenant, replayJob, CancellationToken.None) ? 0 : 2;
+    using var shutdown = new CancellationTokenSource();
+    using var terminate = System.Runtime.InteropServices.PosixSignalRegistration.Create(
+        System.Runtime.InteropServices.PosixSignal.SIGTERM, ctx => { ctx.Cancel = true; shutdown.Cancel(); });
+    Console.CancelKeyPress += (_, e) => { e.Cancel = true; shutdown.Cancel(); };
+    try
+    {
+        while (!shutdown.IsCancellationRequested)
+        {
+            foreach (var id in await replay.PendingAsync(tenant, shutdown.Token))
+                await replay.ProcessAsync(tenant, id, shutdown.Token);
+            await Task.Delay(500, shutdown.Token);
+        }
+    }
+    catch (OperationCanceledException) when (shutdown.IsCancellationRequested) { }
+    return 0;
+}
+if (args.Length > 0 && args[0] == "--replay")
+{
+    Console.Error.WriteLine("Usage: --replay [job-uuid]");
+    return 1;
 }
 
 var v4Dispatch = args.Length > 0 && args[0] == "--v4-dispatch";
@@ -48,7 +94,7 @@ builder.Services.AddMarrowDependencies(builder.Configuration);
 //                                       outbox relay. Registered only when configured.
 //   ConnectionStrings:Postgres       -> sands_worker (marrow_timeline_runtime + revenant_replay_reader): the V2 Timeline projection
 //                                       reads live facts and writes only Timeline records; it cannot write any live finance table.
-// The Replay process mode (Spec 09) reuses the second, restricted credential only.
+// Replay uses its own child-only credential in the separate composition above.
 builder.Services
     .AddRevenantLedger(builder.Configuration, tx => new PostgresOutboxWriter(tx, new MessagingTables("revenant")))
     .AddRevenantScreeningWorker(builder.Configuration)

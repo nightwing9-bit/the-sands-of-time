@@ -14,6 +14,10 @@ namespace Revenant.Tests.Ledger;
 /// </summary>
 public sealed class LedgerDatabase : IAsyncLifetime
 {
+    private const string ReplayPolicy = "0017_replay_context_isolation.sql";
+    private const string SchedulerPolicy = "0018_replay_scheduler_context_isolation.sql";
+    private const string PreReplayPolicy = "/tmp/pre-replay-policy";
+    private bool _preReplayPolicy;
     private const string Image = "postgres:18.6-alpine3.24";
     private const string WriterUser = "revenant_writer_test";
     private const string WriterPassword = "revenant-writer-test-only";
@@ -43,9 +47,17 @@ public sealed class LedgerDatabase : IAsyncLifetime
     public async Task InitializeAsync()
     {
         await _container.StartAsync();
+        _preReplayPolicy = Environment.GetEnvironmentVariable("R8_TEST_CONTEXT_UPGRADE") == "1";
+        if (_preReplayPolicy)
+        {
+            var copy = await _container.ExecAsync(["sh", "-ec",
+                $"cp -R /sands/db/migrations {PreReplayPolicy} && rm {PreReplayPolicy}/revenant/0016_counterfactual.sql {PreReplayPolicy}/revenant/{ReplayPolicy} {PreReplayPolicy}/revenant/{SchedulerPolicy}"]);
+            if (copy.ExitCode != 0) throw new InvalidOperationException(copy.Stderr);
+        }
         var result = await _container.ExecAsync([
             "env", "PGHOST=localhost", "PGPORT=5432", "PGUSER=postgres", "PGPASSWORD=postgres",
-            $"PGDATABASE={_databaseName}", "MIGRATE_CONNECT_ATTEMPTS=5", "sh", "/sands/db/migrate.sh"]);
+            $"PGDATABASE={_databaseName}", "MIGRATE_CONNECT_ATTEMPTS=5",
+            $"MIGRATIONS_DIR={(_preReplayPolicy ? PreReplayPolicy : "/sands/db/migrations")}", "sh", "/sands/db/migrate.sh"]);
         MigrateOutput = result.Stdout + result.Stderr;
         if (result.ExitCode != 0)
         {
@@ -116,7 +128,7 @@ public sealed class LedgerDatabase : IAsyncLifetime
             apiLedger = "apiLedgerTestOnlyPassword000001", realtimeLedger = "realtimeLedgerTestOnlyPassword1";
         var result = await _container.ExecAsync([
             "env", "PGHOST=localhost", "PGPORT=5432", "PGUSER=postgres", "PGPASSWORD=postgres", $"PGDATABASE={_databaseName}",
-            "MIGRATE_CONNECT_ATTEMPTS=5", $"WORKER_DB_PASSWORD={worker}", $"WORKER_LEDGER_DB_PASSWORD={workerLedger}",
+            "MIGRATE_CONNECT_ATTEMPTS=5", $"MIGRATIONS_DIR={(_preReplayPolicy ? PreReplayPolicy : "/sands/db/migrations")}", $"WORKER_DB_PASSWORD={worker}", $"WORKER_LEDGER_DB_PASSWORD={workerLedger}",
             $"API_LEDGER_DB_PASSWORD={apiLedger}", $"REALTIME_LEDGER_DB_PASSWORD={realtimeLedger}", "sh", "/sands/db/migrate.sh"]);
         var output = result.Stdout + result.Stderr;
         if (result.ExitCode != 0)
@@ -144,7 +156,7 @@ public sealed class LedgerDatabase : IAsyncLifetime
             await create.ExecuteNonQueryAsync();
         }
         var copy = await _container.ExecAsync(["sh", "-ec",
-            "cp -R /sands/db/migrations /tmp/pre-v4-migrations && rm /tmp/pre-v4-migrations/revenant/0009_v4_causal_scheduler.sql /tmp/pre-v4-migrations/revenant/0010_v4_branch_execution.sql /tmp/pre-v4-migrations/revenant/0011_v4_observation_projections.sql /tmp/pre-v4-migrations/revenant/0012_v4_model_screening.sql /tmp/pre-v4-migrations/revenant/0013_v4_advisory_evidence.sql /tmp/pre-v4-migrations/revenant/0014_r7_advisory_evidence_v2.sql /tmp/pre-v4-migrations/revenant/0015_r7_liquidity_projection_evidence.sql"]);
+            "cp -R /sands/db/migrations /tmp/pre-v4-migrations && rm /tmp/pre-v4-migrations/revenant/0009_v4_causal_scheduler.sql /tmp/pre-v4-migrations/revenant/0010_v4_branch_execution.sql /tmp/pre-v4-migrations/revenant/0011_v4_observation_projections.sql /tmp/pre-v4-migrations/revenant/0012_v4_model_screening.sql /tmp/pre-v4-migrations/revenant/0013_v4_advisory_evidence.sql /tmp/pre-v4-migrations/revenant/0014_r7_advisory_evidence_v2.sql /tmp/pre-v4-migrations/revenant/0015_r7_liquidity_projection_evidence.sql /tmp/pre-v4-migrations/revenant/0016_counterfactual.sql /tmp/pre-v4-migrations/revenant/0017_replay_context_isolation.sql /tmp/pre-v4-migrations/revenant/0018_replay_scheduler_context_isolation.sql"]);
         if (copy.ExitCode != 0)
         {
             throw new InvalidOperationException(copy.Stderr);
@@ -163,7 +175,7 @@ public sealed class LedgerDatabase : IAsyncLifetime
     {
         const string directory = "/tmp/pre-r3-migrations";
         var copy = await _container.ExecAsync(["sh", "-ec",
-            $"cp -R /sands/db/migrations {directory} && rm {directory}/revenant/0010_v4_branch_execution.sql {directory}/revenant/0011_v4_observation_projections.sql {directory}/revenant/0012_v4_model_screening.sql {directory}/revenant/0013_v4_advisory_evidence.sql {directory}/revenant/0014_r7_advisory_evidence_v2.sql {directory}/revenant/0015_r7_liquidity_projection_evidence.sql"]);
+            $"cp -R /sands/db/migrations {directory} && rm {directory}/revenant/0010_v4_branch_execution.sql {directory}/revenant/0011_v4_observation_projections.sql {directory}/revenant/0012_v4_model_screening.sql {directory}/revenant/0013_v4_advisory_evidence.sql {directory}/revenant/0014_r7_advisory_evidence_v2.sql {directory}/revenant/0015_r7_liquidity_projection_evidence.sql {directory}/revenant/0016_counterfactual.sql {directory}/revenant/0017_replay_context_isolation.sql {directory}/revenant/0018_replay_scheduler_context_isolation.sql"]);
         if (copy.ExitCode != 0)
         {
             throw new InvalidOperationException(copy.Stderr);
@@ -181,6 +193,34 @@ public sealed class LedgerDatabase : IAsyncLifetime
     }
 
     /// <summary>Re-run the migration executor (idempotence check).</summary>
+    internal async Task ApplyReplayContextPolicyAsync()
+    {
+        if (_preReplayPolicy)
+        {
+            var (exitCode, output) = await MigrateAgainAsync();
+            Assert.True(exitCode == 0, output);
+            var job = output.IndexOf("applying 0016_counterfactual", StringComparison.Ordinal);
+            var context = output.IndexOf("applying 0017_replay_context_isolation", StringComparison.Ordinal);
+            var scheduler = output.IndexOf("applying 0018_replay_scheduler_context_isolation", StringComparison.Ordinal);
+            Assert.True(job >= 0 && context > job && scheduler > context, output);
+            _preReplayPolicy = false;
+        }
+        else
+        {
+            Assert.Contains("applying 0017_replay_context_isolation", MigrateOutput);
+            Assert.Contains("applying 0018_replay_scheduler_context_isolation", MigrateOutput);
+        }
+    }
+
+    internal async Task ProvisionReplayLoginAsync(string tenant, string password)
+    {
+        var result = await _container.ExecAsync([
+            "env", "PGHOST=localhost", "PGPORT=5432", "PGUSER=postgres", "PGPASSWORD=postgres",
+            $"PGDATABASE={_databaseName}", "MIGRATE_CONNECT_ATTEMPTS=5", $"REPLAY_TENANT_ID={tenant}",
+            $"REPLAY_DB_PASSWORD={password}", "sh", "/sands/db/migrate.sh"]);
+        Assert.True(result.ExitCode == 0, result.Stdout + result.Stderr);
+    }
+
     public async Task<(long ExitCode, string Output)> MigrateAgainAsync()
     {
         var result = await _container.ExecAsync([

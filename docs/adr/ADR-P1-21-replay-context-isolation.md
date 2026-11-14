@@ -1,0 +1,14 @@
+# ADR-P1-21 — Scope Replay reads of Marrow context artifacts
+
+- **Status:** Implemented for R8 security review.
+- **Scope:** Revenant migrations `0017_replay_context_isolation.sql` and `0018_replay_scheduler_context_isolation.sql`, the existing Replay job and Marrow context tables, and the canonical context copy in the V4 scheduler.
+
+The dedicated Replay role needs context reads to restore a verified source and its ancestors, and to create and restore its child. The original Replay grant exposed every row of the global content-addressed context table. An unrelated reference did not need a job binding.
+
+Migration 0017 follows Revenant 0016 in the existing migration runner. A restrictive RLS policy derives the tenant from the provisioned session login and resolves durable job and Timeline bindings. Source and ancestor context visibility follows the job's lineage. Child creation uses the exact policy-v8 context derived from the existing pinned V4 source bytes. The policy verifies the canonical digest and allows insertion only while the matching job is Running. A history insert trigger also verifies that the child context, source, position and operation key match that job. A verified child retains its authorized context for cold restore. A hash shared across histories identifies the same bytes and is visible when an independent job authorizes it.
+
+The database retains the existing context rows, digest rules, codecs, reducer and engine calls. Ordinary Marrow and Ghost Lap runtime roles retain their prior SELECT and INSERT permissions. Replay has no membership in the ordinary Timeline runtime and cannot bypass RLS. The policy checks the session login even after an allowed role switch. The narrowly granted security-definer predicate uses a fixed search path and returns a Boolean authorization decision.
+
+The release audit found that the V4 scheduler duplicated the canonical context and previously limited reads only by tenant. Migration 0018 scopes the scheduler copy to the same trusted V4 source jobs for the dedicated Replay login. Ordinary dispatch and read-only legacy logins retain their existing access. The worker credential can process jobs issued for its provisioned tenant. It cannot issue a job, change its tenant/source/request/operation binding, change its provisioned tenant, or write the source registry. The worker's status and result columns do not independently authorize a context. The release fixture verifies these denials and both context read paths with the provisioned login on a database upgraded from R7.
+
+The migration runs atomically under the supported runner. Failure rolls back the policy, trigger and migration receipt together. If rollback is needed after deployment, take Replay offline or revoke its login before any forward corrective migration. Retain the original context rows and never reopen global visibility to an active Replay credential.
