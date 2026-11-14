@@ -33,7 +33,7 @@ type PathParams<Op> = Op extends { parameters: { path?: infer P } } ? NonNullabl
 type WithBody<Op> = [JsonBody<Op>] extends [never] ? unknown : { body: JsonBody<Op> };
 type WithPath<Op> = [PathParams<Op>] extends [never] ? unknown : { path: PathParams<Op> };
 
-export type RequestOptions<Op> = { signal?: AbortSignal } & WithBody<Op> & WithPath<Op>;
+export type RequestOptions<Op> = { signal?: AbortSignal; idempotencyKey?: string } & WithBody<Op> & WithPath<Op>;
 
 type NeedsOptions<Op> = [JsonBody<Op>] extends [never] ? ([PathParams<Op>] extends [never] ? false : true) : true;
 type CallArgs<Op> = NeedsOptions<Op> extends true ? [options: RequestOptions<Op>] : [options?: RequestOptions<Op>];
@@ -64,6 +64,7 @@ export interface ApiClient {
 }
 
 interface RuntimeOptions {
+  idempotencyKey?: string;
   signal?: AbortSignal;
   body?: unknown;
   path?: Record<string, string | number>;
@@ -92,6 +93,7 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
     const token = options.getAccessToken?.() ?? null;
     if (token) headers.Authorization = `Bearer ${token}`;
     if (MUTATING.has(method)) {
+      if (runtime.idempotencyKey) headers['Idempotency-Key'] = runtime.idempotencyKey;
       const csrf = options.getCsrfToken?.() ?? null;
       if (csrf) headers['X-CSRF-Token'] = csrf;
     }

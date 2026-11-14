@@ -20,6 +20,12 @@ public sealed class E2eBackendFactory(E2eDatabase database, string fixtureToken)
         // The API only touches Redis for readiness; the fixture never calls it.
         builder.UseSetting("ConnectionStrings:Redis", "localhost:6399,abortConnect=false");
         builder.UseSetting("Identity:MasterSecret", MasterSecret);
+        if (database.R8Ledger.Length > 0)
+        {
+            builder.UseSetting("ConnectionStrings:RevenantLedger", database.R8Ledger);
+            builder.UseSetting("ConnectionStrings:RevenantTimeline", database.ApiConnectionString);
+            builder.UseSetting("Identity:AllowedOrigins:0", "http://localhost:5175");
+        }
         builder.ConfigureTestServices(services => services.AddE2eTimelineFixture(fixtureToken, database.Owner));
     }
 }

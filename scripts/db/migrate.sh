@@ -128,7 +128,8 @@ log "done: $applied applied, $skipped already applied"
 #   API_LEDGER_DB_PASSWORD      -> sands_api_ledger      revenant_ledger_writer
 #   REALTIME_LEDGER_DB_PASSWORD -> sands_realtime_ledger revenant_replay_reader (hub snapshot reads only)
 #   WORKER_LEDGER_DB_PASSWORD   -> sands_worker_ledger   revenant_ledger_writer + revenant_outbox_relay (LiveOps)
-RUNTIME_ROLES="marrow_timeline_runtime marrow_identity_runtime revenant_ledger_writer revenant_replay_reader revenant_outbox_relay revenant_read_projector"
+#   REPLAY_DB_PASSWORD -> sands_replay (restricted child Timeline and tenant-scoped replay results)
+RUNTIME_ROLES="marrow_timeline_revenant_replay revenant_counterfactual_worker marrow_timeline_runtime marrow_identity_runtime revenant_ledger_writer revenant_replay_reader revenant_outbox_relay revenant_read_projector"
 provision_login() {
   login=$1 var=$2 members=$3
   eval "password=\${$var:-}"
@@ -172,3 +173,12 @@ provision_login sands_worker WORKER_DB_PASSWORD "marrow_timeline_runtime revenan
 provision_login sands_api_ledger API_LEDGER_DB_PASSWORD "revenant_ledger_writer"
 provision_login sands_realtime_ledger REALTIME_LEDGER_DB_PASSWORD "revenant_replay_reader"
 provision_login sands_worker_ledger WORKER_LEDGER_DB_PASSWORD "revenant_ledger_writer revenant_outbox_relay"
+provision_login sands_replay REPLAY_DB_PASSWORD "marrow_timeline_revenant_replay revenant_replay_reader revenant_counterfactual_worker"
+if [ -n "${REPLAY_DB_PASSWORD:-}" ]; then
+  [ -n "${REPLAY_TENANT_ID:-}" ] || fail "REPLAY_TENANT_ID is required for sands_replay"
+  case "$REPLAY_TENANT_ID" in *[!A-Za-z0-9_.-]*) fail "REPLAY_TENANT_ID contains unsupported characters" ;; esac
+  sql -v replay_tenant="$REPLAY_TENANT_ID" <<'SQL'
+INSERT INTO revenant.counterfactual_worker_tenant (login_name, tenant_id) VALUES ('sands_replay', :'replay_tenant')
+ON CONFLICT (login_name) DO UPDATE SET tenant_id=EXCLUDED.tenant_id;
+SQL
+fi

@@ -311,6 +311,8 @@ jobs:
               ("V4DatasetPostgresTests", "Published_Worker_dispatches_and_synchronizes_a_model_admitted_hold"): 1,
               ("V4ModelForkPostgresTests", "ModelRequired_fork_inherits_capacity_and_scores_its_own_suffix"): 1,
               ("V4ModelForkPostgresTests", "Competing_model_screenings_consume_the_last_slot_once"): 1,
+              ("V4ReplayPostgresTests", "Replay_login_forks_only_its_tenant_and_publishes_verified_readback"): 1,
+              ("V4ReplayPostgresTests", "Missing_required_model_blocks_screening_and_missing_advisory_has_no_prediction"): 1,
           }
           for test, minimum in required.items():
               observed = len(passed[test])
@@ -325,6 +327,15 @@ jobs:
           name: revenant-integration-evidence
           path: TestResults/revenant-integration/*.trx
           retention-days: 14
+      - name: Verify R8 Replay authorization on an upgraded R7 database
+        if: ${{ !cancelled() && steps.revenant-coverage.outcome == 'success' }}
+        timeout-minutes: 5
+        env:
+          R8_TEST_CONTEXT_UPGRADE: '1'
+        run: >-
+          dotnet test tests/Revenant/Revenant.Tests.csproj --configuration Release --no-build
+          --filter "FullyQualifiedName~Replay_login_forks_only_its_tenant_and_publishes_verified_readback"
+          --logger "console;verbosity=normal"
       - name: Run the paired R6 live financial qualification
         id: r6-qualification
         if: >-
@@ -726,7 +737,8 @@ jobs:
     name: R7 published Worker advisory proof (Linux AMD64)
     if: >-
       ${{ github.event.pull_request.head.repo.full_name == github.repository
-          && github.event.pull_request.head.ref == 'codex/r7-ssa-anomaly-liquidity-20261113' }}
+          && (github.event.pull_request.head.ref == 'codex/r7-ssa-anomaly-liquidity-20261113'
+              || github.event.pull_request.head.ref == 'codex/r8-counterfactual-revenant-20261114') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -853,6 +865,13 @@ jobs:
         timeout-minutes: 10
         run: npm run test:revenant
         working-directory: tests/E2E
+      - name: Playwright R8 with the real API and separate Replay Worker
+        timeout-minutes: 8
+        working-directory: tests/E2E
+        run: |
+          dotnet build backend/E2E.Backend.csproj
+          dotnet build ../../src/Hosts.Worker/Hosts.Worker.csproj
+          npx playwright test --config playwright.r8.config.ts
       - name: Upload browser evidence
         if: always()
         uses: actions/upload-artifact@v6

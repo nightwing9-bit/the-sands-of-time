@@ -2426,6 +2426,415 @@
           }
         }
       }
+    },
+    "/revenant/r8/runs": {
+      "post": {
+        "tags": [
+          "Hosts.Api"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/R8Create"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/R8Run"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Hosts.Api"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/R8Run"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/revenant/r8/runs/{id}": {
+      "get": {
+        "tags": [
+          "Hosts.Api"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/R8Snapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/revenant/r8/runs/{id}/close": {
+      "post": {
+        "tags": [
+          "Hosts.Api"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/R8Snapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/revenant/r8/runs/{id}/timeline/{position}": {
+      "get": {
+        "tags": [
+          "Hosts.Api"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "position",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/R8Preview"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/revenant/r8/runs/{id}/cases/{intent}": {
+      "get": {
+        "tags": [
+          "Hosts.Api"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "intent",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/R8Case"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Hosts.Api"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "intent",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/R8Review"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/R8Case"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/revenant/r8/runs/{id}/liquidity": {
+      "get": {
+        "tags": [
+          "Hosts.Api"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/R8Liquidity"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/revenant/r8/runs/{id}/counterfactual": {
+      "post": {
+        "tags": [
+          "Hosts.Api"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/R8Replay"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/R8Job"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/revenant/r8/runs/{id}/counterfactual/{job}": {
+      "get": {
+        "tags": [
+          "Hosts.Api"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "job",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/R8Job"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/revenant/r8/runs/{id}/counterfactual/{job}/cancel": {
+      "post": {
+        "tags": [
+          "Hosts.Api"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "job",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/R8Job"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/revenant/r8/runs/{id}/audit": {
+      "get": {
+        "tags": [
+          "Hosts.Api"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/R8Audit"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -3012,6 +3421,912 @@
           },
           "actor": {
             "type": "string"
+          }
+        }
+      },
+      "R8Action": {
+        "required": [
+          "intentId",
+          "actor",
+          "atMs",
+          "action",
+          "status",
+          "code",
+          "fact"
+        ],
+        "type": "object",
+        "properties": {
+          "intentId": {
+            "type": "string"
+          },
+          "actor": {
+            "type": "string"
+          },
+          "atMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "action": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "fact": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "R8Anomaly": {
+        "required": [
+          "subject",
+          "atMs",
+          "observed",
+          "expected",
+          "score",
+          "threshold",
+          "evidenceSha256"
+        ],
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string"
+          },
+          "atMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "observed": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "expected": {
+            "type": "number",
+            "format": "double"
+          },
+          "score": {
+            "type": "number",
+            "format": "double"
+          },
+          "threshold": {
+            "type": "number",
+            "format": "double"
+          },
+          "evidenceSha256": {
+            "type": "string"
+          }
+        }
+      },
+      "R8Audit": {
+        "required": [
+          "timelineId",
+          "status",
+          "stateHash",
+          "recordHash",
+          "manifestHash",
+          "policy",
+          "model",
+          "lastPosition",
+          "ledgerVerification",
+          "ledgerHeadHash",
+          "recentEvents"
+        ],
+        "type": "object",
+        "properties": {
+          "timelineId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
+          },
+          "stateHash": {
+            "type": "string"
+          },
+          "recordHash": {
+            "type": "string"
+          },
+          "manifestHash": {
+            "type": "string"
+          },
+          "policy": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "lastPosition": {
+            "type": "string"
+          },
+          "ledgerVerification": {
+            "type": "string"
+          },
+          "ledgerHeadHash": {
+            "type": "string"
+          },
+          "recentEvents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/R8AuditEvent"
+            }
+          }
+        }
+      },
+      "R8AuditEvent": {
+        "required": [
+          "sequence",
+          "event",
+          "actor",
+          "subject",
+          "subjectVersion",
+          "evidenceSha256"
+        ],
+        "type": "object",
+        "properties": {
+          "sequence": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "event": {
+            "type": "string"
+          },
+          "actor": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "subjectVersion": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "evidenceSha256": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "R8Balance": {
+        "required": [
+          "bankId",
+          "postedMinor",
+          "reservedMinor",
+          "availableMinor"
+        ],
+        "type": "object",
+        "properties": {
+          "bankId": {
+            "type": "string"
+          },
+          "postedMinor": {
+            "type": "string"
+          },
+          "reservedMinor": {
+            "type": "string"
+          },
+          "availableMinor": {
+            "type": "string"
+          }
+        }
+      },
+      "R8BankPoint": {
+        "required": [
+          "atMs",
+          "balance"
+        ],
+        "type": "object",
+        "properties": {
+          "atMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "balance": {
+            "$ref": "#/components/schemas/R8Balance"
+          }
+        }
+      },
+      "R8Case": {
+        "required": [
+          "caseId",
+          "intentId",
+          "version",
+          "status",
+          "requiredApprovals",
+          "approvalCount",
+          "amountMinor",
+          "risk"
+        ],
+        "type": "object",
+        "properties": {
+          "caseId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "intentId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "type": "string"
+          },
+          "requiredApprovals": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "approvalCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "amountMinor": {
+            "type": "string"
+          },
+          "risk": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/R8Risk"
+              }
+            ]
+          }
+        }
+      },
+      "R8ComparedBalance": {
+        "required": [
+          "atMs",
+          "bankId",
+          "source",
+          "alternative"
+        ],
+        "type": "object",
+        "properties": {
+          "atMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "bankId": {
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/R8Balance"
+          },
+          "alternative": {
+            "$ref": "#/components/schemas/R8Balance"
+          }
+        }
+      },
+      "R8ComparedPayment": {
+        "required": [
+          "intentId",
+          "principalMinor",
+          "sourceStatus",
+          "alternativeStatus",
+          "sourceCause",
+          "alternativeCause",
+          "sourceSettlementMs",
+          "alternativeSettlementMs",
+          "sourceEvidence",
+          "alternativeEvidence",
+          "delayMinutes",
+          "delayCostMinor"
+        ],
+        "type": "object",
+        "properties": {
+          "intentId": {
+            "type": "string"
+          },
+          "principalMinor": {
+            "type": "string"
+          },
+          "sourceStatus": {
+            "type": "string"
+          },
+          "alternativeStatus": {
+            "type": "string"
+          },
+          "sourceCause": {
+            "type": "string"
+          },
+          "alternativeCause": {
+            "type": "string"
+          },
+          "sourceSettlementMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "alternativeSettlementMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "sourceEvidence": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "alternativeEvidence": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "delayMinutes": {
+            "type": "string"
+          },
+          "delayCostMinor": {
+            "type": "string"
+          }
+        }
+      },
+      "R8Create": {
+        "required": [
+          "seed"
+        ],
+        "type": "object",
+        "properties": {
+          "seed": {
+            "type": "string"
+          }
+        }
+      },
+      "R8Headline": {
+        "required": [
+          "label",
+          "unit",
+          "source",
+          "alternative",
+          "delta"
+        ],
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "alternative": {
+            "type": "string"
+          },
+          "delta": {
+            "type": "string"
+          }
+        }
+      },
+      "R8Intervention": {
+        "required": [
+          "intentId",
+          "action",
+          "expectedVersion",
+          "atMs"
+        ],
+        "type": "object",
+        "properties": {
+          "intentId": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "expectedVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "atMs": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "R8Job": {
+        "required": [
+          "jobId",
+          "status",
+          "failure",
+          "verified"
+        ],
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
+          },
+          "failure": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "verified": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/R8Verified"
+              }
+            ]
+          }
+        }
+      },
+      "R8Liquidity": {
+        "required": [
+          "method",
+          "uncertainty",
+          "anomalyStatus",
+          "actual",
+          "projection"
+        ],
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string"
+          },
+          "uncertainty": {
+            "type": "string"
+          },
+          "anomalyStatus": {
+            "type": "string"
+          },
+          "actual": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/R8BankPoint"
+            }
+          },
+          "projection": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/R8Projection"
+            }
+          }
+        }
+      },
+      "R8Marker": {
+        "required": [
+          "position",
+          "atMs",
+          "kind",
+          "intentId"
+        ],
+        "type": "object",
+        "properties": {
+          "position": {
+            "type": "string"
+          },
+          "atMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "intentId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "R8Payment": {
+        "required": [
+          "intentId",
+          "sourceBank",
+          "destinationBank",
+          "amountMinor",
+          "acceptedAtMs",
+          "status",
+          "reason",
+          "risk"
+        ],
+        "type": "object",
+        "properties": {
+          "intentId": {
+            "type": "string"
+          },
+          "sourceBank": {
+            "type": "string"
+          },
+          "destinationBank": {
+            "type": "string"
+          },
+          "amountMinor": {
+            "type": "string"
+          },
+          "acceptedAtMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "risk": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/R8Risk"
+              }
+            ]
+          }
+        }
+      },
+      "R8Preview": {
+        "required": [
+          "position",
+          "boundaryMs",
+          "stateHash",
+          "status",
+          "balances"
+        ],
+        "type": "object",
+        "properties": {
+          "position": {
+            "type": "string"
+          },
+          "boundaryMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "stateHash": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "balances": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/R8Balance"
+            }
+          }
+        }
+      },
+      "R8Projection": {
+        "required": [
+          "bankId",
+          "atMs",
+          "availableMinor"
+        ],
+        "type": "object",
+        "properties": {
+          "bankId": {
+            "type": "string"
+          },
+          "atMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "availableMinor": {
+            "type": "string"
+          }
+        }
+      },
+      "R8Replay": {
+        "required": [
+          "forkPosition",
+          "horizonMs",
+          "policy",
+          "interventions"
+        ],
+        "type": "object",
+        "properties": {
+          "forkPosition": {
+            "type": "string"
+          },
+          "horizonMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "policy": {
+            "type": "string"
+          },
+          "interventions": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/R8Intervention"
+            }
+          }
+        }
+      },
+      "R8Review": {
+        "required": [
+          "action",
+          "expectedVersion"
+        ],
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "expectedVersion": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "R8Risk": {
+        "required": [
+          "scorePpm",
+          "thresholdPpm",
+          "modelId",
+          "policy",
+          "reason",
+          "evidenceSha256",
+          "observations"
+        ],
+        "type": "object",
+        "properties": {
+          "scorePpm": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "thresholdPpm": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "modelId": {
+            "type": "string"
+          },
+          "policy": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "evidenceSha256": {
+            "type": "string"
+          },
+          "observations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/R8RiskObservation"
+            }
+          }
+        }
+      },
+      "R8RiskObservation": {
+        "required": [
+          "name",
+          "value"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
+      "R8Run": {
+        "required": [
+          "runId",
+          "seed",
+          "manifestHash"
+        ],
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "seed": {
+            "type": "string"
+          },
+          "manifestHash": {
+            "type": "string"
+          }
+        }
+      },
+      "R8Snapshot": {
+        "required": [
+          "runId",
+          "timelineId",
+          "lastPosition",
+          "boundaryMs",
+          "status",
+          "opening",
+          "balances",
+          "payments",
+          "cases",
+          "markers",
+          "anomalyStatus",
+          "anomalies"
+        ],
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "timelineId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "lastPosition": {
+            "type": "string"
+          },
+          "boundaryMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "type": "string"
+          },
+          "opening": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/R8Balance"
+            }
+          },
+          "balances": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/R8Balance"
+            }
+          },
+          "payments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/R8Payment"
+            }
+          },
+          "cases": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/R8Case"
+            }
+          },
+          "markers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/R8Marker"
+            }
+          },
+          "anomalyStatus": {
+            "type": "string"
+          },
+          "anomalies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/R8Anomaly"
+            }
+          }
+        }
+      },
+      "R8Verified": {
+        "required": [
+          "childTimelineId",
+          "sourceStateHash",
+          "sourceRecordHash",
+          "childStateHash",
+          "childRecordHash",
+          "evidenceDigest",
+          "costPolicy",
+          "horizonMs",
+          "mode",
+          "sourcePolicy",
+          "alternativePolicy",
+          "model",
+          "continuationPolicy",
+          "headlines",
+          "breakdown",
+          "payments",
+          "balances",
+          "actions"
+        ],
+        "type": "object",
+        "properties": {
+          "childTimelineId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sourceStateHash": {
+            "type": "string"
+          },
+          "sourceRecordHash": {
+            "type": "string"
+          },
+          "childStateHash": {
+            "type": "string"
+          },
+          "childRecordHash": {
+            "type": "string"
+          },
+          "evidenceDigest": {
+            "type": "string"
+          },
+          "costPolicy": {
+            "type": "string"
+          },
+          "horizonMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "sourcePolicy": {
+            "type": "string"
+          },
+          "alternativePolicy": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "continuationPolicy": {
+            "type": "string"
+          },
+          "headlines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/R8Headline"
+            }
+          },
+          "breakdown": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/R8Headline"
+            }
+          },
+          "payments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/R8ComparedPayment"
+            }
+          },
+          "balances": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/R8ComparedBalance"
+            }
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/R8Action"
+            }
           }
         }
       },
