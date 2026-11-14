@@ -16,6 +16,7 @@ public sealed class LedgerDatabase : IAsyncLifetime
 {
     private const string ReplayPolicy = "0017_replay_context_isolation.sql";
     private const string SchedulerPolicy = "0018_replay_scheduler_context_isolation.sql";
+    private const string OwnerPolicy = "0019_preserve_marrow_owner_guards.sql";
     private const string PreReplayPolicy = "/tmp/pre-replay-policy";
     private bool _preReplayPolicy;
     private const string Image = "postgres:18.6-alpine3.24";
@@ -51,7 +52,7 @@ public sealed class LedgerDatabase : IAsyncLifetime
         if (_preReplayPolicy)
         {
             var copy = await _container.ExecAsync(["sh", "-ec",
-                $"cp -R /sands/db/migrations {PreReplayPolicy} && rm {PreReplayPolicy}/revenant/0016_counterfactual.sql {PreReplayPolicy}/revenant/{ReplayPolicy} {PreReplayPolicy}/revenant/{SchedulerPolicy}"]);
+                $"cp -R /sands/db/migrations {PreReplayPolicy} && rm {PreReplayPolicy}/revenant/0016_counterfactual.sql {PreReplayPolicy}/revenant/{ReplayPolicy} {PreReplayPolicy}/revenant/{SchedulerPolicy} {PreReplayPolicy}/revenant/{OwnerPolicy}"]);
             if (copy.ExitCode != 0) throw new InvalidOperationException(copy.Stderr);
         }
         var result = await _container.ExecAsync([
@@ -156,7 +157,7 @@ public sealed class LedgerDatabase : IAsyncLifetime
             await create.ExecuteNonQueryAsync();
         }
         var copy = await _container.ExecAsync(["sh", "-ec",
-            "cp -R /sands/db/migrations /tmp/pre-v4-migrations && rm /tmp/pre-v4-migrations/revenant/0009_v4_causal_scheduler.sql /tmp/pre-v4-migrations/revenant/0010_v4_branch_execution.sql /tmp/pre-v4-migrations/revenant/0011_v4_observation_projections.sql /tmp/pre-v4-migrations/revenant/0012_v4_model_screening.sql /tmp/pre-v4-migrations/revenant/0013_v4_advisory_evidence.sql /tmp/pre-v4-migrations/revenant/0014_r7_advisory_evidence_v2.sql /tmp/pre-v4-migrations/revenant/0015_r7_liquidity_projection_evidence.sql /tmp/pre-v4-migrations/revenant/0016_counterfactual.sql /tmp/pre-v4-migrations/revenant/0017_replay_context_isolation.sql /tmp/pre-v4-migrations/revenant/0018_replay_scheduler_context_isolation.sql"]);
+            "cp -R /sands/db/migrations /tmp/pre-v4-migrations && rm /tmp/pre-v4-migrations/revenant/0009_v4_causal_scheduler.sql /tmp/pre-v4-migrations/revenant/0010_v4_branch_execution.sql /tmp/pre-v4-migrations/revenant/0011_v4_observation_projections.sql /tmp/pre-v4-migrations/revenant/0012_v4_model_screening.sql /tmp/pre-v4-migrations/revenant/0013_v4_advisory_evidence.sql /tmp/pre-v4-migrations/revenant/0014_r7_advisory_evidence_v2.sql /tmp/pre-v4-migrations/revenant/0015_r7_liquidity_projection_evidence.sql /tmp/pre-v4-migrations/revenant/0016_counterfactual.sql /tmp/pre-v4-migrations/revenant/0017_replay_context_isolation.sql /tmp/pre-v4-migrations/revenant/0018_replay_scheduler_context_isolation.sql /tmp/pre-v4-migrations/revenant/0019_preserve_marrow_owner_guards.sql"]);
         if (copy.ExitCode != 0)
         {
             throw new InvalidOperationException(copy.Stderr);
@@ -175,7 +176,7 @@ public sealed class LedgerDatabase : IAsyncLifetime
     {
         const string directory = "/tmp/pre-r3-migrations";
         var copy = await _container.ExecAsync(["sh", "-ec",
-            $"cp -R /sands/db/migrations {directory} && rm {directory}/revenant/0010_v4_branch_execution.sql {directory}/revenant/0011_v4_observation_projections.sql {directory}/revenant/0012_v4_model_screening.sql {directory}/revenant/0013_v4_advisory_evidence.sql {directory}/revenant/0014_r7_advisory_evidence_v2.sql {directory}/revenant/0015_r7_liquidity_projection_evidence.sql {directory}/revenant/0016_counterfactual.sql {directory}/revenant/0017_replay_context_isolation.sql {directory}/revenant/0018_replay_scheduler_context_isolation.sql"]);
+            $"cp -R /sands/db/migrations {directory} && rm {directory}/revenant/0010_v4_branch_execution.sql {directory}/revenant/0011_v4_observation_projections.sql {directory}/revenant/0012_v4_model_screening.sql {directory}/revenant/0013_v4_advisory_evidence.sql {directory}/revenant/0014_r7_advisory_evidence_v2.sql {directory}/revenant/0015_r7_liquidity_projection_evidence.sql {directory}/revenant/0016_counterfactual.sql {directory}/revenant/0017_replay_context_isolation.sql {directory}/revenant/0018_replay_scheduler_context_isolation.sql {directory}/revenant/0019_preserve_marrow_owner_guards.sql"]);
         if (copy.ExitCode != 0)
         {
             throw new InvalidOperationException(copy.Stderr);
@@ -202,13 +203,15 @@ public sealed class LedgerDatabase : IAsyncLifetime
             var job = output.IndexOf("applying 0016_counterfactual", StringComparison.Ordinal);
             var context = output.IndexOf("applying 0017_replay_context_isolation", StringComparison.Ordinal);
             var scheduler = output.IndexOf("applying 0018_replay_scheduler_context_isolation", StringComparison.Ordinal);
-            Assert.True(job >= 0 && context > job && scheduler > context, output);
+            var owner = output.IndexOf("applying 0019_preserve_marrow_owner_guards", StringComparison.Ordinal);
+            Assert.True(job >= 0 && context > job && scheduler > context && owner > scheduler, output);
             _preReplayPolicy = false;
         }
         else
         {
             Assert.Contains("applying 0017_replay_context_isolation", MigrateOutput);
             Assert.Contains("applying 0018_replay_scheduler_context_isolation", MigrateOutput);
+            Assert.Contains("applying 0019_preserve_marrow_owner_guards", MigrateOutput);
         }
     }
 

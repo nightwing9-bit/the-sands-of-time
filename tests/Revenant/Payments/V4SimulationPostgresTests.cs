@@ -334,7 +334,8 @@ public sealed class V4SimulationPostgresTests(LedgerDatabase db)
         Assert.Contains("module revenant: applying 0016_counterfactual", output);
         Assert.Contains("module revenant: applying 0017_replay_context_isolation", output);
         Assert.Contains("module revenant: applying 0018_replay_scheduler_context_isolation", output);
-        Assert.Contains("done: 9 applied", output);
+        Assert.Contains("module revenant: applying 0019_preserve_marrow_owner_guards", output);
+        Assert.Contains("done: 10 applied", output);
         Assert.Equal(r2Fingerprint, await LegacyFingerprintAsync(upgraded, r2.Run.RunId));
         var preserved = RequireSeal(await r2Store.SealAsync(Tenant, r2.Run.RunId, boundary, Ct), 1, boundary);
         Assert.Equal(ObservedFinanceInputCodec.Instance.EncodeCanonical(r2Seal), ObservedFinanceInputCodec.Instance.EncodeCanonical(preserved));
