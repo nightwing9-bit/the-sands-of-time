@@ -5,15 +5,30 @@ import { audit, cases, fork, jobId, liquidity, replay, run, runId, snapshot, sta
 // prove the browser views, their requests and their layout, not the backend journey (that is revenant-r8.spec.ts).
 // Set R8_SHOTS=<dir> to also write reference screenshots of all nine states at both laptop sizes.
 
-async function stub(page: Page, opts: { status?: "Active" | "Verified"; job?: "Pending" | "Verified" | "Failed" | null } = {}) {
+async function stub(page: Page, opts: { status?: "Active" | "Verified"; job?: "Pending" | "Verified" | "Failed" | null; denseSeals?: boolean } = {}) {
   const state = { status: opts.status ?? "Verified", job: opts.job ?? null, reviews: [] as unknown[] };
+  const denseSeals = ["288", "302", "303", "304"].map((position, i) => ({
+    kind: "ObservationSeal", position, atMs: Date.parse("2026-09-13T08:55:00Z") + i * 300_000, intentId: null,
+  }));
   await page.route("**/auth/staff/login", r => r.fulfill({ json: staffLogin }));
   await page.route("**/auth/staff/me", r => r.fulfill({ json: staffProfile }));
   await page.route("**/revenant/r8/runs", r => r.fulfill({ json: [run] }));
-  await page.route(`**/revenant/r8/runs/${runId}`, r => r.fulfill({ json: snapshot(state.status) }));
+  await page.route(`**/revenant/r8/runs/${runId}`, r => {
+    const result = snapshot(state.status);
+    if (opts.denseSeals) {
+      result.markers = [...result.markers.filter(marker => Number(marker.position) < 288), ...denseSeals];
+      result.lastPosition = denseSeals.at(-1)!.position;
+      result.boundaryMs = denseSeals.at(-1)!.atMs;
+    }
+    return r.fulfill({ json: result });
+  });
   await page.route("**/liquidity", r => r.fulfill({ json: liquidity }));
   await page.route("**/audit", r => r.fulfill({ json: audit }));
-  await page.route("**/timeline/*", r => r.fulfill({ json: timelinePreview(r.request().url().split("/").at(-1)!) }));
+  await page.route("**/timeline/*", r => {
+    const preview = timelinePreview(r.request().url().split("/").at(-1)!);
+    if (opts.denseSeals) preview.boundaryMs = denseSeals.find(seal => seal.position === preview.position)?.atMs ?? preview.boundaryMs;
+    return r.fulfill({ json: preview });
+  });
   await page.route("**/counterfactual", r => { state.job = "Pending"; return r.fulfill({ json: replay(state.job) }); });
   await page.route(`**/counterfactual/${jobId}`, r => r.fulfill({ json: replay(state.job) }));
   return state;
@@ -143,6 +158,57 @@ test("a failed replay shows no comparison metrics", async ({ page }) => {
 });
 
 for (const viewport of [{ width: 1440, height: 900 }, { width: 1366, height: 768 }]) {
+  test(`adjacent Rewind seals accept independent mouse clicks at ${viewport.width}×${viewport.height}`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await stub(page, { denseSeals: true });
+    await open(page, "rewind");
+    const nine = page.getByRole("button", { name: "Marker: 09:00 UTC completed seal" });
+    const horizon = page.getByRole("button", { name: "Marker: 09:10 UTC completed seal" });
+    const markers = page.getByRole("button", { name: /Marker: .*completed seal/ });
+    await expect(nine).toBeVisible();
+    await expect(horizon).toBeVisible();
+    const bounds = [];
+    for (const marker of await markers.all()) {
+      bounds.push((await marker.boundingBox())!);
+      expect(await marker.evaluate(button => {
+        const box = button.getBoundingClientRect();
+        const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+        return hit === button;
+      }), await marker.getAttribute("aria-label")).toBe(true);
+    }
+    bounds.sort((a, b) => a.x - b.x);
+    for (const [i, box] of bounds.slice(1).entries()) {
+      expect(box.x).toBeGreaterThanOrEqual(bounds[i]!.x + bounds[i]!.width);
+    }
+    const select = async (marker: typeof nine, position: string) => {
+      const [response] = await Promise.all([
+        page.waitForResponse(r => r.request().method() === "GET" && r.url().endsWith(`/timeline/${position}`)),
+        marker.click(),
+      ]);
+      expect(await response.json()).toMatchObject({ position, status: "Verified" });
+      await expect(page.getByTestId("r8-preview")).toContainText(`Verified event ${position} ·`);
+      await expect(page.getByRole("slider", { name: "Timeline position" })).toHaveAttribute("data-position", position);
+    };
+    const replayButton = page.getByRole("button", { name: "Run sandbox replay" });
+    await select(nine, "302");
+    await expect(page.getByText("Fork 09:00:00", { exact: true })).toBeVisible();
+    await expect(page.locator(".r8-dock-ticks .is-active")).toHaveText("09:00");
+    await expect(replayButton).toBeEnabled();
+    await select(horizon, "304");
+    await expect(page.locator(".r8-dock-ticks .is-active")).toHaveText("09:10");
+    await expect(page.getByText("No fork set", { exact: true })).toBeVisible();
+    await expect(replayButton).toBeDisabled();
+    await select(nine, "302");
+    await expect(page.getByText("Fork 09:00:00", { exact: true })).toBeVisible();
+    await expect(replayButton).toBeEnabled();
+    await expect(page.locator(".r8-dock")).toBeInViewport({ ratio: 1 });
+    await fits(page);
+    if (shots) await page.locator(".r8-dock").screenshot({ path: `${shots}/${viewport.width}-dense-dock.png` });
+    const replayRequest = page.waitForRequest(r => r.method() === "POST" && r.url().endsWith("/counterfactual"));
+    await replayButton.click();
+    expect((await replayRequest).postDataJSON()).toMatchObject({ forkPosition: "302", horizonMs: Date.parse("2026-09-13T09:10:00Z") });
+  });
+
   test(`all workspaces fit ${viewport.width}×${viewport.height} without document scrolling`, async ({ page }) => {
     await page.setViewportSize(viewport);
     const state = await stub(page, { status: "Active", job: "Verified" });

@@ -1,10 +1,6 @@
 using System.Net;
 using System.Runtime.InteropServices;
 using System.Diagnostics;
-using Marrow.Infrastructure.Identity;
-using Marrow.Infrastructure.Identity.Staff;
-using Microsoft.AspNetCore.Identity;
-using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 namespace Sands.E2E.Backend;
 /// <summary>
@@ -44,7 +40,7 @@ public static class E2eBackendEntry
         await using var factory = new E2eBackendFactory(database, token);
         factory.UseKestrel(options => options.Listen(Environment.GetEnvironmentVariable("E2E_R8_LISTEN_ANY") == "1" && database.R8Ledger.Length > 0 ? IPAddress.Any : IPAddress.Loopback, port));
         factory.StartServer();
-        using var replay = database.R8Ledger.Length > 0 ? await StartR8Async(factory, database, stop.Token) : null;
+        using var replay = database.R8Ledger.Length > 0 ? await StartR8Async(database, stop.Token) : null;
         Console.WriteLine($"E2E_BACKEND_READY http://127.0.0.1:{port}");
         try
         {
@@ -58,20 +54,8 @@ public static class E2eBackendEntry
         return 0;
     }
 
-    private static async Task<Process> StartR8Async(E2eBackendFactory factory, E2eDatabase db, CancellationToken ct)
+    private static async Task<Process> StartR8Async(E2eDatabase db, CancellationToken ct)
     {
-        using var scope = factory.Services.CreateScope();
-        var users = scope.ServiceProvider.GetRequiredService<UserManager<StaffUser>>();
-        var password = Environment.GetEnvironmentVariable("E2E_R8_PASSWORD") ?? throw new InvalidOperationException("Missing test password.");
-        foreach (var userName in new[] { "r8.browser.operator", "r8.browser.approver" })
-        {
-            var user = new StaffUser { UserName = userName };
-            var added = await users.CreateAsync(user, password);
-            if (!added.Succeeded) throw new InvalidOperationException("Test user creation failed.");
-            await users.AddToRoleAsync(user, IdentityRoles.Operator);
-            if (!await scope.ServiceProvider.GetRequiredService<StaffAuthService>().GrantTenantAsync(user.Id, "r8-browser", ct))
-                throw new InvalidOperationException("Test user has no tenant.");
-        }
         await using (var restricted = NpgsqlDataSource.Create(db.R8Replay))
         await using (var forbidden = restricted.CreateCommand("UPDATE revenant.ledger_entry SET amount_minor=amount_minor"))
         {
@@ -87,7 +71,7 @@ public static class E2eBackendEntry
         start.ArgumentList.Add(worker);
         start.ArgumentList.Add("--replay");
         start.Environment["ConnectionStrings__RevenantReplay"] = db.R8Replay;
-        start.Environment["Revenant__Ledger__TenantId"] = "r8-browser";
+        start.Environment["Revenant__Ledger__TenantId"] = R8FixtureStartup.Tenant;
         start.Environment.Remove("ConnectionStrings__RevenantLedger");
         return Process.Start(start) ?? throw new InvalidOperationException("Cannot start the Replay worker.");
     }

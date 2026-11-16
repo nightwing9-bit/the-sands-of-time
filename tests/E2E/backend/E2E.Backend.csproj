@@ -27,6 +27,8 @@
     <!-- Task 5.4: the real Revenant finance domain behind the test-only slice routes (RevenantSliceEndpoints.cs). -->
     <ProjectReference Include="..\..\..\src\Revenant\Revenant.csproj" />
     <ProjectReference Include="..\..\..\src\Revenant.Contracts\Revenant.Contracts.csproj" />
+    <!-- Use the existing test assembly's V4 scheduler access, with no production friend or endpoint. -->
+    <ProjectReference Include="..\..\Revenant\Revenant.Tests.csproj" />
     <!-- Spec 06 task 6.5: the real Ghost Lap domain behind the test-only greybox routes (GhostLapSoloEndpoints.cs). -->
     <ProjectReference Include="..\..\..\src\GhostLap\GhostLap.csproj" />
   </ItemGroup>

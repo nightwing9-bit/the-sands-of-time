@@ -12,9 +12,9 @@ export default defineConfig({
   expect:{timeout:15_000}, reporter:[["list"], ["junit", { outputFile: "test-results/r8-junit.xml" }]],
   use:{baseURL:"http://localhost:5175", viewport:{width:1440,height:900}, hasTouch:true},
   webServer:[
-    // Bound the host beyond startup and two 120-second tests, within the CI step budget.
+    // Bound the host beyond startup and three 120-second tests, within the CI step budget.
     {command:backend,cwd:root,url:`http://localhost:${port}/__e2e/info`,timeout:60_000,reuseExistingServer:false, stderr:"pipe",
-      env:{E2E_R8:"1",E2E_FIXTURE_TOKEN:token,E2E_BACKEND_PORT:String(port),E2E_BACKEND_MAX_SECONDS:"360",ASPNETCORE_ENVIRONMENT:"Testing",
+      env:{E2E_R8:"1",E2E_FIXTURE_TOKEN:token,E2E_BACKEND_PORT:String(port),E2E_BACKEND_MAX_SECONDS:"420",ASPNETCORE_ENVIRONMENT:"Testing",
         E2E_R8_PASSWORD:process.env.E2E_R8_PASSWORD}},
     {command:"npm run dev -w @sands/revenant",cwd:resolve(root,"web"),url:"http://localhost:5175",timeout:30_000,reuseExistingServer:false,
       env:{VITE_API_ORIGIN:`http://127.0.0.1:${port}`}},

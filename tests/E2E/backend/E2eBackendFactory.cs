@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
 namespace Sands.E2E.Backend;
 /// <summary>
 /// The real <c>Hosts.Api</c> composition (its own <c>Program</c>: host defaults, Postgres, identity, contract metadata) running in
@@ -25,6 +26,7 @@ public sealed class E2eBackendFactory(E2eDatabase database, string fixtureToken)
             builder.UseSetting("ConnectionStrings:RevenantLedger", database.R8Ledger);
             builder.UseSetting("ConnectionStrings:RevenantTimeline", database.ApiConnectionString);
             builder.UseSetting("Identity:AllowedOrigins:0", "http://localhost:5175");
+            builder.ConfigureTestServices(services => services.AddHostedService<R8FixtureStartup>());
         }
         builder.ConfigureTestServices(services => services.AddE2eTimelineFixture(fixtureToken, database.Owner));
     }

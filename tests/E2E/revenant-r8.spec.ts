@@ -224,23 +224,25 @@ test("staff reviews and verifies a replay through all five real Revenant screens
   const nine: Marker[] = closed.markers.filter((m: Marker) => m.kind === "ObservationSeal" && m.atMs === Date.parse(nineIso));
   expect(nine).toHaveLength(1);
   const [exact] = nine;
-  expect(exact.position).toMatch(/^[1-9][0-9]*$/);
+  expect(exact.position).toBe("302");
   expect(exact.atMs).toBeLessThan(closed.boundaryMs);
+  expect(closed.lastPosition).toBe("304");
 
   await nav.getByText("Rewind Mode").click();
-  await expect(page.getByRole("button", { name: /Marker: 09:00 UTC completed seal/ })).toBeVisible();
-  // At this viewport the dense final markers overlap. The slider supports exact one-event keyboard seeks.
-  await slider.press("End");
+  const nineMarker = page.getByRole("button", { name: "Marker: 09:00 UTC completed seal" });
+  const horizonMarker = page.getByRole("button", { name: "Marker: 09:10 UTC completed seal" });
+  await expect(nineMarker).toBeVisible();
+  const [horizonResponse] = await Promise.all([
+    page.waitForResponse(r => r.request().method() === "GET" && r.url().endsWith(`/timeline/${closed.lastPosition}`)),
+    horizonMarker.click(),
+  ]);
+  expect(horizonResponse.status()).toBe(200);
+  expect(await horizonResponse.json()).toMatchObject({ position: closed.lastPosition, boundaryMs: closed.boundaryMs, status: "Verified" });
   await expect(page.getByTestId("r8-preview")).toContainText(`Verified event ${closed.lastPosition}`);
-  const stepsBack = BigInt(closed.lastPosition) - BigInt(exact.position);
-  expect(stepsBack > 0n && stepsBack <= 4n).toBeTruthy();
-  for (let step = 1n; step < stepsBack; step++) {
-    await slider.press("ArrowLeft");
-    await expect(page.getByTestId("r8-preview")).toContainText(`Verified event ${BigInt(closed.lastPosition) - step}`);
-  }
+  await expect(page.getByRole("button", { name: "Run sandbox replay" })).toBeDisabled();
   const [seekResponse] = await Promise.all([
     page.waitForResponse(r => r.request().method() === "GET" && r.url().endsWith(`/timeline/${exact.position}`)),
-    slider.press("ArrowLeft"),
+    nineMarker.click(),
   ]);
   expect(seekResponse.status()).toBe(200);
   const preview = await seekResponse.json();
@@ -530,4 +532,234 @@ test("staff decides a held payment through the real approval dialog and the ledg
     destination: { before: bank(afterCancel.balances, pay.destinationBank), after: bank(after.balances, pay.destinationBank) },
     liquidity: latest, ledgerVerification: audit.ledgerVerification, ledgerHead: audit.ledgerHeadHash,
   }));
+});
+
+test("two authorized staff complete a high-value held payment through the real Revenant approval dialog", async ({ browser }) => {
+  const intentId = "P-FOUR-EYES";
+  const operatorName = "r8.browser.four-eyes-operator";
+  const supervisorName = "r8.browser.four-eyes-supervisor";
+  const options = { baseURL: test.info().project.use.baseURL, viewport: { width: 1440, height: 900 } };
+  type Auth = Awaited<ReturnType<typeof browserLogin>>;
+  type Staff = { subject: string; roles: string[]; claims: string[] };
+  type Run = Snapshot & { runId: string; timelineId: string; boundaryMs: number; status: string; opening: Bal[] };
+
+  async function get<T>(page: Page, auth: Auth, path: string): Promise<T> {
+    const response = await page.request.get(path, { headers: auth });
+    expect(response.status(), path).toBe(200);
+    return response.json();
+  }
+
+  async function enroll(name: string) {
+    const bootstrap = await browser.newPage(options);
+    try {
+      const auth = await browserLogin(bootstrap, name);
+      return {
+        staff: await get<Staff>(bootstrap, auth, "/auth/staff/me"),
+        mfa: await enrollMfa(bootstrap, auth),
+      };
+    } finally {
+      await bootstrap.close();
+    }
+  }
+
+  const [operator, supervisor] = await Promise.all([enroll(operatorName), enroll(supervisorName)]);
+  expect(operator.staff.subject).not.toBe(supervisor.staff.subject);
+
+  const operatorContext = await browser.newContext(options);
+  const supervisorContext = await browser.newContext(options);
+  try {
+    const a = await operatorContext.newPage();
+    const authA = await browserLogin(a, operatorName, await freshTotp(operator.mfa));
+    const staffA = await get<Staff>(a, authA, "/auth/staff/me");
+    expect(staffA.subject).toBe(operator.staff.subject);
+    expect(staffA.roles).toEqual(["operator"]);
+    expect(staffA.claims).toContain("mfa");
+
+    const runs = await get<{ runId: string }[]>(a, authA, "/revenant/r8/runs");
+    expect(runs).toHaveLength(1);
+    const { runId } = runs[0]!;
+    const path = `/revenant/r8/runs/${runId}`;
+    const casePath = `${path}/cases/${intentId}`;
+    const grant = await a.request.post(`/revenant/ledger/runs/${runId}/staff`, {
+      headers: authA, data: { subjectId: supervisor.staff.subject, role: "supervisor" },
+    });
+    expect(grant.status(), await grant.text()).toBe(204);
+
+    const read = (page: Page, auth: Auth) => get<Run>(page, auth, path);
+    const findCase = (run: Run) => run.cases.find(c => c.intentId === intentId)!;
+    const findPayment = (run: Run) => run.payments.find(p => p.intentId === intentId)!;
+    const readAudit = (page: Page, auth: Auth) => get<Audit>(page, auth, `${path}/audit`);
+    const caseRow = (page: Page) => page.getByRole("button", { name: new RegExp(`Select case ${intentId},`) });
+    const approve = (page: Page) => page.getByRole("button", { name: "Approve", exact: true });
+    const isReviewPost = (request: { method(): string; url(): string }) =>
+      request.method() === "POST" && request.url().endsWith(casePath);
+    async function selectHeld(page: Page) {
+      await page.getByLabel("Scenario", { exact: true }).selectOption(runId);
+      await expect(page.getByLabel("Scenario", { exact: true })).toHaveValue(runId);
+      await page.getByRole("navigation", { name: "Revenant screens" }).getByText("Held Queue").click();
+      await caseRow(page).click();
+    }
+
+    async function submit(page: Page, name: string, version: number, expectedStatus: number) {
+      const [response] = await Promise.all([
+        page.waitForResponse(r => isReviewPost(r.request())),
+        page.getByRole("dialog").getByRole("button", { name, exact: true }).click(),
+      ]);
+      expect(response.status(), await response.text()).toBe(expectedStatus);
+      expect(response.request().postDataJSON()).toEqual({ action: "Approve", expectedVersion: version });
+      const key = response.request().headers()["idempotency-key"];
+      expect(key).toMatch(/^[a-zA-Z0-9_.-]{1,80}$/);
+      return { body: await response.json(), key };
+    }
+
+    const before = await read(a, authA);
+    expect(before).toMatchObject({ runId, status: "Recording" });
+    expect(before.cases).toHaveLength(1);
+    expect(before.payments).toHaveLength(1);
+    const held = findCase(before);
+    expect(held).toMatchObject({ intentId, status: "Open", approvalCount: 0, requiredApprovals: 2, amountMinor: "1500000" });
+    expect(held.version).toBeGreaterThan(0);
+    expect(held.caseId).toMatch(/^[0-9a-f-]{36}$/i);
+    const payment = findPayment(before);
+    expect(payment).toMatchObject({
+      intentId, status: "Held", amountMinor: held.amountMinor, sourceBank: "BANK-A", destinationBank: "BANK-B",
+      acceptedAtMs: before.boundaryMs, risk: { policy: "policy-v7", reason: "BaseRuleHold", scorePpm: expect.any(Number) },
+    });
+    expectReconciled(before.opening);
+    expectReconciled(before.balances);
+    const principal = BigInt(held.amountMinor);
+    for (const baseline of before.opening) {
+      const opening = big(baseline);
+      const current = big(bank(before.balances, baseline.bankId));
+      const reservation = baseline.bankId === payment.sourceBank ? principal : 0n;
+      expect(opening.available).toBeGreaterThanOrEqual(reservation);
+      expect(current).toEqual({ posted: opening.posted, reserved: opening.reserved + reservation, available: opening.available - reservation });
+    }
+    const auditBefore = await readAudit(a, authA);
+    expect(auditBefore.ledgerVerification).toBe("Verified");
+    const aPosts: string[] = [];
+    a.on("request", r => { if (isReviewPost(r)) aPosts.push(r.url()); });
+
+    await selectHeld(a);
+    await approve(a).click();
+    const dialogA = a.getByRole("dialog");
+    await expect(dialogA).toContainText(usd(held.amountMinor));
+    await expect(dialogA).toContainText(`(${payment.sourceBank})`);
+    await expect(dialogA).toContainText(`(${payment.destinationBank})`);
+    await expect(dialogA).toContainText(`0 of 2 approvals · Open · v${held.version}`);
+    await expect(dialogA).toContainText("payment stays held");
+    await expect(dialogA).toContainText("Reserved funds remain reserved");
+    await dialogA.getByRole("button", { name: "Cancel" }).click();
+    await expect(dialogA).toHaveCount(0);
+    expect(aPosts).toHaveLength(0);
+    expect(await read(a, authA)).toEqual(before);
+    expect(await readAudit(a, authA)).toEqual(auditBefore);
+
+    await approve(a).click();
+    const first = await submit(a, "Record approval 1 of 2", held.version, 200);
+    const waiting = { ...held, version: held.version + 1, status: "AwaitingSecondApproval", approvalCount: 1 };
+    expect(first.body).toEqual(waiting);
+    await expect(dialogA).toHaveCount(0);
+    await expect(caseRow(a)).toContainText("1/2");
+    expect(aPosts).toHaveLength(1);
+    const afterFirst = await read(a, authA);
+    expect(findCase(afterFirst)).toEqual(waiting);
+    expect(findPayment(afterFirst)).toEqual(payment);
+    expect(afterFirst.boundaryMs).toBe(before.boundaryMs);
+    expect(afterFirst.balances).toEqual(before.balances);
+    expectReconciled(afterFirst.balances);
+    const firstPosition = BigInt(before.markers.at(-1)!.position) + 1n;
+    expect(afterFirst.markers.slice(before.markers.length)).toEqual([
+      expect.objectContaining({ position: String(firstPosition), kind: "ReviewDecision" }),
+    ]);
+
+    await approve(a).click();
+    const denied = await submit(a, "Approve and release", waiting.version, 409);
+    expect(denied.body).toMatchObject({ code: "inapplicable-DistinctSupervisorRequired" });
+    await expect(dialogA.getByRole("alert")).toContainText("A different authorized supervisor must complete the required approval.");
+    await dialogA.getByRole("button", { name: "Cancel" }).click();
+    expect(aPosts).toHaveLength(2);
+    expect(await read(a, authA)).toEqual(afterFirst);
+    const auditAfterDenial = await readAudit(a, authA);
+    expect(auditAfterDenial.ledgerVerification).toBe("Verified");
+    const laterEvents = (audit: Audit) => audit.recentEvents.filter(e => e.sequence > auditBefore.recentEvents.at(-1)!.sequence);
+    expect(laterEvents(auditAfterDenial)).toEqual([
+      expect.objectContaining({ event: "fact.reviewdecision", actor: staffA.subject, subject: `fact:${firstPosition}` }),
+    ]);
+
+    const b = await supervisorContext.newPage();
+    const authB = await browserLogin(b, supervisorName, await freshTotp(supervisor.mfa));
+    const staffB = await get<Staff>(b, authB, "/auth/staff/me");
+    expect(staffB.subject).toBe(supervisor.staff.subject);
+    expect(staffB.roles).toEqual(["supervisor"]);
+    expect(staffB.claims).toContain("mfa");
+    expect(await read(b, authB)).toEqual(afterFirst);
+    await selectHeld(b);
+    await expect(caseRow(b)).toContainText("1/2");
+    const bPosts: string[] = [];
+    b.on("request", r => { if (isReviewPost(r)) bPosts.push(r.url()); });
+    await approve(b).click();
+    const dialogB = b.getByRole("dialog");
+    await expect(dialogB).toContainText(`1 of 2 approvals · AwaitingSecondApproval · v${waiting.version}`);
+    await expect(dialogB).toContainText(`Release ${usd(held.amountMinor)} for settlement?`);
+    await expect(dialogB).toContainText("This is the final required approval (2 of 2)");
+    await expect(dialogB).toContainText("release and settlement attempt");
+
+    const last = await submit(b, "Approve and release", waiting.version, 200);
+    const released = { ...waiting, version: waiting.version + 1, status: "Released", approvalCount: 2 };
+    expect(last.body).toEqual(released);
+    expect(new Set([first.key, denied.key, last.key]).size).toBe(3);
+    await expect(dialogB).toHaveCount(0);
+    await expect(caseRow(b)).toContainText("2/2");
+    await expect(approve(b)).toBeDisabled();
+    expect(bPosts).toHaveLength(1);
+    await expect.poll(async () => findPayment(await read(b, authB)).status).toBe("Settled");
+    const settled = await read(b, authB);
+    expect(findCase(settled)).toEqual(released);
+    expect(findPayment(settled)).toMatchObject({ ...payment, status: "Settled" });
+    expect(settled.boundaryMs).toBe(before.boundaryMs);
+    expectReconciled(settled.balances);
+    expectSettlement(afterFirst.balances, settled.balances, payment);
+    const appendedMarkers = settled.markers.slice(before.markers.length);
+    expect(appendedMarkers).toEqual([
+      expect.objectContaining({ position: String(firstPosition), kind: "ReviewDecision" }),
+      expect.objectContaining({ position: String(firstPosition + 1n), kind: "ReviewDecision" }),
+      expect.objectContaining({ position: String(firstPosition + 2n), kind: "Settlement" }),
+    ]);
+
+    const [auditResponse] = await Promise.all([
+      b.waitForResponse(r => r.request().method() === "GET" && r.url().endsWith(`${path}/audit`)),
+      b.getByRole("navigation", { name: "Revenant screens" }).getByRole("link", { name: /Audit$/ }).click(),
+    ]);
+    expect(auditResponse.status()).toBe(200);
+    const audit: Audit = await auditResponse.json();
+    expect(audit).toMatchObject({ timelineId: before.timelineId, status: "Recording", ledgerVerification: "Verified" });
+    expect(audit.ledgerHeadHash).not.toBe(auditBefore.ledgerHeadHash);
+    const appended = laterEvents(audit);
+    expect(appended).toEqual([
+      expect.objectContaining({ event: "fact.reviewdecision", actor: staffA.subject, subject: `fact:${firstPosition}` }),
+      expect.objectContaining({ event: "fact.reviewdecision", actor: staffB.subject, subject: `fact:${firstPosition + 1n}` }),
+      expect.objectContaining({ event: "fact.settlement", subject: `fact:${firstPosition + 2n}` }),
+    ]);
+    const auditTable = b.getByRole("region", { name: "Source audit events" });
+    for (const event of appended) {
+      const row = auditTable.getByRole("row").filter({ has: b.getByRole("cell", { name: event.subject, exact: true }) });
+      await expect(row.getByRole("cell", { name: event.event, exact: true })).toBeVisible();
+      await expect(row.getByRole("cell", { name: event.actor, exact: true })).toBeVisible();
+    }
+    const chain = b.getByLabel("Chain integrity");
+    await expect(chain.locator("dl > div").filter({ hasText: "Ledger audit chain" }).locator("dd")).toHaveText("Verified");
+    await expect(chain.getByTitle("Ledger audit head")).toHaveText(audit.ledgerHeadHash);
+    await writeFile(test.info().outputPath("four-eyes.json"), JSON.stringify({
+      runId, timelineId: before.timelineId, payment, boundaryMs: before.boundaryMs,
+      operator: { id: staffA.subject, roles: staffA.roles, freshMfa: true },
+      supervisor: { id: staffB.subject, roles: staffB.roles, freshMfa: true },
+      grantStatus: grant.status(), caseTransitions: [held, first.body, last.body],
+      reviewPostCounts: { cancelled: 0, operator: aPosts.length, supervisor: bPosts.length },
+      denial: denied.body.code, opening: before.opening, held: before.balances, afterFirst: afterFirst.balances,
+      settled: settled.balances, appendedMarkers, audit: { ledgerVerification: audit.ledgerVerification, ledgerHead: audit.ledgerHeadHash, appended },
+    }, null, 2) + "\n");
+  } finally {
+    await Promise.all([operatorContext.close(), supervisorContext.close()]);
+  }
 });

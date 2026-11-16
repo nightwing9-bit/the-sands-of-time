@@ -1,11 +1,11 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import { isTimelinePosition, type TimelinePosition } from "@sands/contracts";
 import { TimelineScrubber, type TimelineAdapter } from "@sands/timeline-ui";
 import { bufferReference } from "./bufferReference.ts";
 import { BufferNote, placementOf, TimeChart, type LaneMarker, type Series } from "./charts.tsx";
 import { BANKS, bankAlias, clock, money, shortHash, signedInteger, time } from "./format.ts";
 import { BankSelect } from "./Liquidity.tsx";
-import { Drawer, ErrorText, Hourglass, Icon, Table, unwrap, useLoad, useOperation, type Api, type Balance, type Job, type Preview, type S, type Snapshot, type Verified } from "./shared.tsx";
+import { Drawer, ErrorText, Hourglass, Icon, Table, unwrap, useLoad, useOperation, useSize, type Api, type Balance, type Job, type Preview, type S, type Snapshot, type Verified } from "./shared.tsx";
 
 type Field = "availableMinor" | "postedMinor" | "reservedMinor";
 const fieldName: Record<Field, string> = { availableMinor: "Available", postedMinor: "Posted", reservedMinor: "Reserved" };
@@ -26,6 +26,8 @@ export function Rewind({ api, state, job, jobError, reloadJob, chooseJob, reload
   const verified = job?.status === "Verified" && job.verified ? job.verified : null;
   const sourcePolicy = verified?.sourcePolicy ?? audit.value?.policy ?? state.payments.find(p => p.risk)?.risk?.policy ?? "source policy";
   const dockMarkers = useMemo(() => seals.filter((x, i) => i >= seals.length - 4 || x.atMs === state.payments[0]?.acceptedAtMs), [seals, state.payments]);
+  const [ticksRef, { width: trackWidth }] = useSize<HTMLDivElement>();
+  const markerOffsets = useMemo(() => dockMarkerOffsets(dockMarkers, state.lastPosition, trackWidth), [dockMarkers, state.lastPosition, trackWidth]);
   const adapter = useMemo<TimelineAdapter<Preview>>(() => ({
     sourceId: state.timelineId, bounds: { start: "0", end: state.lastPosition }, readOnly: true,
     getLabel: p => { const mark = state.markers.find(x => x.position === p); return mark ? `Event ${p} · ${time(mark.atMs)} · ${mark.kind}` : `Event ${p}`; },
@@ -109,9 +111,13 @@ export function Rewind({ api, state, job, jobError, reloadJob, chooseJob, reload
     <div className="r8-dock">
       <div className="r8-dock-glass"><Hourglass className="r8-dock-hourglass" level={fractionOf(position, state.lastPosition)} /></div>
       <div className="r8-dock-main">
-        <div className="r8-dock-ticks" aria-hidden="true">{dockMarkers.map(m => <span key={m.position} style={{ left: fractionOf(m.position, state.lastPosition) * 100 + "%" }}
-          className={m.position === position ? "is-active" : ""}>{clock(m.atMs).slice(0, 5)}</span>)}</div>
-        <TimelineScrubber adapter={adapter} position={position} onVerified={v => { setPosition(v.position); setPreview(v.state); }} />
+        <div className="r8-dock-ticks" ref={ticksRef} aria-hidden="true">{dockMarkers.map(m => {
+          const offset = markerOffsets.get(m.position) ?? 0;
+          return <span key={m.position} style={{ left: fractionOf(m.position, state.lastPosition) * 100 + "%", "--marker-offset": `${offset}px` } as CSSProperties}
+            className={m.position === position ? "is-active" : ""} data-offset={offset !== 0}>{clock(m.atMs).slice(0, 5)}</span>;
+        })}</div>
+        <TimelineScrubber adapter={adapter} position={position} markerOffsetPx={p => markerOffsets.get(p) ?? 0}
+          onVerified={v => { setPosition(v.position); setPreview(v.state); }} />
       </div>
       <div className="r8-dock-side">
         <div className="r8-dock-time">{preview ? clock(preview.boundaryMs) : "--:--:--"}</div>
@@ -137,6 +143,22 @@ function stepClass(status: string, step: string) {
 function fractionOf(position: string, end: string) {
   const e = BigInt(end), p = /^[0-9]+$/.test(position) ? BigInt(position) : 0n;
   return e <= 0n ? 0 : Number((p * 10000n) / e) / 10000;
+}
+
+function dockMarkerOffsets(markers: S["R8Marker"][], end: string, width: number) {
+  const anchors = markers.map(m => ({ position: m.position, x: fractionOf(m.position, end) * width })).sort((a, b) => a.x - b.x);
+  // Keep enough room for a full HH:mm label and its button. Pack dense groups
+  // back from the right, then keep any group at the left inside the track.
+  const spacing = Math.min(36, width / Math.max(1, anchors.length - 1));
+  const offsets = new Map<string, number>();
+  let limit = width;
+  for (let i = anchors.length - 1; i >= 0; i--) {
+    const { position, x } = anchors[i]!;
+    const center = Math.max(i * spacing, Math.min(x, limit));
+    offsets.set(position, center - x);
+    limit = center - spacing;
+  }
+  return offsets;
 }
 
 function SourceHistory({ state, points, error, loading, fork, policy }: { state: Snapshot; points: { atMs: number; balance: Balance }[]; error: string; loading: boolean;
