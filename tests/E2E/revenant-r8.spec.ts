@@ -252,8 +252,8 @@ test("staff decides a held payment through the real approval dialog and the ledg
     const response = await page.request.get(`/revenant/r8/runs/${runId}/audit`, { headers: auth });
     expect(response.status()).toBe(200);
     const audit: Audit = await response.json();
-    expect(audit.status).toBe("Verified");
     expect(audit.ledgerVerification).toBe("Verified");
+    expect(audit.status).toBe("Recording");
     return audit;
   };
   const before = await read();
@@ -383,15 +383,16 @@ test("staff decides a held payment through the real approval dialog and the ledg
   expect(response.status()).toBe(200);
   const audit: Audit = await response.json();
   expect(audit.ledgerVerification).toBe("Verified");
-  expect(audit.status).toBe("Verified");
+  // This journey leaves the source open. The closed Replay journey checks the combined Verified badge.
+  expect(audit.status).toBe("Recording");
   expect(audit.ledgerHeadHash).not.toBe(auditAfterCancel.ledgerHeadHash);
   const priorSequence = auditAfterCancel.recentEvents.at(-1)!.sequence;
   const appended = audit.recentEvents.filter(event => event.sequence > priorSequence);
   expect(appended.map(event => event.event)).toEqual(["fact.reviewdecision", "fact.settlement"]);
   expect(appended[0]).toMatchObject({ actor: actor.subject, subject: `fact:${priorPosition + 1n}` });
   const integrity = page.getByLabel("Chain integrity");
-  await expect(integrity.getByText("● VERIFIED", { exact: true })).toBeVisible();
-  await expect(integrity.locator("dd").filter({ hasText: "Verified" })).toHaveCount(2);
+  await expect(integrity.locator("dl > div").filter({ hasText: "Original timeline" }).locator("dd")).toHaveText(audit.status);
+  await expect(integrity.locator("dl > div").filter({ hasText: "Ledger audit chain" }).locator("dd")).toHaveText(audit.ledgerVerification);
   await expect(integrity.getByTitle("Ledger audit head")).toHaveText(audit.ledgerHeadHash);
   await expect(page.getByText(`Showing ${audit.recentEvents.length} of the ${audit.recentEvents.length}`, { exact: false })).toBeVisible();
   await expect(page.getByText("Original history unchanged")).toHaveCount(0);
