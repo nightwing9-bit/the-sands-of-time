@@ -311,6 +311,8 @@ jobs:
               ("V4DatasetPostgresTests", "Published_Worker_dispatches_and_synchronizes_a_model_admitted_hold"): 1,
               ("V4ModelForkPostgresTests", "ModelRequired_fork_inherits_capacity_and_scores_its_own_suffix"): 1,
               ("V4ModelForkPostgresTests", "Competing_model_screenings_consume_the_last_slot_once"): 1,
+              ("R8AcceptancePostgresTests", "Equal_seed_R8_openings_match_and_one_review_only_changes_its_own_run"): 1,
+              ("R8AcceptancePostgresTests", "Overlapping_R8_submissions_cancel_durably_and_recover_in_a_fresh_worker_process"): 1,
               ("V4ReplayPostgresTests", "Replay_login_forks_only_its_tenant_and_publishes_verified_readback"): 1,
               ("V4ReplayPostgresTests", "Missing_required_model_blocks_screening_and_missing_advisory_has_no_prediction"): 1,
           }
@@ -320,12 +322,55 @@ jobs:
               if observed < minimum:
                   raise SystemExit(f"Missing executed recovery cases for {'.'.join(test)}")
           PY
+      - name: Extract Revenant B3 acceptance evidence
+        if: ${{ !cancelled() && (steps.revenant-integration.outcome == 'success' || steps.revenant-integration.outcome == 'failure') }}
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          report = Path("TestResults/revenant-integration/revenant.trx")
+          if not report.is_file():
+              raise SystemExit("Missing integration TRX")
+          target = Path("TestResults/revenant-b3")
+          target.mkdir(parents=True, exist_ok=True)
+          root = ET.parse(report)
+          evidence, events = {}, []
+          for result in root.findall(".//{*}UnitTestResult"):
+              if ".R8AcceptancePostgresTests." not in result.attrib["testName"]:
+                  continue
+              for field in result.findall(".//{*}StdOut"):
+                  for line in (field.text or "").splitlines():
+                      tag, _, payload = line.strip().partition(" ")
+                      if tag == "B3_WORKER":
+                          events.append(payload)
+                      elif tag in ("B3_EQUAL_SEED", "B3_REPLAY"):
+                          evidence[tag] = {
+                              "test": result.attrib["testName"],
+                              "outcome": result.attrib["outcome"],
+                              "observed": json.loads(payload),
+                          }
+          (target / "acceptance.json").write_text(json.dumps(evidence, indent=2) + "\n")
+          (target / "worker-events.txt").write_text("\n".join(events) + "\n")
+          if "B3_REPLAY" in evidence:
+              (target / "replay-timing.json").write_text(json.dumps(evidence["B3_REPLAY"]["observed"]["timing"], indent=2) + "\n")
+          if "${{ steps.revenant-integration.outcome }}" == "success" and set(evidence) != {"B3_EQUAL_SEED", "B3_REPLAY"}:
+              raise SystemExit("Missing executed B3 evidence")
+          PY
       - name: Upload Revenant integration evidence
         if: always()
         uses: actions/upload-artifact@v6
         with:
           name: revenant-integration-evidence
           path: TestResults/revenant-integration/*.trx
+          retention-days: 14
+      - name: Upload Revenant B3 evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: revenant-b3-evidence
+          path: TestResults/revenant-b3/
           retention-days: 14
       - name: Verify R8 Replay authorization on an upgraded R7 database
         if: ${{ !cancelled() && steps.revenant-coverage.outcome == 'success' }}

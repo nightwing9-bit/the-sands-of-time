@@ -1,4 +1,5 @@
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
+import { writeFile } from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
 
 const WINDOW_MS = 30_000;
@@ -66,23 +67,49 @@ test("staff reviews and verifies a replay through all five real Revenant screens
   expect(launchResponse.status(), await launchResponse.text()).toBe(200);
   await expect(page.getByRole("img",{name:"Committed payment flows among the six banks"})).toBeVisible({timeout:40_000});
   await expect(page.getByText("Current balances")).toBeVisible();
-  const runId = await page.getByLabel("Scenario",{exact:true}).inputValue();
+  const { runId, seed } = await launchResponse.json();
+  await expect(page.getByLabel("Scenario",{exact:true})).toHaveValue(runId);
   const readRun = await page.request.get(`/revenant/r8/runs/${runId}`, {headers:auth});
   expect(readRun.ok()).toBeTruthy();
   const before = await readRun.json();
+  expectReconciled(before.opening);
+  expectReconciled(before.balances);
   const [held] = before.cases;
   expect(held.status).toBe("Open");
-  const released = await page.request.post(`/revenant/r8/runs/${runId}/cases/${held.intentId}`, {
-    headers:{...auth,"Idempotency-Key":"independent-release"}, data:{action:"Approve",expectedVersion:held.version},
-  });
-  expect(released.status(), await released.text()).toBe(200);
+  const paymentBefore = before.payments.find((payment: Pay) => payment.intentId === held.intentId);
+  expect(paymentBefore.status).toBe("Held");
+
+  await nav.getByText("Held Queue").click();
+  await page.getByRole("button", { name: new RegExp(`Select case ${held.intentId},`) }).click();
+  await page.getByRole("button", { name: "Approve", exact: true }).click();
+  const approved = page.waitForResponse(r => r.request().method() === "POST" && r.url().endsWith(`/cases/${held.intentId}`));
+  await page.getByRole("dialog").getByRole("button", { name: "Approve and release" }).click();
+  const released = await approved;
+  expect(released.status()).toBe(200);
+  const reviewAfter: Cs = await released.json();
+  expect(reviewAfter).toMatchObject({ status: "Released", version: held.version + 1, approvalCount: held.approvalCount + 1 });
+  const readAfter = await page.request.get(`/revenant/r8/runs/${runId}`, { headers: auth });
+  expect(readAfter.status()).toBe(200);
+  const after: Snapshot = await readAfter.json();
+  const paymentAfter = after.payments.find(payment => payment.intentId === held.intentId);
+  expect(paymentAfter?.status).toBe("Settled");
+  expectReconciled(after.balances);
+  expectSettlement(before.balances, after.balances, paymentBefore);
+  await nav.getByText("Control Tower").click();
   const decisionRow = page.getByRole("row").filter({hasText:held.intentId});
   await expect(decisionRow.getByRole("cell", {name:"Settled",exact:true})).toBeVisible();
   await nav.getByText("Held Queue").click();
   await expect(page.getByText("Recorded score:",{exact:false})).toBeVisible();
   await expect(page.getByRole("cell",{name:"Released",exact:true})).toBeVisible();
 
+  const observations = page.waitForResponse(r => r.request().method() === "GET" && r.url().endsWith(`/runs/${runId}/liquidity`));
   await nav.getByText("Liquidity Fan").click();
+  const observed = await observations;
+  expect(observed.status()).toBe(200);
+  const liquidity = await observed.json();
+  const observedAt = after.markers.filter(marker => marker.kind === "ObservationSeal").at(-1)!.atMs;
+  expectReconciled(liquidity.actual.filter((row: { atMs: number }) => row.atMs === observedAt)
+    .map((row: { balance: Bal }) => row.balance));
   await expect(page.getByText("statistical baseline, uncalibrated",{exact:false})).toBeVisible();
   await page.getByText("Liquidity data table").click();
   await expect(page.getByRole("columnheader",{name:"Available",exact:true})).toBeVisible();
@@ -136,6 +163,7 @@ test("staff reviews and verifies a replay through all five real Revenant screens
   // alternative diverges after it. The chart plots these rows as given (source -> "Source history", alternative -> "Verified sandbox").
   const forkSeal = closed.markers.find((m:{position:string})=>m.position==="288");
   expect(forkSeal?.kind).toBe("ObservationSeal");
+  expect(forkSeal.atMs).toBeLessThan(closed.boundaryMs);
   type Row = {atMs:number;bankId:string;source:{bankId:string;postedMinor:string;reservedMinor:string;availableMinor:string};alternative:{bankId:string;postedMinor:string;reservedMinor:string;availableMinor:string}};
   const rows: Row[] = verified.balances;
   expect(rows.length).toBeGreaterThan(0);
@@ -174,6 +202,83 @@ test("staff reviews and verifies a replay through all five real Revenant screens
   await expect(page.getByLabel("Chain integrity")).toContainText("Ledger audit chain");
   await expect(page.getByLabel("Chain integrity").getByText("● VERIFIED",{exact:true})).toBeVisible();
 
+  // Use the payment-day seal. The warmup day also contains a 09:00 seal.
+  const paymentDay = new Date(paymentBefore.acceptedAtMs).toISOString().slice(0, 10);
+  const nineIso = `${paymentDay}T09:00:00.000Z`;
+  const nine: Marker[] = closed.markers.filter((m: Marker) => m.kind === "ObservationSeal" && m.atMs === Date.parse(nineIso));
+  expect(nine).toHaveLength(1);
+  const [exact] = nine;
+  expect(exact.position).toMatch(/^[1-9][0-9]*$/);
+  expect(exact.atMs).toBeLessThan(closed.boundaryMs);
+
+  await nav.getByText("Rewind Mode").click();
+  const seek = page.waitForResponse(r => r.request().method() === "GET" && r.url().endsWith(`/timeline/${exact.position}`));
+  await page.getByRole("button", { name: /Marker: 09:00 UTC completed seal/ }).tap();
+  const seekResponse = await seek;
+  expect(seekResponse.status()).toBe(200);
+  const preview = await seekResponse.json();
+  expect(preview).toMatchObject({ position: exact.position, boundaryMs: exact.atMs, status: "Verified" });
+  expectReconciled(preview.balances);
+  await expect(page.getByTestId("r8-preview")).toContainText(`Verified event ${exact.position}`);
+  await page.getByLabel("Comparison mode").selectOption("policy");
+  const exactSubmission = page.waitForResponse(r => r.request().method() === "POST" && r.url().endsWith("/counterfactual"));
+  await page.getByRole("button", { name: "Run sandbox replay" }).click();
+  const exactResponse = await exactSubmission;
+  expect(exactResponse.status()).toBe(200);
+  expect(exactResponse.request().postDataJSON()).toEqual({
+    forkPosition: exact.position, horizonMs: closed.boundaryMs, policy: "policy-v8", interventions: null,
+  });
+  const exactJob = await exactResponse.json();
+  const exactJobUrl = `/revenant/r8/runs/${runId}/counterfactual/${exactJob.jobId}`;
+  await expect.poll(async () => {
+    const read = await page.request.get(exactJobUrl, { headers: auth });
+    expect(read.status()).toBe(200);
+    return (await read.json()).status;
+  }).toBe("Verified");
+  const exactRead = await page.request.get(exactJobUrl, { headers: auth });
+  const exactProof = (await exactRead.json()).verified;
+  expect(exactProof).toMatchObject({
+    sourceRecordHash: closedAudit.recordHash, sourceStateHash: closedAudit.stateHash, alternativePolicy: "policy-v8",
+    horizonMs: closed.boundaryMs,
+  });
+  expect(new Set([exactProof.childTimelineId, verified.childTimelineId, closed.timelineId]).size).toBe(3);
+  expect(exactProof.childRecordHash).toMatch(/^[0-9a-f]{64}$/);
+  expect(exactProof.childStateHash).toMatch(/^[0-9a-f]{64}$/);
+  const exactRows: Row[] = exactProof.balances;
+  expect(exactRows.some(row => row.atMs > exact.atMs)).toBeTruthy();
+  expectReconciled(exactRows.filter(row => row.atMs === exact.atMs).map(row => row.source));
+  for (const row of exactRows) {
+    for (const side of [row.source, row.alternative]) {
+      expect(side.bankId).toBe(row.bankId);
+      expect(BigInt(side.postedMinor) - BigInt(side.reservedMinor)).toBe(BigInt(side.availableMinor));
+    }
+    if (row.atMs <= exact.atMs) expect(row.alternative).toEqual(row.source);
+  }
+  expect(exactProof.headlines).toHaveLength(4);
+  expect(exactProof.headlines.every((item: { delta: string }) => item.delta === "0")).toBeTruthy();
+  const exactAudit = await page.request.get(`/revenant/r8/runs/${runId}/audit`, { headers: auth });
+  expect(exactAudit.status()).toBe(200);
+  expect(await exactAudit.json()).toEqual(closedAudit);
+
+  const opening = [...before.opening].sort((a: Bal, b: Bal) => a.bankId.localeCompare(b.bankId));
+  const openingDigest = createHash("sha256").update(JSON.stringify(opening)).digest("hex");
+  const evidence = {
+    runId, seed, bankIds: opening.map((balance: Bal) => balance.bankId), opening, openingDigest,
+    instructions: before.payments.map(({ intentId, sourceBank, destinationBank, amountMinor, acceptedAtMs, status }: Pay) =>
+      ({ intentId, sourceBank, destinationBank, amountMinor, acceptedAtMs, status })),
+    decision: { intentId: held.intentId, reviewBefore: held.status, reviewAfter: reviewAfter.status,
+      paymentBefore: paymentBefore.status, paymentAfter: paymentAfter!.status },
+    balances: { before: before.balances, after: after.balances }, liquidityAtMs: observedAt,
+    source: { timelineId: auditBody.timelineId, stateHash: auditBody.stateHash, recordHash: auditBody.recordHash,
+      timelineVerdict: auditBody.status, ledgerVerdict: auditBody.ledgerVerification, ledgerHeadHash: auditBody.ledgerHeadHash },
+    replay: { fork: forkSeal, jobId, childTimelineId: verified.childTimelineId, childStateHash: verified.childStateHash,
+      childRecordHash: verified.childRecordHash, headlines: verified.headlines, breakdown: verified.breakdown },
+    exact0900: { fork: exact, atUtc: nineIso, horizonMs: closed.boundaryMs, previewStateHash: preview.stateHash,
+      jobId: exactJob.jobId, childTimelineId: exactProof.childTimelineId, childRecordHash: exactProof.childRecordHash,
+      childStateHash: exactProof.childStateHash, headlines: exactProof.headlines },
+  };
+  await writeFile(test.info().outputPath("acceptance.json"), JSON.stringify(evidence, null, 2) + "\n");
+
   const invalid = await page.request.post(`/revenant/r8/runs/${runId}/counterfactual`,
     {headers:{...auth,"Idempotency-Key":"bad-position"},data:{forkPosition:"289",horizonMs:verified.horizonMs,policy:"policy-v8",interventions:null}});
   expect(invalid.ok()).toBeTruthy();
@@ -197,7 +302,7 @@ test("staff reviews and verifies a replay through all five real Revenant screens
 });
 
 type Bal = { bankId: string; postedMinor: string; reservedMinor: string; availableMinor: string };
-type Pay = { intentId: string; sourceBank: string; destinationBank: string; amountMinor: string; status: string };
+type Pay = { intentId: string; sourceBank: string; destinationBank: string; amountMinor: string; acceptedAtMs: number; status: string };
 type Cs = { caseId: string; intentId: string; version: number; status: string; requiredApprovals: number; approvalCount: number; amountMinor: string };
 type Marker = { kind: string; position: string; atMs: number };
 type Snapshot = { balances: Bal[]; payments: Pay[]; cases: Cs[]; markers: Marker[] };
@@ -214,9 +319,25 @@ const observedTime = (atMs: number) => new Date(atMs).toISOString().slice(11, 16
 
 function expectReconciled(balances: Bal[]) {
   expect(balances).toHaveLength(6);
+  expect(new Set(balances.map(balance => balance.bankId)).size).toBe(6);
   for (const balance of balances) {
     const { posted, reserved, available } = big(balance);
     expect(posted - reserved, balance.bankId).toBe(available);
+  }
+}
+
+function expectSettlement(before: Bal[], after: Bal[], pay: Pay) {
+  const principal = BigInt(pay.amountMinor);
+  for (const balance of before) {
+    const from = big(balance);
+    const to = big(bank(after, balance.bankId));
+    const source = balance.bankId === pay.sourceBank;
+    const destination = balance.bankId === pay.destinationBank;
+    const postedDelta = source ? -principal : destination ? principal : 0n;
+    const reservedDelta = source ? -principal : 0n;
+    expect(to.posted - from.posted, balance.bankId).toBe(postedDelta);
+    expect(to.reserved - from.reserved, balance.bankId).toBe(reservedDelta);
+    expect(to.available - from.available, balance.bankId).toBe(postedDelta - reservedDelta);
   }
 }
 
@@ -329,17 +450,7 @@ test("staff decides a held payment through the real approval dialog and the ledg
     .toEqual(["ReviewDecision", "Settlement"]);
   expect(after.payments.filter(p => p.intentId !== held.intentId))
     .toEqual(afterCancel.payments.filter(p => p.intentId !== held.intentId));
-  for (const balance of afterCancel.balances) {
-    const from = big(balance);
-    const to = big(bank(after.balances, balance.bankId));
-    const source = balance.bankId === pay.sourceBank;
-    const destination = balance.bankId === pay.destinationBank;
-    const postedDelta = source ? -principal : destination ? principal : 0n;
-    const reservedDelta = source ? -principal : 0n;
-    expect(to.posted - from.posted, balance.bankId).toBe(postedDelta);
-    expect(to.reserved - from.reserved, balance.bankId).toBe(reservedDelta);
-    expect(to.available - from.available, balance.bankId).toBe(postedDelta - reservedDelta);
-  }
+  expectSettlement(afterCancel.balances, after.balances, pay);
   await expect(approve).toBeDisabled();
   expect(decisions).toHaveLength(1);
 

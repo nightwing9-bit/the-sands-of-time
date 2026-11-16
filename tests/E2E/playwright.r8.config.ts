@@ -9,7 +9,7 @@ process.env.E2E_R8_PASSWORD ??= "R8fixture!" + randomBytes(12).toString("hex");
 const backend = process.env.E2E_R8_BACKEND_COMMAND ?? "dotnet tests/E2E/backend/bin/Debug/net10.0/E2E.Backend.dll";
 export default defineConfig({
   testDir: ".", testMatch:"revenant-r8.spec.ts", workers:1, timeout:120_000,
-  expect:{timeout:15_000}, reporter:"list",
+  expect:{timeout:15_000}, reporter:[["list"], ["junit", { outputFile: "test-results/r8-junit.xml" }]],
   use:{baseURL:"http://localhost:5175", viewport:{width:1440,height:900}, hasTouch:true},
   webServer:[
     // Bound the host beyond startup and two 120-second tests, within the CI step budget.
