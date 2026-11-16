@@ -15,7 +15,7 @@ function totp(secret: string) {
   return String((hash.readUInt32BE(hash.at(-1)! & 15) & 0x7fffffff) % 1_000_000).padStart(6, "0");
 }
 
-test("staff reviews and verifies a replay through all five real Revenant screens on a phone", async ({page}) => {
+test("staff reviews and verifies a replay through all five real Revenant screens on a laptop", async ({page}) => {
   await page.goto("/?view=r8");
   const login = page.waitForResponse(r => r.url().endsWith("/auth/staff/login") && r.request().method() === "POST");
   await page.getByLabel("Username").fill("r8.browser.operator");

@@ -48,7 +48,9 @@ test("the selected bank uses its own opening buffer without changing the chart s
   await expect(note).toContainText("Illustrative operating buffer — 10% of opening available balance");
   await expect(note).toContainText("$100.00");
   await expect(line).toBeVisible();
-  await expect(line.locator("line")).toHaveAttribute("y1", "137");
+  // The buffer sits at 37.5 % of the data-only domain [$70.00, $150.00]; the chart now draws at pixel size, so the
+  // scale is asserted as a fraction instead of the former fixed 680×248 viewBox coordinate (y1 = 137).
+  await expect(line).toHaveAttribute("data-scale-bp", "3750");
   await expect(page.getByText("LiquidityPersistenceBaseline/1 · statistical baseline, Uncalibrated", { exact: false })).toBeVisible();
   await page.getByText("Liquidity data table").click();
   await expect(page.getByText("Operating buffer reference: $100.00")).toBeVisible();
@@ -109,8 +111,8 @@ test("source and alternative use the same opening buffer", async ({ page }) => {
   await expect(page.getByRole("cell", { name: "$80.00", exact: true })).toBeVisible();
 });
 
-test.describe("tablet with keyboard and touch", () => {
-  test.use({ viewport: { width: 820, height: 1180 }, hasTouch: true });
+test.describe("compact laptop with keyboard and touch", () => {
+  test.use({ viewport: { width: 1366, height: 768 }, hasTouch: true });
 
   test("all screens open, exact seeks work and only verified jobs show KPI data", async ({ page }) => {
     const headlines = [
@@ -152,7 +154,8 @@ test.describe("tablet with keyboard and touch", () => {
       await link.tap();
       await expect(link).toHaveAttribute("aria-current", "page");
       await expect(page.getByRole("region", { name, exact: true })).toBeVisible();
-      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(820);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(1366);
+      expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThanOrEqual(768);
     }
     const marker = page.getByRole("button", { name: /Marker:.*completed seal/ });
     await marker.focus();

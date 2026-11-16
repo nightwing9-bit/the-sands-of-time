@@ -10,7 +10,7 @@ const backend = process.env.E2E_R8_BACKEND_COMMAND ?? "dotnet tests/E2E/backend/
 export default defineConfig({
   testDir: ".", testMatch:"revenant-r8.spec.ts", workers:1, timeout:120_000,
   expect:{timeout:15_000}, reporter:"list",
-  use:{baseURL:"http://localhost:5175", viewport:{width:390,height:844}, hasTouch:true, isMobile:true},
+  use:{baseURL:"http://localhost:5175", viewport:{width:1440,height:900}, hasTouch:true},
   webServer:[
     {command:backend,cwd:root,url:`http://localhost:${port}/__e2e/info`,timeout:60_000,reuseExistingServer:false, stderr:"pipe",
       env:{E2E_R8:"1",E2E_FIXTURE_TOKEN:token,E2E_BACKEND_PORT:String(port),E2E_BACKEND_MAX_SECONDS:"180",ASPNETCORE_ENVIRONMENT:"Testing",
