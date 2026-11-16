@@ -3,7 +3,9 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Marrow.Infrastructure.Timeline;
+using Marrow.Kernel.Results;
 using Marrow.Kernel.Security;
 using Marrow.Timeline;
 using Microsoft.Extensions.DependencyInjection;
@@ -11,6 +13,7 @@ using Npgsql;
 using Revenant.Api;
 using Revenant.Contracts;
 using Revenant.Counterfactual;
+using Revenant.Intelligence;
 using Revenant.Payments;
 using Revenant.Scenario;
 using Revenant.Tests.Ledger;
@@ -283,6 +286,7 @@ public sealed class R8AcceptancePostgresTests(LedgerDatabase db, ITestOutputHelp
 
         // Hold an executing worker at the same write checkpoint while the authorized actor cancels.
         var (runningCancel, _, _) = await Submit($"b3-cancel-running-{suffix}");
+        int runningCancelExit;
         await using (var checkpoint = await BlockAppend())
         using (var process = Launch(runningCancel.JobId))
         {
@@ -297,8 +301,8 @@ public sealed class R8AcceptancePostgresTests(LedgerDatabase db, ITestOutputHelp
                 Assert.Null(result.Verified);
                 await checkpoint.RollbackAsync(ct);
                 await process.WaitForExitAsync(ct);
-                output.WriteLine($"B3_WORKER {runningCancel.JobId:D} Running -> Cancelled; process exit={process.ExitCode}");
-                Assert.Equal(2, process.ExitCode);
+                runningCancelExit = process.ExitCode;
+                output.WriteLine($"B3_WORKER {runningCancel.JobId:D} Running -> Cancelled; process exit={runningCancelExit}");
             }
             finally { await Stop(process); }
         }
@@ -319,7 +323,7 @@ public sealed class R8AcceptancePostgresTests(LedgerDatabase db, ITestOutputHelp
             runId = run.Value, source.TimelineId, source.LastPosition, fork, source.BoundaryMs,
             original.RecordHash, original.StateHash, original.LedgerHeadHash, original.Model, request.Policy,
             paymentInstructions = source.Payments.Length, sourceSeals = source.Markers.Count(m => m.Kind == "ObservationSeal"),
-            pendingCancelled = cancelled.JobId, cancelledWhileRunning = runningCancel.JobId, runningCancelledChildren, interrupted = interrupted.JobId,
+            pendingCancelled = cancelled.JobId, cancelledWhileRunning = runningCancel.JobId, runningCancelledChildren, runningCancelExit, interrupted = interrupted.JobId,
             environment = new
             {
                 platform = RuntimeInformation.OSDescription, architecture = RuntimeInformation.OSArchitecture.ToString(),
@@ -328,6 +332,7 @@ public sealed class R8AcceptancePostgresTests(LedgerDatabase db, ITestOutputHelp
             },
             children = evidence, timing,
         }, Json));
+        Assert.Equal(2, runningCancelExit);
 
         async Task<(R8Job Job, long Submitted, double PendingMs)> Submit(string key)
         {
@@ -378,7 +383,13 @@ public sealed class R8AcceptancePostgresTests(LedgerDatabase db, ITestOutputHelp
             start.Environment["Revenant__Ledger__TenantId"] = Tenant;
             start.Environment.Remove("ConnectionStrings__RevenantLedger");
             var process = Process.Start(start) ?? throw new InvalidOperationException("Cannot start test Replay Worker.");
-            // The production process does not emit structured job events. Drain its streams without logging connection errors.
+            // Retain only the exception type and SQLSTATE. Exception messages can carry connection details.
+            process.ErrorDataReceived += (_, line) =>
+            {
+                var failure = Regex.Match(line.Data ?? "", @"^Unhandled exception\. ([\w.]+Exception)(?: \(0x[0-9A-Fa-f]+\))?(?:: ([A-Z0-9]{5}):)?");
+                if (failure.Success)
+                    output.WriteLine($"B3_WORKER {job:D} exception={failure.Groups[1].Value} sqlstate={failure.Groups[2].Value}");
+            };
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
             return process;
@@ -503,7 +514,10 @@ public sealed class R8AcceptancePostgresTests(LedgerDatabase db, ITestOutputHelp
     private static (R8Service Service, V4SimulationStore Store) RunService(NpgsqlDataSource writer, ServiceProvider host, TestActor actor)
     {
         var ledger = PaymentKit.Store(writer);
-        var store = new V4SimulationStore(writer, ledger: ledger);
+        var model = new Lazy<Result<BehavioralRiskScorerV2, BehavioralRiskFailureV2>>(() =>
+            BehavioralRiskScorerV2.Load(Path.Combine(AppContext.BaseDirectory, "Intelligence", "Artifacts",
+                BehavioralRiskScorerV2.ArtifactDirectory), BehavioralRiskScorerV2.FeatureSchema, BehavioralRiskScorerV2.PublishedPin));
+        var store = new V4SimulationStore(writer, ledger: ledger, model: model);
         var engine = host.GetRequiredService<ITimelineEngine<ObservedFinanceState, ObservedFinanceInput, ObservedFinanceContext>>();
         return (new R8Service(writer, store, new V4BranchExecution(store, engine), engine, ledger, actor), store);
     }

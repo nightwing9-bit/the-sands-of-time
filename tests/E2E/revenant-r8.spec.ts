@@ -202,6 +202,22 @@ test("staff reviews and verifies a replay through all five real Revenant screens
   await expect(page.getByLabel("Chain integrity")).toContainText("Ledger audit chain");
   await expect(page.getByLabel("Chain integrity").getByText("● VERIFIED",{exact:true})).toBeVisible();
 
+  const opening = [...before.opening].sort((a: Bal, b: Bal) => a.bankId.localeCompare(b.bankId));
+  const openingDigest = createHash("sha256").update(JSON.stringify(opening)).digest("hex");
+  const evidence = {
+    runId, seed, bankIds: opening.map((balance: Bal) => balance.bankId), opening, openingDigest,
+    instructions: before.payments.map(({ intentId, sourceBank, destinationBank, amountMinor, acceptedAtMs, status }: Pay) =>
+      ({ intentId, sourceBank, destinationBank, amountMinor, acceptedAtMs, status })),
+    decision: { intentId: held.intentId, reviewBefore: held.status, reviewAfter: reviewAfter.status,
+      paymentBefore: paymentBefore.status, paymentAfter: paymentAfter!.status },
+    balances: { before: before.balances, after: after.balances }, liquidityAtMs: observedAt,
+    source: { timelineId: auditBody.timelineId, stateHash: auditBody.stateHash, recordHash: auditBody.recordHash,
+      timelineVerdict: auditBody.status, ledgerVerdict: auditBody.ledgerVerification, ledgerHeadHash: auditBody.ledgerHeadHash },
+    replay: { fork: forkSeal, jobId, childTimelineId: verified.childTimelineId, childStateHash: verified.childStateHash,
+      childRecordHash: verified.childRecordHash, headlines: verified.headlines, breakdown: verified.breakdown },
+  };
+  await writeFile(test.info().outputPath("acceptance.json"), JSON.stringify(evidence, null, 2) + "\n");
+
   // Use the payment-day seal. The warmup day also contains a 09:00 seal.
   const paymentDay = new Date(paymentBefore.acceptedAtMs).toISOString().slice(0, 10);
   const nineIso = `${paymentDay}T09:00:00.000Z`;
@@ -212,9 +228,20 @@ test("staff reviews and verifies a replay through all five real Revenant screens
   expect(exact.atMs).toBeLessThan(closed.boundaryMs);
 
   await nav.getByText("Rewind Mode").click();
-  const seek = page.waitForResponse(r => r.request().method() === "GET" && r.url().endsWith(`/timeline/${exact.position}`));
-  await page.getByRole("button", { name: /Marker: 09:00 UTC completed seal/ }).tap();
-  const seekResponse = await seek;
+  await expect(page.getByRole("button", { name: /Marker: 09:00 UTC completed seal/ })).toBeVisible();
+  // At this viewport the dense final markers overlap. The slider supports exact one-event keyboard seeks.
+  await slider.press("End");
+  await expect(page.getByTestId("r8-preview")).toContainText(`Verified event ${closed.lastPosition}`);
+  const stepsBack = BigInt(closed.lastPosition) - BigInt(exact.position);
+  expect(stepsBack > 0n && stepsBack <= 4n).toBeTruthy();
+  for (let step = 1n; step < stepsBack; step++) {
+    await slider.press("ArrowLeft");
+    await expect(page.getByTestId("r8-preview")).toContainText(`Verified event ${BigInt(closed.lastPosition) - step}`);
+  }
+  const [seekResponse] = await Promise.all([
+    page.waitForResponse(r => r.request().method() === "GET" && r.url().endsWith(`/timeline/${exact.position}`)),
+    slider.press("ArrowLeft"),
+  ]);
   expect(seekResponse.status()).toBe(200);
   const preview = await seekResponse.json();
   expect(preview).toMatchObject({ position: exact.position, boundaryMs: exact.atMs, status: "Verified" });
@@ -260,24 +287,13 @@ test("staff reviews and verifies a replay through all five real Revenant screens
   expect(exactAudit.status()).toBe(200);
   expect(await exactAudit.json()).toEqual(closedAudit);
 
-  const opening = [...before.opening].sort((a: Bal, b: Bal) => a.bankId.localeCompare(b.bankId));
-  const openingDigest = createHash("sha256").update(JSON.stringify(opening)).digest("hex");
-  const evidence = {
-    runId, seed, bankIds: opening.map((balance: Bal) => balance.bankId), opening, openingDigest,
-    instructions: before.payments.map(({ intentId, sourceBank, destinationBank, amountMinor, acceptedAtMs, status }: Pay) =>
-      ({ intentId, sourceBank, destinationBank, amountMinor, acceptedAtMs, status })),
-    decision: { intentId: held.intentId, reviewBefore: held.status, reviewAfter: reviewAfter.status,
-      paymentBefore: paymentBefore.status, paymentAfter: paymentAfter!.status },
-    balances: { before: before.balances, after: after.balances }, liquidityAtMs: observedAt,
-    source: { timelineId: auditBody.timelineId, stateHash: auditBody.stateHash, recordHash: auditBody.recordHash,
-      timelineVerdict: auditBody.status, ledgerVerdict: auditBody.ledgerVerification, ledgerHeadHash: auditBody.ledgerHeadHash },
-    replay: { fork: forkSeal, jobId, childTimelineId: verified.childTimelineId, childStateHash: verified.childStateHash,
-      childRecordHash: verified.childRecordHash, headlines: verified.headlines, breakdown: verified.breakdown },
-    exact0900: { fork: exact, atUtc: nineIso, horizonMs: closed.boundaryMs, previewStateHash: preview.stateHash,
-      jobId: exactJob.jobId, childTimelineId: exactProof.childTimelineId, childRecordHash: exactProof.childRecordHash,
-      childStateHash: exactProof.childStateHash, headlines: exactProof.headlines },
+  const exactEvidence = {
+    runId, sourceTimelineId: closed.timelineId, sourceRecordHash: closedAudit.recordHash, sourceStateHash: closedAudit.stateHash,
+    fork: exact, atUtc: nineIso, horizonMs: closed.boundaryMs, previewStateHash: preview.stateHash,
+    jobId: exactJob.jobId, childTimelineId: exactProof.childTimelineId, childRecordHash: exactProof.childRecordHash,
+    childStateHash: exactProof.childStateHash, headlines: exactProof.headlines,
   };
-  await writeFile(test.info().outputPath("acceptance.json"), JSON.stringify(evidence, null, 2) + "\n");
+  await writeFile(test.info().outputPath("exact-0900.json"), JSON.stringify(exactEvidence, null, 2) + "\n");
 
   const invalid = await page.request.post(`/revenant/r8/runs/${runId}/counterfactual`,
     {headers:{...auth,"Idempotency-Key":"bad-position"},data:{forkPosition:"289",horizonMs:verified.horizonMs,policy:"policy-v8",interventions:null}});
