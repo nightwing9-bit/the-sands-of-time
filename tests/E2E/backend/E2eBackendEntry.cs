@@ -62,13 +62,16 @@ public static class E2eBackendEntry
     {
         using var scope = factory.Services.CreateScope();
         var users = scope.ServiceProvider.GetRequiredService<UserManager<StaffUser>>();
-        var user = new StaffUser { UserName = "r8.browser.operator" };
         var password = Environment.GetEnvironmentVariable("E2E_R8_PASSWORD") ?? throw new InvalidOperationException("Missing test password.");
-        var added = await users.CreateAsync(user, password);
-        if (!added.Succeeded) throw new InvalidOperationException("Test user creation failed.");
-        await users.AddToRoleAsync(user, IdentityRoles.Operator);
-        if (!await scope.ServiceProvider.GetRequiredService<StaffAuthService>().GrantTenantAsync(user.Id, "r8-browser", ct))
-            throw new InvalidOperationException("Test user has no tenant.");
+        foreach (var userName in new[] { "r8.browser.operator", "r8.browser.approver" })
+        {
+            var user = new StaffUser { UserName = userName };
+            var added = await users.CreateAsync(user, password);
+            if (!added.Succeeded) throw new InvalidOperationException("Test user creation failed.");
+            await users.AddToRoleAsync(user, IdentityRoles.Operator);
+            if (!await scope.ServiceProvider.GetRequiredService<StaffAuthService>().GrantTenantAsync(user.Id, "r8-browser", ct))
+                throw new InvalidOperationException("Test user has no tenant.");
+        }
         await using (var restricted = NpgsqlDataSource.Create(db.R8Replay))
         await using (var forbidden = restricted.CreateCommand("UPDATE revenant.ledger_entry SET amount_minor=amount_minor"))
         {

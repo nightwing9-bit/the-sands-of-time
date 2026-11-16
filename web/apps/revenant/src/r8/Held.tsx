@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { BANKS, bankAlias, bankCode, clock, money, shortHash } from "./format.ts";
+import { explainDecisionFailure } from "./decisionErrors.ts";
 import { Icon, isOpenCase, unwrap, useOperation, type Api, type Case, type Payment, type Snapshot } from "./shared.tsx";
 
 const PPM_SCALE = 1_000_000;
@@ -197,15 +198,6 @@ function consequence(action: Action, c: Case) {
     primary: "Approve and release" };
 }
 
-function explain(error: string) {
-  if (/mfa/i.test(error)) return "A fresh MFA code is required. Sign out, sign in again with your MFA code, then retry.";
-  if (/stale|version|conflict/i.test(error)) return "This case changed since you opened it. The queue has refreshed; review the new version before deciding.";
-  if (/supervisor|distinct/i.test(error)) return "This approval must come from a different supervisor than earlier approvers.";
-  if (/permission|forbidden|denied/i.test(error)) return "Your staff role is not allowed to make this decision for this run.";
-  if (/sandbox/i.test(error)) return "Live case decisions are not allowed on a sandbox branch.";
-  return "The decision was not committed. Retry, or cancel and refresh the queue.";
-}
-
 function DecisionModal({ action, c, p, busy, error, onCancel, onConfirm }: { action: Action; c: Case; p: Payment | null; busy: boolean; error: string; onCancel: () => void; onConfirm: () => void }) {
   const box = useRef<HTMLDivElement>(null);
   const copy = consequence(action, c);
@@ -234,7 +226,7 @@ function DecisionModal({ action, c, p, busy, error, onCancel, onConfirm }: { act
       </dl>
       <div className={"r8-consequence" + (action === "Reject" ? " is-reject" : "")}><Icon name="warn" /><div><strong>{copy.title}</strong><p>{copy.body}</p></div></div>
       {!stillOpen && <p className="r8-error" role="alert">This case is now {c.status}; no further decision is possible.</p>}
-      {error && <div className="r8-error" role="alert"><strong>{explain(error)}</strong><br /><small>{error}</small></div>}
+      {error && <div className="r8-error" role="alert"><strong>{explainDecisionFailure(error)}</strong><br /><small>{error}</small></div>}
       <div className="r8-modal-actions">
         <button className="r8-btn" onClick={onCancel} disabled={busy} data-autofocus>Cancel</button>
         <button className={"r8-btn " + (action === "Reject" ? "is-danger-solid" : "is-primary")} onClick={onConfirm} disabled={busy || !stillOpen}>
