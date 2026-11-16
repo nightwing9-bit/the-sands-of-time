@@ -82,9 +82,10 @@ public static class RevenantSliceEndpoints
         LabelSchema: ScenarioSchemas.LabelSchemaVersion,
         CostModel: CounterfactualCostModel.V1.Version,
         Note: "Synthetic scenario. Projection only: no database ledger posting, no real bank transaction. Fraud labels are synthetic scenario labels, not real-world findings.");
-    // /revenant/ledger is the PRODUCTION Spec 07 API (mapped by Hosts.Api); only the rest of /revenant is this test-only surface.
+    // The ledger and R8 routes are owned by Hosts.Api.
     public static bool IsSlicePath(PathString path) =>
-        path.StartsWithSegments(PathPrefix, StringComparison.Ordinal) && !path.StartsWithSegments("/revenant/ledger", StringComparison.Ordinal);
+        path.StartsWithSegments(PathPrefix, StringComparison.Ordinal) && !path.StartsWithSegments("/revenant/ledger", StringComparison.Ordinal)
+        && !path.StartsWithSegments("/revenant/r8", StringComparison.Ordinal);
     public static void Map(IEndpointRouteBuilder routes)
     {
         var group = routes.MapGroup(PathPrefix).RequireAuthorization(IdentityPolicies.Guest);

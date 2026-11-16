@@ -194,15 +194,16 @@ public sealed class PaymentMachineTests(LedgerDatabase db, ITestOutputHelper out
             // scenario_run_staff, referenced by scenario_run_staff_revocation) before any trigger runs.
             await Denied(db.Owner, TenantA, $"TRUNCATE revenant.{table}", table is "scenario_run" or "scenario_run_staff" ? "0A000" : "RV001");
         }
-        // The cursor only advances by one fact; a payment status cannot skip the matrix or the version.
-        await Denied(db.Writer, TenantA, "UPDATE revenant.run_cursor SET last_fact_seq = last_fact_seq + 2", "RV004");
-        await Denied(db.Writer, TenantA, "UPDATE revenant.run_cursor SET last_fact_seq = last_fact_seq", "RV004");
-        await Denied(db.Writer, TenantA, "UPDATE revenant.payment SET status = 'Settled', version = version + 1", "RV003");
-        await Denied(db.Writer, TenantA, "UPDATE revenant.payment SET status = 'Held'", "RV003");
-        await Denied(db.Writer, TenantA, "UPDATE revenant.payment SET status = 'Held', version = version + 5", "RV003");
+        // Target this test's open run so a closed run in the shared fixture cannot fire a different guard first.
+        var currentRun = ("run", (object)run.Value);
+        await Denied(db.Writer, TenantA, "UPDATE revenant.run_cursor SET last_fact_seq = last_fact_seq + 2 WHERE scenario_run_id=@run", "RV004", currentRun);
+        await Denied(db.Writer, TenantA, "UPDATE revenant.run_cursor SET last_fact_seq = last_fact_seq WHERE scenario_run_id=@run", "RV004", currentRun);
+        await Denied(db.Writer, TenantA, "UPDATE revenant.payment SET status = 'Settled', version = version + 1 WHERE scenario_run_id=@run", "RV003", currentRun);
+        await Denied(db.Writer, TenantA, "UPDATE revenant.payment SET status = 'Held' WHERE scenario_run_id=@run", "RV003", currentRun);
+        await Denied(db.Writer, TenantA, "UPDATE revenant.payment SET status = 'Held', version = version + 5 WHERE scenario_run_id=@run", "RV003", currentRun);
         await Denied(db.Writer, TenantA,
             "INSERT INTO revenant.payment_transition (tenant_id, scenario_run_id, payment_id, version, from_status, to_status, command_key, actor) " +
-            "SELECT tenant_id, scenario_run_id, id, 9, 'Initiated', 'Settled', 'x', 'y' FROM revenant.payment", "23514");
+            "SELECT tenant_id, scenario_run_id, id, 9, 'Initiated', 'Settled', 'x', 'y' FROM revenant.payment WHERE scenario_run_id=@run", "23514", currentRun);
 
         foreach (var table in new[] { "payment_transition", "payment_command", "finance_fact", "run_cursor", "scenario_run", "payment" })
         {
@@ -336,11 +337,12 @@ public sealed class PaymentMachineTests(LedgerDatabase db, ITestOutputHelper out
 
     private Task<T> ScalarAsync<T>(string sql, params (string Name, object Value)[] args) => PaymentKit.Scalar<T>(db.Owner, sql, args);
 
-    private static async Task Denied(NpgsqlDataSource source, string tenant, string sql, string sqlState)
+    private static async Task Denied(NpgsqlDataSource source, string tenant, string sql, string sqlState,
+        params (string Name, object Value)[] parameters)
     {
         await using var conn = await source.OpenConnectionAsync();
         await using var tx = await LedgerSql.BeginTenantAsync(conn, tenant);
-        var ex = await Assert.ThrowsAsync<PostgresException>(() => LedgerSql.ExecAsync(conn, sql));
+        var ex = await Assert.ThrowsAsync<PostgresException>(() => LedgerSql.ExecAsync(conn, sql, parameters));
         Assert.True(sqlState == ex.SqlState, $"{sql}: expected {sqlState}, got {ex.SqlState} ({ex.MessageText})");
     }
 }

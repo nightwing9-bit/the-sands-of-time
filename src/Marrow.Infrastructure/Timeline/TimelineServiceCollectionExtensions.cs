@@ -23,7 +23,13 @@ public static class TimelineServiceCollectionExtensions
     public static IServiceCollection AddMarrowTimeline<TState, TInput, TContext>(
         this IServiceCollection services,
         IEnumerable<TimelineComponents<TState, TInput, TContext>> registrations,
-        int checkpointInterval)
+        int checkpointInterval) =>
+        AddMarrowTimeline(services, registrations, checkpointInterval, null);
+
+    public static IServiceCollection AddMarrowTimeline<TState, TInput, TContext>(
+        this IServiceCollection services,
+        IEnumerable<TimelineComponents<TState, TInput, TContext>> registrations,
+        int checkpointInterval, Func<IServiceProvider, NpgsqlDataSource>? dataSource)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(registrations);
@@ -40,7 +46,7 @@ public static class TimelineServiceCollectionExtensions
 
         services.AddSingleton<ITimelineEngine<TState, TInput, TContext>>(sp =>
             new PersistentTimelineEngine<TState, TInput, TContext>(
-                new PostgresTimelineStore(sp.GetRequiredService<NpgsqlDataSource>()), registry, options));
+                new PostgresTimelineStore(dataSource?.Invoke(sp) ?? sp.GetRequiredService<NpgsqlDataSource>()), registry, options));
         return services;
     }
 }

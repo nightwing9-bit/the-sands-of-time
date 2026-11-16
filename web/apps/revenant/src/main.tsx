@@ -1,4 +1,4 @@
-import { StrictMode, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, StrictMode, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createMarrowTransport, describeFailure, describeHandshake, type ApiResult, type HandshakeVerdict, type TimelinePosition, type TransportFailure } from "@sands/contracts";
 import { TimelineScrubber, type VerifiedPreview } from "@sands/timeline-ui";
@@ -12,6 +12,8 @@ import { createSliceHttpWire } from "./slice/sliceWire.ts";
 const transport = createMarrowTransport({ apiBaseUrl: "", realtimeBaseUrl: "" });
 const wire = createTestHostHttpWire();
 const sliceWire = createSliceHttpWire();
+const R8 = lazy(() => import("./r8/RevenantR8.tsx").then(m => ({ default: m.RevenantR8 })));
+const useR8 = new URLSearchParams(window.location.search).get("view") === "r8";
 const timelineId = new URLSearchParams(window.location.search).get("timeline");
 
 type Loaded = { kind: "loading" } | { kind: "failed"; failure: TransportFailure } | { kind: "ready"; descriptor: RevenantTimelineDescriptor };
@@ -73,6 +75,6 @@ function Shell() {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <Shell />
+    {useR8 ? <Suspense fallback={<p role="status">Loading Revenant…</p>}><R8 /></Suspense> : <Shell />}
   </StrictMode>,
 );

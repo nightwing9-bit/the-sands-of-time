@@ -6,6 +6,7 @@ using Marrow.Infrastructure.Timeline;
 using Marrow.Timeline;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using Revenant.Api;
 using Revenant.Contracts;
 using Revenant.Cases;
 using Revenant.Finance;
@@ -179,6 +180,9 @@ public sealed class R7PublishedWorkerTests(LedgerDatabase db)
             """, ("run", id.Value), ("model", anomaly.ModelId), ("policy", AdvisoryEvidence.GlobalAnomalyPolicy));
         Assert.Equal(saved, goodAccount.GetProperty("EvidenceSha256").GetString());
         var evidence = RevenantAdvisoryWorker.ScoreSupported(account, id, artifactRoot);
+        var decoded = R8Service.DecodeAlert(evidence.Encode(), saved, id, seal);
+        Assert.Equal(AdvisoryStatus.Available, decoded.Status);
+        Assert.Equal(surprise >= threshold, decoded.Alert is not null);
         await Assert.ThrowsAsync<InvalidOperationException>(() => store.PersistAdvisoryAsync(tenant,
             evidence with { AnomalyV2 = evidence.AnomalyV2! with { Residual = evidence.AnomalyV2.Residual + 1 } }, ct));
         Assert.Equal(goodBank.Select(x => x.GetRawText()), (await Score(seal, null)).Select(x => x.GetRawText()));

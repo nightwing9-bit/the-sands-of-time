@@ -110,6 +110,21 @@ describe('seek race', () => {
 });
 
 describe('positions above 2^53', () => {
+  it('offsets marker presentation while seeking the exact decimal position', async () => {
+    const position = '9007199254740995';
+    const { adapter, calls } = makeAdapter({ getMarkers: () => [{ position, label: 'exact' }] });
+    const onVerified = vi.fn();
+    const { rerender } = render(<TimelineScrubber adapter={adapter} position="0" onVerified={onVerified} />);
+    const marker = screen.getByRole('button', { name: 'Marker: exact' });
+    expect(marker.style.translate).toBe('');
+    rerender(<TimelineScrubber adapter={adapter} position="0" onVerified={onVerified} markerOffsetPx={() => -36} />);
+    expect(marker.style.translate).toBe('-36px');
+    fireEvent.click(marker);
+    expect(calls.map(call => call.position)).toEqual([position]);
+    await act(async () => calls[0]!.resolve());
+    expect(onVerified).toHaveBeenCalledWith({ position, state: `state-${position}` });
+  });
+
   it('steps and labels exactly by keyboard and ends on the last requested position', async () => {
     const { adapter, calls } = makeAdapter();
     const painted: string[] = [];
