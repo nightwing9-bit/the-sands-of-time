@@ -1,6 +1,6 @@
 # Spec 11 implementation tasks — Exact and durable Ghost Lap solo history
 
-**All unchecked; work has not been performed.** Dependencies: Spec 02/03/06, their real public contracts/fixtures, actual project host and schemas. Spec 11 does not require speculative changes to shared Marrow or any Revenant feature. Do not begin later tasks until the explicit upstream compatibility blockers have evidence. Log test commands, failures, artifacts and commits in `docs/kiro-log.md`.
+**Task status is tracked below.** Dependencies: Spec 02/03/06, their real public contracts/fixtures, actual project host and schemas. Spec 11 does not require speculative changes to shared Marrow or any Revenant feature. Do not begin later tasks until the explicit upstream compatibility blockers have evidence. Log test commands, failures, artifacts and commits in `docs/kiro-log.md`.
 
 - [ ] **11.0 Mandatory frozen-port / recovery feasibility gate**
   - **Inspect:** actual exported `Marrow.Timeline` and Spec 06 solo create/record/verify/recovery/branch APIs, canonical codec full GameState, tick/input append semantics, manifest uniqueness, `SoloOriginals`/`SoloBranches`, existing migrations, `docs/architecture/{01-master,02-spec-map,03-contracts}.md`, guest identity and host DI.
@@ -8,10 +8,11 @@
   - **Verify:** real upstream fixtures and narrow concurrency/port tests. Confirm no extra canonical codec/log, cross-schema FK, test-only runtime bridge, shared ABI or Revenant change.
   - **Done when:** source correlation **and** storage-enforced single-writer feasibility are established before 11.2/11.3 coding.
 
-- [ ] **11.1 Canonical codec and Ghost Lap-owned persistence mapping**
-  - **Produce:** small `ghostlap` recording-intent/catalog/idempotency and derived score-sample persistence matching existing conventions; sealed owner/operation/attempt identity, statuses, Timeline scalar IDs with unique constraints, source/root/parent/fork metadata and version/hash binding. Existing `ghost-v1` codec, source and branch services remain the only canonical serializer/Timeline writer.
-  - **Verify:** migration, DB constraints, same-owner two-operation case, ID/key conflicting duplicate, real 2700-tick cold reload and canonical codec hash fixtures. Test no second log/checkpoint byte store in `ghostlap`.
-  - **Done when:** new metadata faithfully references verified canonical sources, with no version reinterpretation.
+- [x] **11.1 Record and durably save ONE genuine solo original end-to-end**
+  - **Produce:** a real `ghost-v1` 30Hz 2700-tick solo run with its actual movement/candles/charge/Overlit/manual+auto Burst rules; canonical inputs/checkpoints/replay via existing Spec 06/Timeline services; verified final hash; owner-bound saved identity and minimal metadata *only if needed*. API exposes honest `Saved` / `SavePending` / failed outcome; stable operation key protects retries. Do not trust client-reported score/final hash or add long-lived crash-resumable solo writers.
+  - **Verify (Kiro focused):** full original final reducer hash, one saved owner-visible record, identical retry returns the same identity, conflicting retry denied, interrupted partial run cannot be listed as original; solo `ghost-v1` goldens preserved. **Delegate to Codex:** real PostgreSQL cold reload, one lost-response/ambiguous-save scenario, real owner and foreign-user reads.
+  - **Done when:** a completed real original can be saved and retrieved after refresh with exact versions/hash; no false `Saved`. This is the first product milestone—do not proceed to complicated fork infrastructure before it works.
+  - **Codex verification passed.** A full 2,700-tick original saved through the production Realtime hub, survived a cold host restart, and replayed to the same hash from PostgreSQL. The owner recovered the same save after a lost reply and a retryable `SavePending`. See the Task 11.1 checkpoint in [the Kiro log](../../../docs/kiro-log.md#spec-11-task-111-codex-verification-checkpoint).
 
 - [ ] **11.2 Real original recording, crash correlation and saved catalog**
   - **Produce:** production solo creation/recording flow using confirmed existing ports, durable intent-to-source recovery, verified source -> idempotent catalog handoff, owner retrieval/pins, truthful `Pending`, `VerifiedUnlisted`, `Saved`/failure states; full 2700-tick original only, no fake offline source. Bind API and runtime roles through existing DI/port mechanisms.

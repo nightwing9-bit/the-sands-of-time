@@ -131,9 +131,12 @@ log "done: $applied applied, $skipped already applied"
 #   REALTIME_LEDGER_DB_PASSWORD -> sands_realtime_ledger revenant_replay_reader (hub snapshot reads only)
 #   WORKER_LEDGER_DB_PASSWORD   -> sands_worker_ledger   revenant_ledger_writer + revenant_outbox_relay (LiveOps)
 #   REPLAY_DB_PASSWORD -> sands_replay (restricted child Timeline and tenant-scoped replay results)
+# Spec 11 task 11.1 Ghost Lap solo login (Realtime, ConnectionStrings:GhostLapSolo): the solo recorder and owner library only.
+#   REALTIME_SOLO_DB_PASSWORD -> sands_realtime_solo marrow_timeline_runtime + ghostlap_runtime (solo_originals/solo_branches rows and the
+#                                Ghost Lap Timeline journal; no identity, MP or Revenant access). Deliberately not granted to sands_realtime.
 # Spec 10 task 10.4 Ghost Lap relay login (Worker, ConnectionStrings:GhostLapRelay):
 #   WORKER_GHOSTLAP_DB_PASSWORD -> sands_worker_ghostlap ghostlap_outbox_relay (claim/confirm ghostlap.outbox rows only)
-RUNTIME_ROLES="marrow_timeline_revenant_replay revenant_counterfactual_worker marrow_timeline_runtime marrow_identity_runtime revenant_ledger_writer revenant_replay_reader revenant_outbox_relay revenant_read_projector ghostlap_mp_runtime ghostlap_outbox_relay"
+RUNTIME_ROLES="marrow_timeline_revenant_replay revenant_counterfactual_worker marrow_timeline_runtime marrow_identity_runtime revenant_ledger_writer revenant_replay_reader revenant_outbox_relay revenant_read_projector ghostlap_mp_runtime ghostlap_outbox_relay ghostlap_runtime"
 provision_login() {
   login=$1 var=$2 members=$3
   eval "password=\${$var:-}"
@@ -179,6 +182,7 @@ provision_login sands_realtime_ledger REALTIME_LEDGER_DB_PASSWORD "revenant_repl
 provision_login sands_worker_ledger WORKER_LEDGER_DB_PASSWORD "revenant_ledger_writer revenant_outbox_relay"
 provision_login sands_replay REPLAY_DB_PASSWORD "marrow_timeline_revenant_replay revenant_replay_reader revenant_counterfactual_worker"
 provision_login sands_worker_ghostlap WORKER_GHOSTLAP_DB_PASSWORD "ghostlap_outbox_relay"
+provision_login sands_realtime_solo REALTIME_SOLO_DB_PASSWORD "marrow_timeline_runtime ghostlap_runtime"
 if [ -n "${REPLAY_DB_PASSWORD:-}" ]; then
   [ -n "${REPLAY_TENANT_ID:-}" ] || fail "REPLAY_TENANT_ID is required for sands_replay"
   case "$REPLAY_TENANT_ID" in *[!A-Za-z0-9_.-]*) fail "REPLAY_TENANT_ID contains unsupported characters" ;; esac

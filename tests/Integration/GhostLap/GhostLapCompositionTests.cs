@@ -57,10 +57,17 @@ public sealed class GhostLapCompositionTests(IdentityDatabase db)
         return ClaimsActorContext.From(new ClaimsPrincipal(new ClaimsIdentity(claims, scheme, IdentityClaimTypes.Subject, IdentityClaimTypes.Role)));
     }
 
-    [Fact]
-    public async Task Ghost_Lap_kinds_route_to_Ghost_Lap_and_Revenant_kinds_still_reach_the_Revenant_policy()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Ghost_Lap_kinds_route_to_Ghost_Lap_and_Revenant_kinds_still_reach_the_Revenant_policy(bool soloEnabled)
     {
-        await using var host = Host(WithRevenant);
+        var settings = new Dictionary<string, string?>(WithRevenant)
+        {
+            ["ConnectionStrings:GhostLapSolo"] = soloEnabled ? db.RealtimeSoloConnectionString : null,
+        };
+        await using var host = Host(settings);
+        Assert.Equal(soloEnabled, host.Services.IsEnabled());
         Assert.Equal(
             ["ghostlap-room", "revenant-run"],
             host.Services.GetServices<Marrow.Kernel.Realtime.IRealtimeStreamSource>().Select(s => s.StreamKind).Order());

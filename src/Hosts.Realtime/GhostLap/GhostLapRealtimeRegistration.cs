@@ -211,7 +211,8 @@ public static class GhostLapRealtimeRegistration
         app.Use(async (context, next) =>
         {
             var request = context.Request;
-            if (request.Path.StartsWithSegments(GhostLapWire.HubPath) && !string.IsNullOrEmpty(request.Cookies[IdentityCookies.GuestSession]))
+            if ((request.Path.StartsWithSegments(GhostLapWire.HubPath) || request.Path.StartsWithSegments(GhostLap.Contracts.Solo.GhostLapSoloWire.HubPath))
+                && !string.IsNullOrEmpty(request.Cookies[IdentityCookies.GuestSession]))
             {
                 var allowed = context.RequestServices.GetRequiredService<IOptions<MultiplayerOptions>>().Value.AllowedOrigins;
                 if (!IsAllowedOrigin(request, allowed))

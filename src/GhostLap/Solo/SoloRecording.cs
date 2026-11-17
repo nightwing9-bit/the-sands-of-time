@@ -45,10 +45,14 @@ public sealed class SoloRecording
         GameContext context, GameState state)
     {
         _store = store;
+        OperationKey = record.OperationKey;
         _recorder = new TickRecorder(engine, record.Timeline, SourceKey(record.OperationKey), context, state);
     }
 
     public TimelineId Timeline => _recorder.Timeline;
+
+    /// <summary>The owner-scoped save key this run was started with (the retry identity of its save).</summary>
+    public string OperationKey { get; }
 
     public GameContext Context => _recorder.Context;
 

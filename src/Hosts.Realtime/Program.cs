@@ -18,6 +18,8 @@ builder.Services.AddRevenantRealtime(builder.Configuration);
 // after the instance guard above holds its lock). MUST come after AddRevenantRealtime: it wraps the authorizers
 // registered so far in a kind router instead of replacing them, and the startup verifier refuses to run if anything replaces the router.
 builder.Services.AddGhostLapRealtime(builder.Configuration);
+// Spec 11 task 11.1: solo recording + the owner's private library on a dedicated login/pool. Registered only when ConnectionStrings:GhostLapSolo is set.
+builder.Services.AddGhostLapSolo(builder.Configuration);
 var app = builder.Build();
 
 // Hosts never run migrations; scripts/db/migrate.sh is the single executor.
@@ -28,6 +30,10 @@ app.MapGet("/", () => Results.Ok(new { service = "hosts-realtime", status = "boo
 app.MapMarrowHealth("hosts-realtime");
 app.MapMarrowRealtime();
 app.MapGhostLapRealtime();
+if (app.Services.IsEnabled())
+{
+    app.MapGhostLapSolo();
+}
 // Resolved before Run, which disposes the service provider on return.
 var instanceGuard = app.Services.GetRequiredService<RealtimeInstanceGuard>();
 try
