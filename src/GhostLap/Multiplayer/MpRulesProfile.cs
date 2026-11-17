@@ -86,6 +86,9 @@ public static class MultiplayerStartup
         Range(errors, nameof(o.GenerationCheckMilliseconds), o.GenerationCheckMilliseconds, 50, 60_000);
         Range(errors, nameof(o.ActivationTimeoutMilliseconds), o.ActivationTimeoutMilliseconds, 1000, 600_000);
         Range(errors, nameof(o.AbortAttempts), o.AbortAttempts, 1, 100);
+        Range(errors, nameof(o.FinalizeAttempts), o.FinalizeAttempts, 1, 100);
+        Range(errors, nameof(o.FinalizeInitialBackoffMilliseconds), o.FinalizeInitialBackoffMilliseconds, 10, 10_000);
+        Range(errors, nameof(o.FinalizeMaxBackoffMilliseconds), o.FinalizeMaxBackoffMilliseconds, o.FinalizeInitialBackoffMilliseconds, 60_000);
         Range(errors, nameof(o.SnapshotIntervalTicks), o.SnapshotIntervalTicks, 1, 30);
         Range(errors, nameof(o.EventRetentionTicks), o.EventRetentionTicks, 30, GameRulesV1.RoundTicks);
         Range(errors, nameof(o.SendTimeoutMilliseconds), o.SendTimeoutMilliseconds, 100, 60_000);

@@ -51,6 +51,7 @@ public sealed class GhostLapHub(
     IActiveRoomOwner owner,
     IMatchResync resync,
     MatchRegistry matches,
+    MatchAuthorityStore store,
     GhostLapConnections connections,
     GhostLapSessionAccess access,
     RealtimeInstanceGuard guard,
@@ -90,6 +91,55 @@ public sealed class GhostLapHub(
     public Task<GhostLapReply<RoomCommandResult>> TransferHost(TransferHostRequest request) => RunAsync(c => owner.TransferHost(c, request));
 
     public Task<GhostLapReply<RoomView>> GetRoom(string roomId) => RunAsync(c => owner.GetRoom(c, roomId));
+
+    /// <summary>Task 10.4: back to the lobby after a settled match. The next round is fresh and starts through ready/start as usual.</summary>
+    public Task<GhostLapReply<RoomCommandResult>> Rematch(RoomCommand command) => RunAsync(c => owner.Rematch(c, command));
+
+    /// <summary>
+    /// Task 10.4: the durable outcome of a match, for a member of its room or a principal of its sealed roster. A committed result in memory is
+    /// answered directly; otherwise PostgreSQL is read (it is the authority, so this works after a Realtime restart). An unknown or foreign match is
+    /// <c>result_not_found</c> (no existence oracle). A Started receipt is <c>pending</c>, never reported as aborted.
+    /// </summary>
+    public async Task<GhostLapReply<MatchOutcomeView>> GetMatchResult(string matchId)
+    {
+        var gate = await AuthorizeCallAsync();
+        if (gate.Failure is not null)
+        {
+            return GhostLapReply<MatchOutcomeView>.Failure(gate.Failure);
+        }
+        var subject = gate.Subject!;
+        if (!Guid.TryParse(matchId, out var id))
+        {
+            return GhostLapReply<MatchOutcomeView>.Failure(GhostLapFailure.InvalidRequest);
+        }
+        if (matches.Find(id) is { Result: { } committed } runtime && owner.IsMember(subject, runtime.Config.RoomId, competitorOnly: false))
+        {
+            return GhostLapReply<MatchOutcomeView>.Success(MatchResults.FinalizedView(committed.Document, committed.Digest));
+        }
+        MatchOutcomeRecord? outcome;
+        try
+        {
+            outcome = await store.FindOutcomeAsync(id, Context.ConnectionAborted);
+        }
+        catch (Exception e) when (e is Npgsql.NpgsqlException or TimeoutException or InvalidOperationException)
+        {
+            return GhostLapReply<MatchOutcomeView>.Failure(GhostLapFailure.Unavailable);
+        }
+        if (outcome is null
+            || !(outcome.RosterSubjects.Contains(subject, StringComparer.Ordinal) || owner.IsMember(subject, outcome.Receipt.RoomId, competitorOnly: false)))
+        {
+            return GhostLapReply<MatchOutcomeView>.Failure(GhostLapFailure.ResultNotFound);
+        }
+        var receipt = outcome.Receipt;
+        var key = id.ToString("N");
+        return GhostLapReply<MatchOutcomeView>.Success(receipt.TerminalDecision switch
+        {
+            TerminalDecisions.ResultCommitted when outcome.ResultDocumentJson is { } json && outcome.ResultDigest is { } digest =>
+                MatchResults.FinalizedView(MatchResults.DocumentFromJson(json), digest),
+            TerminalDecisions.Aborted => new MatchOutcomeView(key, MatchOutcomeDecisions.Aborted, receipt.AbortReason, null, false, null, null, []),
+            _ => new MatchOutcomeView(key, MatchOutcomeDecisions.Pending, null, null, false, null, null, []),
+        });
+    }
 
     /// <summary>
     /// Task 10.3: a consistent authoritative frame (state and event boundary of the same tick, the retained event tail, this connection's own
@@ -181,28 +231,39 @@ public sealed class GhostLapHub(
 
     private async Task<GhostLapReply<T>> RunAsync<T>(Func<RoomCaller, OwnerResult<T>> command)
     {
+        var gate = await AuthorizeCallAsync();
+        if (gate.Failure is not null)
+        {
+            return GhostLapReply<T>.Failure(gate.Failure);
+        }
+        var result = command(new RoomCaller(gate.Subject!, Context.ConnectionId));
+        return result.Ok ? GhostLapReply<T>.Success(result.Value!) : GhostLapReply<T>.Failure(result.Code!);
+    }
+
+    /// <summary>The checks every invocation passes: this process is the authority, the connection is known and its session is live (re-read now).</summary>
+    private async Task<(string? Subject, string? Failure)> AuthorizeCallAsync()
+    {
         if (guard.AuthorityLost)
         {
             // This process is no longer the room authority: admit no room commands (the host is stopping).
-            return GhostLapReply<T>.Failure(GhostLapFailure.Unavailable);
+            return (null, GhostLapFailure.Unavailable);
         }
         if (!connections.TryGet(Context.ConnectionId, out var connection))
         {
-            return GhostLapReply<T>.Failure(GhostLapFailure.Forbidden);
+            return (null, GhostLapFailure.Forbidden);
         }
         // Lobby commands are rare, so the session is re-read from the identity database on every one (revocation is immediate).
         var live = await access.IsLiveAsync(connection.Session, Context.ConnectionAborted);
         if (live is null)
         {
-            return GhostLapReply<T>.Failure(GhostLapFailure.Unavailable);
+            return (null, GhostLapFailure.Unavailable);
         }
         if (!live.Value)
         {
             log.ConnectionClosedForAccess(Context.ConnectionId, "session_inactive");
             Context.Abort();
-            return GhostLapReply<T>.Failure(GhostLapFailure.Forbidden);
+            return (null, GhostLapFailure.Forbidden);
         }
-        var result = command(new RoomCaller(connection.Session.Subject, Context.ConnectionId));
-        return result.Ok ? GhostLapReply<T>.Success(result.Value!) : GhostLapReply<T>.Failure(result.Code!);
+        return (connection.Session.Subject, null);
     }
 }

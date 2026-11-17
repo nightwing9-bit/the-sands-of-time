@@ -171,6 +171,12 @@ public interface IActiveRoomOwner
 
     OwnerResult<RoomView> GetRoom(RoomCaller caller, string roomId);
 
+    /// <summary>
+    /// Task 10.4: a competitor's controlling connection returns the room to its lobby once the match is settled (finalized, aborted or
+    /// unverified). Ready flags clear and the round ordinal advances, so the next start seals a fresh match id, seed and state. Idempotent.
+    /// </summary>
+    OwnerResult<RoomCommandResult> Rematch(RoomCaller caller, RoomCommand command);
+
     /// <summary>A transport connection closed. Idempotent.</summary>
     void ConnectionClosed(string connectionId);
 

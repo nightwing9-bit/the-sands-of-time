@@ -121,7 +121,8 @@ log "done: $applied applied, $skipped already applied"
 # they are never on a command line, never interpolated by the shell into SQL, and never printed.
 #   API_DB_PASSWORD      -> sands_api       member of marrow_identity_runtime
 #   REALTIME_DB_PASSWORD -> sands_realtime  member of marrow_identity_runtime (session revalidation, advisory lock) and
-#                                           ghostlap_mp_runtime (Spec 10 10.2: process generation and match start receipts only)
+#                                           ghostlap_mp_runtime (Spec 10 10.2/10.4: process generation, match start receipts,
+#                                           results and MatchFinalizedV1 outbox inserts only)
 #   WORKER_DB_PASSWORD   -> sands_worker    marrow_timeline_runtime + revenant_replay_reader + revenant_read_projector (Spec 07
 #                                           7.5: V2 Timeline projection and the future Replay mode; reads live finance data, writes
 #                                           none. R07.09: the read projection writes only revenant.*_view and the inbox)
@@ -130,7 +131,9 @@ log "done: $applied applied, $skipped already applied"
 #   REALTIME_LEDGER_DB_PASSWORD -> sands_realtime_ledger revenant_replay_reader (hub snapshot reads only)
 #   WORKER_LEDGER_DB_PASSWORD   -> sands_worker_ledger   revenant_ledger_writer + revenant_outbox_relay (LiveOps)
 #   REPLAY_DB_PASSWORD -> sands_replay (restricted child Timeline and tenant-scoped replay results)
-RUNTIME_ROLES="marrow_timeline_revenant_replay revenant_counterfactual_worker marrow_timeline_runtime marrow_identity_runtime revenant_ledger_writer revenant_replay_reader revenant_outbox_relay revenant_read_projector ghostlap_mp_runtime"
+# Spec 10 task 10.4 Ghost Lap relay login (Worker, ConnectionStrings:GhostLapRelay):
+#   WORKER_GHOSTLAP_DB_PASSWORD -> sands_worker_ghostlap ghostlap_outbox_relay (claim/confirm ghostlap.outbox rows only)
+RUNTIME_ROLES="marrow_timeline_revenant_replay revenant_counterfactual_worker marrow_timeline_runtime marrow_identity_runtime revenant_ledger_writer revenant_replay_reader revenant_outbox_relay revenant_read_projector ghostlap_mp_runtime ghostlap_outbox_relay"
 provision_login() {
   login=$1 var=$2 members=$3
   eval "password=\${$var:-}"
@@ -175,6 +178,7 @@ provision_login sands_api_ledger API_LEDGER_DB_PASSWORD "revenant_ledger_writer"
 provision_login sands_realtime_ledger REALTIME_LEDGER_DB_PASSWORD "revenant_replay_reader"
 provision_login sands_worker_ledger WORKER_LEDGER_DB_PASSWORD "revenant_ledger_writer revenant_outbox_relay"
 provision_login sands_replay REPLAY_DB_PASSWORD "marrow_timeline_revenant_replay revenant_replay_reader revenant_counterfactual_worker"
+provision_login sands_worker_ghostlap WORKER_GHOSTLAP_DB_PASSWORD "ghostlap_outbox_relay"
 if [ -n "${REPLAY_DB_PASSWORD:-}" ]; then
   [ -n "${REPLAY_TENANT_ID:-}" ] || fail "REPLAY_TENANT_ID is required for sands_replay"
   case "$REPLAY_TENANT_ID" in *[!A-Za-z0-9_.-]*) fail "REPLAY_TENANT_ID contains unsupported characters" ;; esac

@@ -1,5 +1,5 @@
 # ADR-P1-24 — Ghost Lap match authority, start receipt and terminal fence
-- **Status:** Accepted at Spec 10 task 10.2. Implemented and tested locally (evidence in `docs/kiro-log.md`). The result commit and `MatchFinalizedV1` outbox (10.4), snapshots, reconnect resync and forfeit scheduling (10.3) are NOT part of this decision's implementation.
+- **Status:** Accepted at Spec 10 task 10.2. Implemented and tested locally (evidence in `docs/kiro-log.md`). The result commit and `MatchFinalizedV1` outbox (10.4), snapshots, reconnect resync and forfeit scheduling (10.3) are NOT part of this decision's implementation. Task 10.4 completed item 4 and replaced item 9: see ADR-P1-26 (`Started -> ResultCommitted` with result and outbox in the same transaction, same lock order).
 - **Scope:** who may run a live multiplayer match, how a match starts durably, how its tick loop is scheduled, and how a stale process is kept from deciding a match. Gameplay rules are ADR-P1-22; ingress is ADR-P1-23.
 
 ## Decision

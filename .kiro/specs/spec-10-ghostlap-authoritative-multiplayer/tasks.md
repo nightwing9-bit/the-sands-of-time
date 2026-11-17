@@ -24,7 +24,7 @@
   - **Verify:** 50/150/300ms RTT + jitter/loss, stale/duplicate/reordered input, refresh/controller takeover, old connection spoof, key-release during six-tick hold, tab suspension; overlit auto-Burst before/after forfeit; boundary 450/451; slow spectators and saturated outbound buffers do not stall authoritative tick. Spectator gameplay calls denied in both layers.
   - **Done when:** lost packets do not create repeated Burst, client can recover from a snapshot, and disconnected/forfeited behavior stays deterministic.
 
-- [ ] **10.4 Transactional terminal results and rematch**
+- [x] **10.4 Transactional terminal results and rematch**
   - **Produce:** `match_session` receipt/generation and `MatchResult`/`MatchFinalizedV1` outbox uniqueness; terminal/replacement serialized under same locked receipt row; honest pending/provisional outcome and recovery; exact per-player stats, finishers-before-forfeits, genuine tied placements, immutable rating eligibility and carried-through start-pinned `ratingAlgorithmId`; rematch fresh identity/seed/state.
   - **Verify:** guard-loss race with old process's ordinary DB pool alive, both commit orderings; before/after SQL result commit and lost ACK, DB down at start/finish, old receipt aborted while new epoch starts, duplicate/concurrent finalize and payload conflict, unrated all-forfeit and rated one-finisher cases, tie/forfeit placement, frozen algorithm identity across delayed finalization and fresh rematch. `Aborted` never emits rankable result; committed winner survives lost acknowledgement.
   - **Done when:** exactly one truthful durable terminal decision and outbox per finalized match, no double result, no fake winner after crash.

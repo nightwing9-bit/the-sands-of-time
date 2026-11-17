@@ -93,6 +93,19 @@ public sealed class MultiplayerOptions
     /// <summary>Attempts to write a fenced abort before reporting the outcome as unverified.</summary>
     public int AbortAttempts { get; set; } = 5;
 
+    // ---- Task 10.4: result finalization. Initial policy values, not measurements.
+
+    /// <summary>
+    /// Attempts to commit a finished match's result (receipt, result row and outbox in one transaction) while this process is the authority. The
+    /// match shows <c>pending_finalization</c> meanwhile; after the last failed attempt it is <c>unverified</c> (provisional, unrated), never aborted.
+    /// </summary>
+    public int FinalizeAttempts { get; set; } = 8;
+
+    /// <summary>First retry delay of the finalizer; doubles per attempt up to <see cref="FinalizeMaxBackoffMilliseconds"/>.</summary>
+    public int FinalizeInitialBackoffMilliseconds { get; set; } = 100;
+
+    public int FinalizeMaxBackoffMilliseconds { get; set; } = 2000;
+
     // ---- Task 10.3: snapshots, per-recipient delivery and hub liveness. Initial policy values, NOT measured capacity (task 10.5).
 
     /// <summary>Authoritative snapshot every N ticks (design: initially 2, about 15 Hz; up to 30 Hz only after bandwidth measurement). A forfeit, a disconnect and the final tick always publish.</summary>

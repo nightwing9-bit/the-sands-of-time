@@ -48,6 +48,15 @@ public static class GhostLapWire
     /// <summary>Client-to-server (task 10.3): returns a consistent <see cref="SnapshotFrame"/> (<c>IsResync</c>) with the retained event tail.</summary>
     public const string ResyncMethod = "Resync";
 
+    /// <summary>
+    /// Client-to-server (task 10.4): after a match has a terminal outcome (finalized, aborted or unverified), return the room to its lobby. The next
+    /// start goes through the normal ready/start policy and seals a fresh round (next ordinal: fresh match id, seed and state).
+    /// </summary>
+    public const string RematchMethod = "Rematch";
+
+    /// <summary>Client-to-server (task 10.4): the durable outcome of a match (<see cref="MatchOutcomeView"/>), read from PostgreSQL when not in memory.</summary>
+    public const string GetMatchResultMethod = "GetMatchResult";
+
     public const int MaxRequestIdLength = 64;
     public const int MaxRoomCodeLength = 16;
 
@@ -94,19 +103,33 @@ public static class GhostLapFailure
     public const string Forfeited = "forfeited";
     public const string TickInputLimit = "tick_input_limit";
     public const string MailboxFull = "mailbox_full";
+
+    // Task 10.4.
+    /// <summary>The round ended but its result is not durably decided yet; a rematch must wait for a terminal outcome.</summary>
+    public const string FinalizationPending = "finalization_pending";
+
+    /// <summary>No outcome the caller may read: unknown match id, or the caller was neither in its roster nor in its room.</summary>
+    public const string ResultNotFound = "result_not_found";
 }
 
 /// <summary>
-/// Status of the authoritative match of a room (task 10.2), carried on <see cref="RoomView.MatchStatus"/>. Only
-/// <see cref="Aborted"/> is a durable terminal decision; every other value is the live or provisional view of this process.
+/// Status of the authoritative match of a room (task 10.2), carried on <see cref="RoomView.MatchStatus"/>. Only <see cref="Finalized"/> and
+/// <see cref="Aborted"/> are durable terminal decisions (task 10.4: both are reported only after this process read or wrote the committed receipt);
+/// every other value is the live or provisional view of this process.
 /// </summary>
 public static class MatchStatuses
 {
     /// <summary>The start receipt is committed and the tick loop runs.</summary>
     public const string Running = "running";
 
-    /// <summary>Tick 2700 was resolved. The result commit (task 10.4) has not happened; no result or rating exists yet.</summary>
+    /// <summary>
+    /// Tick 2700 was resolved and the result commit is being attempted (bounded retries). Provisional: no result, winner or rating exists yet, and
+    /// it is never a durable abort either.
+    /// </summary>
     public const string PendingFinalization = "pending_finalization";
+
+    /// <summary>The receipt's durable terminal decision is ResultCommitted: one immutable result and one <c>MatchFinalizedV1</c> outbox row exist.</summary>
+    public const string Finalized = "finalized";
 
     /// <summary>The loop stopped (overload, authority loss, host stop) and a fenced abort is being written.</summary>
     public const string Aborting = "aborting";
@@ -114,8 +137,15 @@ public static class MatchStatuses
     /// <summary>The receipt's durable terminal decision is Aborted (unrated, no winner).</summary>
     public const string Aborted = "aborted";
 
-    /// <summary>The loop stopped and this process could not verify a durable decision (database unreachable or authority lost).</summary>
+    /// <summary>
+    /// The loop stopped, or the round ended, and this process could not verify a durable decision (database unreachable or authority lost).
+    /// Provisional and unrated. The durable truth is the receipt: a committed result stays committed, an uncommitted one is aborted by the next
+    /// generation's retirement. Read it with <see cref="GhostLapWire.GetMatchResultMethod"/>.
+    /// </summary>
     public const string Unverified = "unverified";
+
+    /// <summary>True for the statuses after which a room may return to its lobby (task 10.4 rematch).</summary>
+    public static bool IsSettled(string? status) => status is Finalized or Aborted or Unverified;
 }
 
 public static class RoomPhases
@@ -150,6 +180,9 @@ public static class RoomNotices
     public const string StartUnavailable = "start_unavailable";
     public const string HostChanged = "host_changed";
     public const string RoomExpired = "room_expired";
+
+    /// <summary>Task 10.4: a competitor returned the room to its lobby after a settled match; ready flags are cleared and the next round is fresh.</summary>
+    public const string RematchLobby = "rematch_lobby";
 }
 
 /// <summary>Reply of every lobby command. The first two fields are shaped like the shared hub's throttle reply, so a throttled call parses.</summary>

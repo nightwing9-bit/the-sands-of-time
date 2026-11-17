@@ -70,6 +70,7 @@ public sealed class MatchEngine
         Config = config;
         Context = MpMatchContext.From(config);
         State = initial ?? MpMatchState.Initial(Context);
+        Stats = new MpMatchStats(Context.PlayerCount);
         _options = options;
         _matchIdText = config.MatchId.ToString("N");
         var n = Context.PlayerCount;
@@ -98,6 +99,9 @@ public sealed class MatchEngine
 
     /// <summary>The authoritative state after the last executed tick. Written only by <see cref="Step"/>.</summary>
     public MpMatchState State { get; private set; }
+
+    /// <summary>Result counters folded from every resolved tick's events (task 10.4). Written only by <see cref="Step"/>.</summary>
+    public MpMatchStats Stats { get; }
 
     public int QueuedInputs => _mailbox.Reader.Count;
 
@@ -238,6 +242,7 @@ public sealed class MatchEngine
         }
 
         State = MpRules.Step(State, pending, forfeitNow, Context);
+        Stats.Add(State.World.Events);
         var acks = new List<AckItem>();
         for (var slot = 0; slot < n; slot++)
         {

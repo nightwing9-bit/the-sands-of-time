@@ -370,6 +370,61 @@ public sealed class ActiveRoomOwner : IActiveRoomOwner
         }
     }
 
+    public OwnerResult<RoomCommandResult> Rematch(RoomCaller caller, RoomCommand command)
+    {
+        lock (_gate)
+        {
+            var found = Resolve(caller, command?.RoomId, requireCompetitor: true, requireController: true);
+            if (found.Failure is not null)
+            {
+                return OwnerResult<RoomCommandResult>.Fail(found.Failure);
+            }
+            if (!ValidRequestId(command!.RequestId))
+            {
+                return OwnerResult<RoomCommandResult>.Fail(GhostLapFailure.InvalidRequest);
+            }
+            var room = found.Room!;
+            if (room.Phase == RoomPhases.Lobby)
+            {
+                // A duplicate rematch (retry, second competitor, second tab) after the room already returned: no second ordinal step.
+                return OwnerResult<RoomCommandResult>.Success(new RoomCommandResult(BuildView(room), "already_lobby"));
+            }
+            if (room.Phase != RoomPhases.StartAdmitted || room.MatchId is not { } matchId)
+            {
+                return OwnerResult<RoomCommandResult>.Fail(GhostLapFailure.WrongPhase);
+            }
+            // The registry forgets a match only after it ended, so an unknown status is a settled one.
+            var status = _presence.StatusOf(matchId);
+            if (status is not null && !MatchStatuses.IsSettled(status))
+            {
+                return OwnerResult<RoomCommandResult>.Fail(
+                    status is MatchStatuses.PendingFinalization or MatchStatuses.Aborting ? GhostLapFailure.FinalizationPending : GhostLapFailure.WrongPhase);
+            }
+            foreach (var member in room.Members)
+            {
+                foreach (var connection in member.Connections)
+                {
+                    _presence.ViewerDetached(matchId, connection);
+                }
+            }
+            // Fresh round: never the previous match id, seed, receipt, state or rating identity (R10.16). The next start seals ordinal + 1.
+            room.Phase = RoomPhases.Lobby;
+            room.MatchId = null;
+            room.MatchStatus = null;
+            room.Config = null;
+            room.CountdownDeadline = 0;
+            room.RoundOrdinal++;
+            ClearReady(room);
+            if (room.Members.FirstOrDefault(m => m.MemberId == room.HostMemberId) is not { Controller: not null })
+            {
+                room.HostMemberId = PickHost(room);
+            }
+            Touch(room);
+            Bump(room, RoomNotices.RematchLobby);
+            return OwnerResult<RoomCommandResult>.Success(new RoomCommandResult(BuildView(room), null));
+        }
+    }
+
     public OwnerResult<RoomView> GetRoom(RoomCaller caller, string roomId)
     {
         lock (_gate)

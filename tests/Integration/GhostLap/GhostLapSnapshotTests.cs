@@ -227,8 +227,9 @@ public sealed class GhostLapSnapshotTests(IdentityDatabase db, ITestOutputHelper
         await s.StopPlayingAsync();
         var everyone = s.Players.Concat(s.Spectators).ToArray();
         await Eventually(() => everyone.All(c => c.Last?.IsFinal == true), "every client receives the final snapshot", 20_000);
-        await Eventually(() => s.Runtime.Status == MatchStatuses.PendingFinalization, "the loop reports the end of the round");
-        await Eventually(() => everyone.All(c => c.Frames.Last().MatchStatus == MatchStatuses.PendingFinalization), "every client sees the lifecycle change", 10_000);
+        // Task 10.4: the end of the round is pending_finalization until the result commits; then finalized (the pending frame may be coalesced away).
+        await Eventually(() => s.Runtime.Status == MatchStatuses.Finalized, "the round's result is committed");
+        await Eventually(() => everyone.All(c => c.Frames.Last().MatchStatus == MatchStatuses.Finalized), "every client sees the lifecycle change", 10_000);
         await Task.Delay(1500); // inputs sent just before the end are still in flight; they are refused with a typed code
 
         // 1. Authority and timing.
@@ -295,7 +296,7 @@ public sealed class GhostLapSnapshotTests(IdentityDatabase db, ITestOutputHelper
             var last = c.Last!;
             Assert.Equal((2700L, true), (last.Tick, last.IsFinal));
             Assert.Equal(s.Engine.State.World.Players.Select(p => p.TotalScore), last.Players.Select(p => p.TotalScore));
-            Assert.Equal(MatchStatuses.PendingFinalization, c.Frames.Last(f => f.Snapshot.IsFinal).MatchStatus);
+            Assert.Equal(MatchStatuses.Finalized, c.Frames.Last(f => f.Snapshot.IsFinal).MatchStatus);
         }
         output.WriteLine($"FULL-MATCH ticks=2700 seconds={elapsed:F1} maxMailbox={maxMailbox} schedulerMaxBacklog={telemetry.MaxBacklogTicks} lateTicks={telemetry.LateTicks} " +
                          $"maxStartLatenessMs={telemetry.MaxStartLatenessMicroseconds / 1000.0:F2} events={oracle.Length} armedBurstPresses={burstsChecked} hash={MpStateCodec.Hash(s.Engine.State)[..16]}");

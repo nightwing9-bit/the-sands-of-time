@@ -109,7 +109,10 @@ builder.Services
     // R07.09: the idempotent read projection of revenant:events, on the restricted ConnectionStrings:Postgres login
     // (revenant_read_projector writes only payment_view/hold_view/posting_view and the inbox). Section Revenant:ReadProjection.
     .AddMarrowInboxConsumerService(builder.Configuration, "Revenant:ReadProjection", new MessagingTables("revenant"),
-        RevenantEventProjection.ConsumerId, RevenantEventProjection.ApplyAsync);
+        RevenantEventProjection.ConsumerId, RevenantEventProjection.ApplyAsync)
+    // Spec 10 task 10.4: relays committed ghostlap.MatchFinalizedV1 rows at least once (shared mechanics, own login sands_worker_ghostlap with
+    // ghostlap_outbox_relay only). Registered only when GhostLap:Relay:StreamKey and ConnectionStrings:GhostLapRelay are set; Spec 12 consumes.
+    .AddMarrowOutboxRelayService(builder.Configuration, "GhostLap:Relay", "GhostLapRelay", new MessagingTables("ghostlap"));
 if (v4Advisory)
     builder.Services.AddSingleton(sp => new RevenantAdvisoryWorker(sp.GetRequiredService<V4SimulationStore>(),
         sp.GetRequiredService<V4BranchExecution>(), sp.GetRequiredService<RevenantLedgerOptions>()));

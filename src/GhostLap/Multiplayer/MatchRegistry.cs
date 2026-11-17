@@ -1,4 +1,5 @@
 using GhostLap.Contracts.Multiplayer;
+using Npgsql;
 
 namespace GhostLap.Multiplayer;
 
@@ -46,6 +47,14 @@ public sealed class MatchRuntime
     public string Status => Volatile.Read(ref _lifecycle).Status;
 
     public MatchStopReason? StopReason { get; internal set; }
+
+    /// <summary>The committed result (task 10.4). Set only after this process wrote or read the ResultCommitted receipt with the same digest.</summary>
+    public MatchResultRecord? Result { get; internal set; }
+
+    /// <summary>The last finalizer outcome and how many commit attempts were made (observability; null before the round ended).</summary>
+    public FinalizeOutcome? LastFinalizeOutcome { get; internal set; }
+
+    public int FinalizeAttemptsMade { get; internal set; }
 
     public long PublishedTicks;
 
@@ -195,9 +204,11 @@ public sealed class MatchRegistry : IMatchStartAdmission, IGameplayInputSink, IM
             if (_byMatch.TryGetValue(config.MatchId, out var known))
             {
                 // A retry after a lost acknowledgement: the receipt and runtime exist; the room may activate it now.
+                // A match id that ran to its end (or is being decided) can never run again: the room seals the next ordinal.
                 return known.Config.ConfigDigest == config.ConfigDigest && !known.Activated && known.Status == MatchStatuses.Running
                     ? StartAdmissionOutcome.Admitted
                     : known.Status is MatchStatuses.Aborted or MatchStatuses.Aborting or MatchStatuses.Unverified
+                        or MatchStatuses.Finalized or MatchStatuses.PendingFinalization
                         ? StartAdmissionOutcome.Closed
                         : StartAdmissionOutcome.Unavailable;
             }
@@ -439,8 +450,10 @@ public sealed class MatchRegistry : IMatchStartAdmission, IGameplayInputSink, IM
         runtime.StopReason = reason;
         if (reason == MatchStopReason.Finished)
         {
-            // The final tick is resolved. The result commit and outbox are task 10.4; until then nothing is rated or published as final.
+            // The final tick is resolved and the loop has ended: no tick waits on this. Until the receipt is ResultCommitted the match is only
+            // pending (provisional); nothing is rated or published as final.
             runtime.SetStatus(MatchStatuses.PendingFinalization);
+            await FinalizeAsync(runtime).ConfigureAwait(false);
             runtime.EndedAt = _time.GetTimestamp();
             return;
         }
@@ -451,6 +464,96 @@ public sealed class MatchRegistry : IMatchStartAdmission, IGameplayInputSink, IM
             _ => AbortReasons.HostStopping,
         };
         await AbortAsync(runtime, abortReason, CancellationToken.None).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Task 10.4 finalizer, run after the loop ended (never inside a tick). Builds the result from the resolved final state and commits it with
+    /// bounded retries and backoff while this process is the authority. Reported statuses: <c>finalized</c> only after a ResultCommitted receipt
+    /// with this digest was written or read; <c>aborted</c> only after an Aborted receipt was read; otherwise <c>unverified</c> (provisional,
+    /// unrated). An uncommitted result is never presented as a durable abort, and a lost commit acknowledgement is resolved by the next attempt
+    /// (or the final read) finding the committed receipt.
+    /// </summary>
+    private async Task FinalizeAsync(MatchRuntime runtime)
+    {
+        MatchResultRecord record;
+        try
+        {
+            record = MatchResults.Build(runtime.Config, runtime.Engine.State, runtime.Engine.Stats);
+        }
+        catch (Exception)
+        {
+            runtime.SetStatus(MatchStatuses.Unverified); // cannot happen for a resolved final tick; never invent a result
+            return;
+        }
+        if (!_store.CanFinalize)
+        {
+            runtime.SetStatus(MatchStatuses.Unverified);
+            return;
+        }
+        var delay = TimeSpan.FromMilliseconds(_options.FinalizeInitialBackoffMilliseconds);
+        var max = TimeSpan.FromMilliseconds(_options.FinalizeMaxBackoffMilliseconds);
+        for (var attempt = 0; attempt < _options.FinalizeAttempts; attempt++)
+        {
+            if (!_authority.IsValid)
+            {
+                break; // authority lost (guard or retirement): no further commit attempt; the database decides
+            }
+            var (outcome, _) = await _store.FinalizeAsync(record, _authority.GenerationId, _time, CancellationToken.None).ConfigureAwait(false);
+            runtime.LastFinalizeOutcome = outcome;
+            runtime.FinalizeAttemptsMade = attempt + 1;
+            switch (outcome)
+            {
+                case FinalizeOutcome.Committed or FinalizeOutcome.AlreadyCommitted:
+                    runtime.Result = record;
+                    runtime.SetStatus(MatchStatuses.Finalized);
+                    return;
+                case FinalizeOutcome.Aborted:
+                    runtime.SetStatus(MatchStatuses.Aborted);
+                    return;
+                case FinalizeOutcome.Unavailable:
+                    break;
+                default:
+                    await SettleFromDatabaseAsync(runtime, record).ConfigureAwait(false); // NotAuthority / NotFound / Conflict
+                    return;
+            }
+            if (attempt + 1 == _options.FinalizeAttempts || runtime.Cancellation.IsCancellationRequested)
+            {
+                break;
+            }
+            try
+            {
+                await Task.Delay(delay, _time, runtime.Cancellation.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                break; // host stopping: settle with what the database says now
+            }
+            delay = delay * 2 > max ? max : delay * 2;
+        }
+        await SettleFromDatabaseAsync(runtime, record).ConfigureAwait(false);
+    }
+
+    /// <summary>Reports the receipt's durable decision when this process cannot (or may no longer) commit. A read failure is <c>unverified</c>.</summary>
+    private async Task SettleFromDatabaseAsync(MatchRuntime runtime, MatchResultRecord record)
+    {
+        var status = MatchStatuses.Unverified;
+        try
+        {
+            var outcome = await _store.FindOutcomeAsync(runtime.Config.MatchId, CancellationToken.None).ConfigureAwait(false);
+            if (outcome?.Receipt.TerminalDecision == TerminalDecisions.ResultCommitted && outcome.ResultDigest == record.Digest)
+            {
+                runtime.Result = record;
+                status = MatchStatuses.Finalized;
+            }
+            else if (outcome?.Receipt.TerminalDecision == TerminalDecisions.Aborted)
+            {
+                status = MatchStatuses.Aborted;
+            }
+        }
+        catch (Exception e) when (e is NpgsqlException or TimeoutException or InvalidOperationException)
+        {
+        }
+        runtime.SetStatus(status);
     }
 
     /// <summary>Writes the fenced abort with bounded retries. Only a durable Aborted decision is reported as aborted.</summary>

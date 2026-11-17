@@ -281,11 +281,17 @@ public sealed partial class AuthorityAbortVerificationTests(IdentityDatabase db)
         Assert.True(expected == observed, $"Generation {id:D}: expected {expected ?? "absent"}, observed {observed ?? "absent"}.");
     }
 
-    private async Task AssertNoResultStorageAsync() => Assert.Equal(0L, await db.ScalarAsync<long>(
-        """
-        SELECT count(*) FROM pg_tables
-         WHERE schemaname = 'ghostlap' AND tablename ~ '(result|rating|outbox)'
-        """));
+    // Task 10.4 added the result and outbox tables. What these abort tests must keep proving is that no abort path ever produced a result or a
+    // MatchFinalizedV1 event: across the database, every result/event belongs to a ResultCommitted receipt, and no rating table exists here.
+    private async Task AssertNoResultStorageAsync()
+    {
+        Assert.Equal(0L, await MatchFinalizationTests.GlobalInvariantViolationsAsync(db));
+        Assert.Equal(0L, await db.ScalarAsync<long>(
+            """
+            SELECT count(*) FROM ghostlap.match_result r JOIN ghostlap.match_session s USING (match_id) WHERE s.terminal_decision = 'Aborted'
+            """));
+        Assert.Equal(0L, await db.ScalarAsync<long>("SELECT count(*) FROM pg_tables WHERE schemaname = 'ghostlap' AND tablename ~ 'rating'"));
+    }
 
     private NpgsqlDataSource RealtimeSource(string app) => NpgsqlDataSource.Create(
         new NpgsqlConnectionStringBuilder(db.RealtimeConnectionString) { ApplicationName = app, CommandTimeout = 10 }.ConnectionString);

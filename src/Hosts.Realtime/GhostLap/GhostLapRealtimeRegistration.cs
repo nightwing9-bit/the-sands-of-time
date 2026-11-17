@@ -2,6 +2,7 @@ using GhostLap.Contracts.Multiplayer;
 using GhostLap.Multiplayer;
 using Marrow.Infrastructure.Identity;
 using Marrow.Infrastructure.Identity.Csrf;
+using Marrow.Infrastructure.Messaging;
 using Marrow.Infrastructure.Realtime;
 using Marrow.Kernel.Realtime;
 using Marrow.Kernel.Security;
@@ -87,7 +88,10 @@ public static class GhostLapRealtimeRegistration
         services.AddSingleton(new GhostLapAuthorityGeneration(Guid.CreateVersion7()));
         services.TryAddSingleton<IRoomRandom, CryptoRoomRandom>();
         services.AddSingleton(sp => GhostLapMatchDataSource.Create(sp.GetRequiredService<IConfiguration>()));
-        services.AddSingleton(sp => new MatchAuthorityStore(sp.GetRequiredService<GhostLapMatchDataSource>().DataSource));
+        // Task 10.4: the finalizer writes MatchFinalizedV1 with the shared Outbox v1 writer into ghostlap.outbox, on its own transaction.
+        services.AddSingleton(sp => new MatchAuthorityStore(
+            sp.GetRequiredService<GhostLapMatchDataSource>().DataSource,
+            tx => new PostgresOutboxWriter(tx, GhostLapOutbox.Tables)));
         services.AddSingleton<GhostLapRealtimeAuthority>();
         services.AddSingleton<IRealtimeAuthority>(sp => sp.GetRequiredService<GhostLapRealtimeAuthority>());
         // Task 10.3: per-recipient delivery. Each connection has its own sender task inside the match fan-out; this is only the SignalR edge.
@@ -241,6 +245,12 @@ public static class GhostLapRealtimeRegistration
 
 /// <summary>Marks that Ghost Lap registration ran once (and gives the startup check something to find).</summary>
 public sealed class GhostLapCompositionMarker;
+
+/// <summary>Ghost Lap's Outbox v1 tables (migration <c>ghostlap/0005_mp_results.sql</c>), in the shared Marrow shape.</summary>
+public static class GhostLapOutbox
+{
+    public static readonly MessagingTables Tables = new("ghostlap");
+}
 
 public sealed class MultiplayerOptionsValidator : IValidateOptions<MultiplayerOptions>
 {
