@@ -352,3 +352,50 @@ No PaySim run; no v7 baseline; no ledger or Worker use of the model (8.3); no Gi
 - The isolated Compose migration and enabled/disabled config checks passed. PostgreSQL activity confirmed the live `ghostlap-realtime-solo` pool used `sands_realtime_solo` with `ghostlap_runtime` and `marrow_timeline_runtime`. The role cannot read identity or Revenant ledger tables or delete originals. Existing role memberships stayed scoped. With the solo connection string empty, both solo routes were absent and the multiplayer WebSocket connected.
 
 Focused Release results and exact commands are in `TestResults/spec11-1/`. The artifacts include `commands.txt`, `ghostlap.trx` (82 passed, including the existing rules and replay pins), `architecture.trx` (11 passed), `integration.trx` (15 passed), `composition.trx` (7 passed, including routing with solo enabled and disabled), `reproductions.trx` (2 expected failures before the fixes), and the isolated Compose migration and role-grant outputs. The production Realtime build had zero warnings and errors. Task 11.1 is complete and Task 11.2 is unstarted.
+
+## Spec 11 task 11.2: exact historical seek and ghost trace (Kiro spec-task subagent)
+
+**Kiro handoff status:** implementation and focused checks passed. Codex-delegated checks are **pending, not passed**.
+
+### What was built
+- `src/GhostLap/Solo/SoloOriginals.Trace.cs` (new, partial of `SoloOriginals`). `TraceAsync(actor, timeline, fromTick, count, ct)` returns a `SoloTraceChunk`. `InspectAsync(actor, timeline, tick, ct)` returns one `SoloTraceFrame` (a chunk of one tick).
+  - Frame: tick, position, fixed-point distance (keeps the movement remainder), Soulfire charge, Overlit flag and deadline, movement/pickup/penalty/total score of that tick, pickups, Bursts, Burst hits, held vector and Burst latch, collected count, active candle ids, the tick's own events (candle, Overlit start/cancel, manual/auto Burst, round finished), state hash, hash origin and `IsFinal`.
+  - Chunk: timeline id, pinned `ghost-v1` version key, rules/layout, source final tick and final hash (repeated on every chunk), `FromTick`, `NextTick` (null once tick 2700 is included).
+  - No contract, schema, Marrow, Revenant, `ghost-v1` or `ghost-mp` change. No new table, cache or score-sample store. No Pixi, collision or branch code.
+- `tests/GhostLap/Solo/SoloTraceTests.cs` (new, 10 test cases).
+
+### Decisions
+1. **Per-tick engine restore inside a bounded chunk, not a new Marrow port.** The public `ITimelineEngine` has no step or range read. `ReplayAsync` returns only the final state and `CompareAlignedAsync` also restores per position. `ITimelineStore.ReadStepsAsync` is internal to Marrow. A sequential fold in Ghost Lap would need the recorded inputs, which only that internal port exposes. The frozen public path is therefore `RestoreAsync` per requested tick (checkpoint + at most 59 reducer folds each). A call is bounded to `MaxTraceTicks = 300` ticks, stride 1, ascending, so a full round is ten calls and a scrub never triggers a restore per mouse move. I did not add a read-range port. Measurement does not yet show a blocker (see below), and the full-range measurement is Codex's.
+2. Each frame is accepted only if the engine reports `Verified`, the position and state tick both equal the requested tick, and, at tick 2700, the state is final and its hash equals the hash stored at completion. Otherwise `VerificationFailed`. Owner policy and the Complete row are checked before any restore (foreign and unknown ids both `NotFound`, unfinished `NotComplete`).
+3. Historical score is the restored state's running score at that tick. The tests assert it differs from the final score at T1140 and at every frame in the chunk window.
+4. Tick 0 and tick 2700 are both inclusive. Tick 2700 is inspect-only (the fork rules are Task 11.4).
+5. The chunk limit is 300 rather than 256 so that ten chunks cover 0..2700.
+
+### Kiro focused verification (real PostgreSQL 18.6 Testcontainer, migrated by `migrate.sh`)
+Command: `dotnet test tests/GhostLap/GhostLap.Tests.csproj -c Release --filter "FullyQualifiedName~SoloTraceTests"`
+Result: **10 passed, 0 failed, 14.9 s** (fixture records one 2,700-tick original, seed 42, mascot 2).
+
+| Check | Result |
+|---|---|
+| Full-state restore (canonical bytes equal to the live trace) and hash at T=0, 1140, 2699, 2700 | pass. Hashes: T0 `d61c3afc…1f5d06`, T1140 `7a76dc5e…706f9e`, T2699 `3c978d11…522b00`, T2700 `b3130f41…3674c1`. T2700 equals the pinned original final hash and score 3325. |
+| T1140 fixture | fixture-run values: distance remainder 1732 (nonzero), 27 candles collected, charge 2 (not Overlit at this tick), score 1311 against final 3325. Overlit is reached elsewhere in the run (713 ticks); T1140 itself is Soulfire charge 2, not Overlit. |
+| Deterministic events and scores | two cold hosts return identical serialized chunks. 60-tick window around the first pickup (tick 55) matches the live per-tick scores, events and receipt hashes. A `CandleCollected` cue with an id is present. |
+| Final chunk 2690..2700 | `NextTick` null, tick 2700 hash equals the recorded final hash, `RoundFinished` cue present, tick 2699 score is not the final score. |
+| Refusals | foreign owner and unknown id give identical `NotFound`. Unfinished run gives `NotComplete`. Tick -1 and 2701 give `InvalidTick`. Count 0 and 301 give `InvalidRequest`. A build without the pinned `ghost-v1` registration gives `IncompatibleVersion` for trace and inspect. |
+| No final-score substitution | asserted at T1140 and on every frame of the window. |
+
+Indicative timing only (not a measurement claim): a 60-tick chunk on a cold host took 139 ms on the local container, which suggests about 2 to 3 ms per tick. I did not extrapolate to a full-range number.
+
+### Deferred to Codex (pending, NOT passed)
+- One measured cold trace of the full 0..2700 range and one cold seek after a real host restart, including source replay. Decision pending on whether per-tick restore latency is acceptable; only if it is a real blocker, add a Marrow read-range port (needs a compatibility check and an ADR).
+- Repeated chunk and authorization regressions through the real host (two real guest cookies).
+- Host/route exposure of the trace. This task added the domain read model only; no API route or DTO was added.
+
+### Not run (by instruction)
+Full solo suite, `ghost-v1`/`ghost-mp` goldens beyond the pinned hash assertion above, Architecture suite, host, browser and performance suites.
+
+## Spec 11 task 11.2 Codex verification checkpoint
+
+**2026-11-18 · PASS WITH MEASURED LIMITATIONS.** After a PostgreSQL restart, the Realtime solo service verified all 2,701 historical frames in ten ordered chunks. Independent canonical replay and sampled full states matched, including T0, T1140, T2699 and T2700. The fixture recorded both manual and automatic Bursts. Owner isolation, invalid bounds, cancellation, persisted codec mismatch and corruption checks passed. Every chunk now validates the source's verified terminal hash, including early slices.
+
+The full read took 5.25 s, 18,994 SELECTs and 1.38 MB of JSON locally. A single active-selection prefetch supports Task 11.3's local 30 Hz replay. Reconstructing the source on each challenge start or scrub is unsuitable. Task 11.5 owns the authenticated trace/inspect transport and concurrent live-room acceptance. See [the trace gate evidence](architecture/12-ghostlap-solo-trace-gate.md) for full hashes, timing, test commands and the range-read decision.
