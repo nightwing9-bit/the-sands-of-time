@@ -120,7 +120,8 @@ log "done: $applied applied, $skipped already applied"
 # re-running converges it (password, attributes and memberships). Passwords are read by psql's \getenv, so
 # they are never on a command line, never interpolated by the shell into SQL, and never printed.
 #   API_DB_PASSWORD      -> sands_api       member of marrow_identity_runtime
-#   REALTIME_DB_PASSWORD -> sands_realtime  member of marrow_identity_runtime (session revalidation, advisory lock)
+#   REALTIME_DB_PASSWORD -> sands_realtime  member of marrow_identity_runtime (session revalidation, advisory lock) and
+#                                           ghostlap_mp_runtime (Spec 10 10.2: process generation and match start receipts only)
 #   WORKER_DB_PASSWORD   -> sands_worker    marrow_timeline_runtime + revenant_replay_reader + revenant_read_projector (Spec 07
 #                                           7.5: V2 Timeline projection and the future Replay mode; reads live finance data, writes
 #                                           none. R07.09: the read projection writes only revenant.*_view and the inbox)
@@ -129,7 +130,7 @@ log "done: $applied applied, $skipped already applied"
 #   REALTIME_LEDGER_DB_PASSWORD -> sands_realtime_ledger revenant_replay_reader (hub snapshot reads only)
 #   WORKER_LEDGER_DB_PASSWORD   -> sands_worker_ledger   revenant_ledger_writer + revenant_outbox_relay (LiveOps)
 #   REPLAY_DB_PASSWORD -> sands_replay (restricted child Timeline and tenant-scoped replay results)
-RUNTIME_ROLES="marrow_timeline_revenant_replay revenant_counterfactual_worker marrow_timeline_runtime marrow_identity_runtime revenant_ledger_writer revenant_replay_reader revenant_outbox_relay revenant_read_projector"
+RUNTIME_ROLES="marrow_timeline_revenant_replay revenant_counterfactual_worker marrow_timeline_runtime marrow_identity_runtime revenant_ledger_writer revenant_replay_reader revenant_outbox_relay revenant_read_projector ghostlap_mp_runtime"
 provision_login() {
   login=$1 var=$2 members=$3
   eval "password=\${$var:-}"
@@ -168,7 +169,7 @@ SQL
   log "runtime login $login: provisioned (${members:-no schema roles})"
 }
 provision_login sands_api API_DB_PASSWORD "marrow_identity_runtime"
-provision_login sands_realtime REALTIME_DB_PASSWORD "marrow_identity_runtime"
+provision_login sands_realtime REALTIME_DB_PASSWORD "marrow_identity_runtime ghostlap_mp_runtime"
 provision_login sands_worker WORKER_DB_PASSWORD "marrow_timeline_runtime revenant_replay_reader revenant_read_projector"
 provision_login sands_api_ledger API_LEDGER_DB_PASSWORD "revenant_ledger_writer"
 provision_login sands_realtime_ledger REALTIME_LEDGER_DB_PASSWORD "revenant_replay_reader"

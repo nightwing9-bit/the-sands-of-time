@@ -13,6 +13,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using realtime::GhostLapHost;
 
 namespace Integration.Tests.Support;
 
@@ -139,7 +140,8 @@ public sealed class RealtimeHostFactory(
     string masterSecret,
     Dictionary<string, string?>? extraSettings = null,
     bool registerDomainPolicies = true,
-    bool registerProbes = true) : WebApplicationFactory<realtime::Program>
+    bool registerProbes = true,
+    Action<IServiceCollection>? customize = null) : WebApplicationFactory<realtime::Program>
 {
     public const string AllowedExtraOrigin = "https://play.sands.test";
 
@@ -180,7 +182,11 @@ public sealed class RealtimeHostFactory(
             {
                 services.AddMarrowMembership<ProbeMembershipLookup>();
                 services.AddMarrowResourceOwnership<ProbeOwnershipLookup>();
+                // The two calls above REPLACE the authorizers; Ghost Lap's startup verifier refuses a host whose kind routers were
+                // replaced, so a domain policy installed after AddGhostLapRealtime must route again (probe kinds fall through to it).
+                services.RouteGhostLapAuthorizers();
             }
+            customize?.Invoke(services);
         });
     }
 
@@ -193,10 +199,23 @@ public sealed class RealtimeHostFactory(
         string? guestCookie = null,
         string? origin = "http://localhost",
         bool autoReconnect = false,
-        ConcurrentQueue<WebSocket>? sockets = null)
+        ConcurrentQueue<WebSocket>? sockets = null) =>
+        ConnectTo(RealtimeWire.HubPath, accessToken, guestCookie, origin, autoReconnect, sockets);
+
+    // (The overload below also takes an optional socket wrapper, used by the Ghost Lap network-condition tests.)
+
+    /// <summary>Same browser-style connection to any hub path of the real host (the shared hub or the Ghost Lap hub).</summary>
+    public HubConnection ConnectTo(
+        string hubPath,
+        string? accessToken = null,
+        string? guestCookie = null,
+        string? origin = "http://localhost",
+        bool autoReconnect = false,
+        ConcurrentQueue<WebSocket>? sockets = null,
+        Func<WebSocket, WebSocket>? wrapSocket = null)
     {
         var server = Server;
-        var builder = new HubConnectionBuilder().WithUrl(new Uri(server.BaseAddress, RealtimeWire.HubPath.TrimStart('/')), o =>
+        var builder = new HubConnectionBuilder().WithUrl(new Uri(server.BaseAddress, hubPath.TrimStart('/')), o =>
         {
             o.Transports = HttpTransportType.WebSockets;
             o.SkipNegotiation = true;
@@ -221,7 +240,7 @@ public sealed class RealtimeHostFactory(
                 }
                 var socket = await client.ConnectAsync(uri, ct);
                 sockets?.Enqueue(socket);
-                return socket;
+                return wrapSocket is null ? socket : wrapSocket(socket);
             };
         });
         if (autoReconnect)

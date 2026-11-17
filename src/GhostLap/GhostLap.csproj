@@ -11,6 +11,11 @@
     <PackageReference Include="Npgsql" Version="10.0.3" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Test seam: engine tests start from a prepared world (an Overlit slot) instead of replaying thousands of ticks. -->
+    <InternalsVisibleTo Include="GhostLap.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\GhostLap.Contracts\GhostLap.Contracts.csproj" />
     <ProjectReference Include="..\Marrow.Kernel\Marrow.Kernel.csproj" />
     <ProjectReference Include="..\Marrow.Timeline\Marrow.Timeline.csproj" />
   </ItemGroup>

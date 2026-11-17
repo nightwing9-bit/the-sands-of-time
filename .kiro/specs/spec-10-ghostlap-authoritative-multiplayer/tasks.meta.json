@@ -1,0 +1,53 @@
+{
+  "pbtResults": {},
+  "executionHistory": {
+    "**10.0 Contract and game-rules preflight (BLOCKER for 10.2)**": [
+      {
+        "executionId": "f3ca303e-0302-491e-af4a-949f30e7d86c",
+        "chatSessionId": "sess_e1137b98-f9ee-4594-a974-ca6b2eeb3bc8",
+        "timestamp": 1794897650133
+      },
+      {
+        "executionId": "f3ca303e-0302-491e-af4a-949f30e7d86c",
+        "chatSessionId": "sess_e1137b98-f9ee-4594-a974-ca6b2eeb3bc8",
+        "timestamp": 1794898611126
+      }
+    ],
+    "**10.1 Room/lobby, controller and start admission**": [
+      {
+        "executionId": "f2fd9278-69c4-47f8-8d6c-3e70055d12d1",
+        "chatSessionId": "sess_44a95bca-3d06-4b86-9717-61843eed625f",
+        "timestamp": 1794899697482
+      },
+      {
+        "executionId": "f2fd9278-69c4-47f8-8d6c-3e70055d12d1",
+        "chatSessionId": "sess_44a95bca-3d06-4b86-9717-61843eed625f",
+        "timestamp": 1794901758082
+      }
+    ],
+    "**10.2 Single-authority tick loop, inputs and physics safety**": [
+      {
+        "executionId": "f7027249-781d-4fb5-a0eb-950cac7214d6",
+        "chatSessionId": "sess_e879dd54-008b-47b4-9676-c3cf9a680f0b",
+        "timestamp": 1794902560778
+      },
+      {
+        "executionId": "f7027249-781d-4fb5-a0eb-950cac7214d6",
+        "chatSessionId": "sess_e879dd54-008b-47b4-9676-c3cf9a680f0b",
+        "timestamp": 1794904762700
+      }
+    ],
+    "**10.3 Snapshots, network quality, reconnect and forfeit**": [
+      {
+        "executionId": "a533cb70-49e5-482d-b3d1-188721265205",
+        "chatSessionId": "sess_d7aa905d-8afe-4c7b-bee5-426c5705d8aa",
+        "timestamp": 1794907924719
+      },
+      {
+        "executionId": "a533cb70-49e5-482d-b3d1-188721265205",
+        "chatSessionId": "sess_d7aa905d-8afe-4c7b-bee5-426c5705d8aa",
+        "timestamp": 1794911423742
+      }
+    ]
+  }
+}

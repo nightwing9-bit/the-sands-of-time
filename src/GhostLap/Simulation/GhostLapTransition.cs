@@ -28,8 +28,6 @@ public sealed class GhostLapTransition : IDeterministicTransition<GameState, Gam
 {
     public static GhostLapTransition Instance { get; } = new();
 
-    private static readonly long BurstRadiusSquared = (long)GameRulesV1.BurstRadiusFixed * GameRulesV1.BurstRadiusFixed;
-
     public GameState Apply(GameState previous, long position, IReadOnlyList<OrderedInput<GameInput>> inputs, GameContext pinnedContext)
     {
         ArgumentNullException.ThrowIfNull(previous);
@@ -48,7 +46,29 @@ public sealed class GhostLapTransition : IDeterministicTransition<GameState, Gam
         {
             throw new GhostLapTransitionException("State does not match the pinned context's player count.");
         }
+        return GhostLapPhases.Resolve(previous, position, inputs, pinnedContext.Plan, forfeited: null);
+    }
+}
 
+/// <summary>
+/// The one implementation of phases 1 to 7 (ADR-P1-22 D2). <c>ghost-v1</c> calls it with no participation mask (every slot
+/// active), so its behaviour and recorded hashes are unchanged; <c>ghost-mp-v1</c> calls it with the slots forfeited before this
+/// tick masked out. A masked slot is skipped as actor and as target by every phase: it receives no input, does not move, cannot
+/// collect, is in no contact pair, cannot fire a Burst and cannot be hit.
+/// </summary>
+internal static class GhostLapPhases
+{
+    private static readonly long BurstRadiusSquared = (long)GameRulesV1.BurstRadiusFixed * GameRulesV1.BurstRadiusFixed;
+
+    /// <param name="forfeited">Null for ghost-v1. Otherwise one flag per slot; true = excluded from this tick's phases.</param>
+    internal static GameState Resolve(
+        GameState previous, long position, IReadOnlyList<OrderedInput<GameInput>> inputs, CandlePlan plan, bool[]? forfeited)
+    {
+        var n = previous.Players.Length;
+        if (forfeited is not null && forfeited.Length != n)
+        {
+            throw new GhostLapTransitionException("The participation mask does not match the player count.");
+        }
         var players = previous.Players.ToArray();
         var events = new List<GameEvent>();
 
@@ -72,6 +92,10 @@ public sealed class GhostLapTransition : IDeterministicTransition<GameState, Gam
             if (payload.MoveX is < -1 or > 1 || payload.MoveY is < -1 or > 1)
             {
                 throw new GhostLapTransitionException($"Input {input.InputId} has an out-of-range move vector.");
+            }
+            if (Masked(forfeited, payload.Slot))
+            {
+                throw new GhostLapTransitionException($"Input {input.InputId} targets forfeited slot {payload.Slot}.");
             }
             bySlot[payload.Slot].Add(payload);
         }
@@ -117,6 +141,10 @@ public sealed class GhostLapTransition : IDeterministicTransition<GameState, Gam
         // Phase 2: movement in slot order; distance is the displacement that actually happened.
         for (var slot = 0; slot < n; slot++)
         {
+            if (Masked(forfeited, slot))
+            {
+                continue;
+            }
             var p = players[slot];
             var r = Movement.Move(p.XFixed, p.YFixed, p.HeldMoveX, p.HeldMoveY);
             players[slot] = p with { XFixed = r.XFixed, YFixed = r.YFixed, DistanceFixed = checked(p.DistanceFixed + r.DistanceFixed) };
@@ -125,7 +153,7 @@ public sealed class GhostLapTransition : IDeterministicTransition<GameState, Gam
         // Phase 3: candles from the pinned plan; this world's collected ids never come back.
         var collected = previous.Collected.ToBuilder();
         var collectedIds = previous.Collected.Select(c => c.Id).ToHashSet(StringComparer.Ordinal);
-        var available = pinnedContext.Plan.ActiveAt(position).Where(c => !collectedIds.Contains(c.Id)).ToList();
+        var available = plan.ActiveAt(position).Where(c => !collectedIds.Contains(c.Id)).ToList();
 
         // Phase 4: pickups by candle id, lowest overlapping slot wins.
         var stillActive = ImmutableArray.CreateBuilder<string>(available.Count);
@@ -137,7 +165,7 @@ public sealed class GhostLapTransition : IDeterministicTransition<GameState, Gam
             var collector = -1;
             for (var slot = 0; slot < n && collector < 0; slot++)
             {
-                if (ArenaV1.ColliderAt(players[slot].XFixed, players[slot].YFixed).Overlaps(box))
+                if (!Masked(forfeited, slot) && ArenaV1.ColliderAt(players[slot].XFixed, players[slot].YFixed).Overlaps(box))
                 {
                     collector = slot;
                 }
@@ -171,7 +199,7 @@ public sealed class GhostLapTransition : IDeterministicTransition<GameState, Gam
             for (var b = a + 1; b < n; b++)
             {
                 var k = GameState.PairIndex(a, b, n);
-                if (pairs[k] > position || players[a].Charge == players[b].Charge
+                if (Masked(forfeited, a) || Masked(forfeited, b) || pairs[k] > position || players[a].Charge == players[b].Charge
                     || !ArenaV1.ColliderAt(players[a].XFixed, players[a].YFixed)
                         .Overlaps(ArenaV1.ColliderAt(players[b].XFixed, players[b].YFixed)))
                 {
@@ -190,17 +218,17 @@ public sealed class GhostLapTransition : IDeterministicTransition<GameState, Gam
         var burst = new bool[n];
         for (var slot = 0; slot < n; slot++)
         {
-            if (burstEdge[slot] && players[slot].IsOverlit)
+            if (burstEdge[slot] && players[slot].IsOverlit && !Masked(forfeited, slot))
             {
-                Fire(players, slot, GameEventKind.BurstManual, events);
+                Fire(players, slot, GameEventKind.BurstManual, events, forfeited);
                 burst[slot] = true;
             }
         }
         for (var slot = 0; slot < n; slot++)
         {
-            if (!burst[slot] && players[slot].IsOverlit && players[slot].OverlitDeadlineTick <= position)
+            if (!burst[slot] && players[slot].IsOverlit && !Masked(forfeited, slot) && players[slot].OverlitDeadlineTick <= position)
             {
-                Fire(players, slot, GameEventKind.BurstAuto, events);
+                Fire(players, slot, GameEventKind.BurstAuto, events, forfeited);
                 burst[slot] = true;
             }
         }
@@ -217,7 +245,10 @@ public sealed class GhostLapTransition : IDeterministicTransition<GameState, Gam
         // Phase 7: finalize after every effect of the last tick.
         if (position == GameRulesV1.RoundTicks)
         {
-            events.Add(new GameEvent(GameEventKind.RoundFinished, 0, Value: players.Max(p => p.TotalScore)));
+            // ghost-v1: the highest total of all players. With a mask: the highest total of the slots still taking part (all slots
+            // if none is), because a forfeited slot is ranked below every finisher (ADR-P1-22 D12).
+            var finishers = forfeited is null ? players : [.. players.Where(p => !forfeited![p.Slot])];
+            events.Add(new GameEvent(GameEventKind.RoundFinished, 0, Value: (finishers.Length > 0 ? finishers : players).Max(p => p.TotalScore)));
         }
 
         return new GameState(position, [.. players], stillActive.ToImmutable())
@@ -228,7 +259,9 @@ public sealed class GhostLapTransition : IDeterministicTransition<GameState, Gam
         };
     }
 
-    private static void Fire(PlayerState[] players, int owner, GameEventKind kind, List<GameEvent> events)
+    private static bool Masked(bool[]? forfeited, int slot) => forfeited is not null && forfeited[slot];
+
+    private static void Fire(PlayerState[] players, int owner, GameEventKind kind, List<GameEvent> events, bool[]? forfeited)
     {
         var o = players[owner];
         var fired = events.Count;
@@ -236,7 +269,7 @@ public sealed class GhostLapTransition : IDeterministicTransition<GameState, Gam
         var hits = 0;
         for (var slot = 0; slot < players.Length; slot++)
         {
-            if (slot == owner)
+            if (slot == owner || Masked(forfeited, slot))
             {
                 continue;
             }

@@ -65,7 +65,8 @@ public sealed class IdentitySchemaTests(IdentityDatabase db)
         foreach (var output in new[] { db.FirstMigrationOutput, await db.RunMigratorAsync() })
         {
             Assert.Contains("runtime login sands_api: provisioned (marrow_identity_runtime)", output, StringComparison.Ordinal);
-            Assert.Contains("runtime login sands_realtime: provisioned (marrow_identity_runtime)", output, StringComparison.Ordinal);
+            // Spec 10 task 10.2 adds the Ghost Lap multiplayer authority role (process generation and start receipts only).
+            Assert.Contains("runtime login sands_realtime: provisioned (marrow_identity_runtime ghostlap_mp_runtime)", output, StringComparison.Ordinal);
             // Spec 07 task 7.5 closed the Worker's mapping: V2 Timeline projection (and the future Replay mode) only.
             Assert.Contains("runtime login sands_worker: provisioned (marrow_timeline_runtime revenant_replay_reader revenant_read_projector)", output, StringComparison.Ordinal);
             foreach (var password in db.RuntimePasswords)
@@ -86,7 +87,7 @@ public sealed class IdentitySchemaTests(IdentityDatabase db)
             "SELECT coalesce(string_agg(g.rolname, ',' ORDER BY g.rolname), '') FROM pg_auth_members m " +
             "JOIN pg_roles g ON g.oid = m.roleid JOIN pg_roles u ON u.oid = m.member WHERE u.rolname = @n";
         Assert.Equal("marrow_identity_runtime", await db.ScalarAsync<string>(memberships, ("n", IdentityDatabase.ApiLogin)));
-        Assert.Equal("marrow_identity_runtime", await db.ScalarAsync<string>(memberships, ("n", IdentityDatabase.RealtimeLogin)));
+        Assert.Equal("ghostlap_mp_runtime,marrow_identity_runtime", await db.ScalarAsync<string>(memberships, ("n", IdentityDatabase.RealtimeLogin)));
         Assert.Equal("marrow_timeline_runtime,revenant_read_projector,revenant_replay_reader", await db.ScalarAsync<string>(memberships, ("n", IdentityDatabase.WorkerLogin)));
 
         await using var worker = NpgsqlDataSource.Create(db.WorkerConnectionString);

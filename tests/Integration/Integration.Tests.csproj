@@ -17,6 +17,10 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Spec 10 task 10.1: the Ghost Lap domain/contract types and the Revenant authorizer are asserted through the real Realtime host. -->
+    <ProjectReference Include="..\..\src\GhostLap\GhostLap.csproj" />
+    <ProjectReference Include="..\..\src\GhostLap.Contracts\GhostLap.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Revenant\Revenant.csproj" />
     <ProjectReference Include="..\..\src\Hosts.Api\Hosts.Api.csproj" />
     <!-- The test-only Timeline host (real Hosts.Api composition + fixture routes); proven absent from the product API below. -->
     <ProjectReference Include="..\E2E\backend\E2E.Backend.csproj" />
