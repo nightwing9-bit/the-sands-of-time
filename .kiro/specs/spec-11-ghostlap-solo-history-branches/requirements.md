@@ -1,39 +1,54 @@
-# Spec 11 — Ghost Lap V2: persistent solo histories, exact ghosts and branching
+# Spec 11 — Ghost Lap V2: durable solo histories, faithful ghosts and exact branching
 
-**Basket:** 4 | **Dependencies:** spec-02, spec-03, spec-06 | **Owner paths:** `src/GhostLap` solo application/catalog consuming Spec-06 codec, `ghostlap` schema, `web/apps/ghost-lap` domain adapters, `tests/GhostLap/Replay`
+**Basket:** 4 | **Status:** replacement specification, NOT implemented | **Dependencies:** Spec 02 (frozen Timeline), Spec 03 (identity/host), Spec 06 (canonical `ghost-v1` solo implementation); consumes Spec 10's Realtime host deployment when present but **not** its multiplayer room lifecycle | **Owned paths:** `src/GhostLap` solo application/catalog/owner, `ghostlap` schema and compatible domain adapters, `web/apps/ghost-lap` history-facing adapters, `tests/GhostLap/Replay`.
 
-## User value and outcome
+## Outcome and nonnegotiable preservation
 
-Durable owner-verified originals and repeated challenge/fork attempts at any valid tick, exact historical traces, independent candle worlds and time-aligned comparison.
+A first-time guest genuinely records and durably verifies one full **2,700-tick** original, can safely retrieve it after refresh, challenge the real read-only historical self, restore the complete historical world at any eligible tick and persist multiple independent verified continuations. **The original is immutable; the living player/ghost are independent; Marrow Timeline remains frozen.** No MP input archive, simulated AI opponent, ghost damage, nested branch requirement or position-only replay. Do not reinterpret a `ghost-v1` history under future movement/geometry rules. No task is complete merely because this document describes it.
 
-## In scope / excluded
+**Blocking source-inspection gate:** Before implementing recording/recovery, inspect real Spec 02/03/06 APIs, Timeline manifests/create/append/verify/recover semantics, state codec and fixture hashes, deterministic tick indexing, auth/session continuity and host/schema capabilities. Do not invent any `Timeline` port; if an indispensable durable identity/append fence cannot be achieved with frozen ports plus compatible Ghost-Lap-owned data, explicitly block affected implementation and present the smallest compatible choice for approval. Do not silently lower history integrity requirements.
 
-**In scope:** Implement the named outcome including its authoritative state and integration tests as detailed below. **Explicitly excluded:** No multiplayer replay archives, AI/simulated opponent, branchable MP sessions, ghost interaction with present world.
+## EARS-style requirements
 
-**Existing versus new:** This is a planning package, not evidence of existing implementation. A greenfield repo has none of these files. When working in an existing repo, inspect named owned paths and dependent public contracts first; adapt *private* implementation to existing real code without rewriting frozen interfaces. Public interface owner is the spec named by `docs/architecture/03-contracts.md`.
+**R11.01 — Genuine first original.** WHEN an authenticated remembered guest completes a newly played full 2,700-tick original solo run, THE SYSTEM SHALL verify and persist exactly one immutable owner-bound original with actual seed, rules/layout/codec/spawn, canonical accepted/effective inputs, complete checkpoints and final hash in the **existing Timeline persistence/Spec 06 codec**, not a forged path or a second serializer.
 
-## EARS-style functional requirements and acceptance criteria
+**R11.02 — Correct save acknowledgement.** WHEN verified-source catalog linking or HTTP acknowledgement fails, THE SYSTEM SHALL not claim `Saved` before the source is verified **and** its Ghost Lap catalog link committed; retries with the same stable operation identity return the same verified timeline/catalog identity or truthful recoverable state. Conflicting operation-key reuse fails explicitly.
 
-**R11.01 — Original lifecycle.** WHEN first-time guest finishes real solo run, THE SYSTEM SHALL automatically persist one complete verified immutable original with owner/seed/rules/layout/spawn, tick inputs and checkpoints.
-**R11.02 — Persist honest success.** WHEN a save fails or retry duplicates, THE SYSTEM SHALL not report saved until commit; return same original for identical idempotency key and expose recoverable error.
-**R11.03 — History retrieval.** WHEN a remembered guest returns/reloads, THE SYSTEM SHALL list own originals, distinguish original/branch and retain source replayability under pinned code version.
-**R11.04 — Full challenge.** WHEN a user challenges an original, THE SYSTEM SHALL start at same tick0 seed/rules/spawn, living/ghost visually overlap at zero and ghost trace remains read-only.
-**R11.05 — Exact branch.** WHEN user chooses any T 0≤T<final tick of a completed verified original, THE SYSTEM SHALL restore all authoritative source state (score, charge, Overlit, cooldowns, candles and RNG) and make independent branch suffix from T+1; a Recording history is ineligible and direct fork returns Conflict.
-**R11.06 — Terminal edge.** WHEN user inspects final tick, THE SYSTEM SHALL permit read-only seek but disable branch because no ticks remain.
-**R11.07 — Time aligned.** WHEN current and past progress, THE SYSTEM SHALL derive two score curves and signed delta only from source and current state at same tick.
-**R11.08 — Version safety.** WHEN a source uses unsupported rules/codec, THE SYSTEM SHALL return incompatibility and preserve original bytes instead of reinterpreting with new rules.
-**R11.09 — Privacy.** WHEN guest guesses different owner history, THE SYSTEM SHALL deny read/branch unless authorized owner or explicit supported read-only share.
-**R11.10 — Branch family.** WHEN multiple children fork the same source position, THE SYSTEM SHALL persist independently with parent/source/fork metadata and unchanged original hash.
-**R11.11 — Single codec authority.** WHEN an original/branch is saved or replayed, THE SYSTEM SHALL reuse the canonical versioned Spec-06 input/state codec, not create a second game serialization implementation.
-**R11.12 — Verified catalog link.** WHEN a verified Timeline source is added to the GhostLap history catalog, THE SYSTEM SHALL commit a run/idempotency-keyed catalog link once, show saved only after verification/commit, and retry/relink safely after a failed catalog transaction without altering source history.
+**R11.03 — Durable operation-to-source correlation.** BEFORE a Timeline source creation/verification enters any crash window, THE SYSTEM SHALL establish a durable, owner-bound attempt/operation identity capable of recovering **exactly one matching** Timeline identity after process loss, including successful verification followed by failed Ghost Lap catalog commit. A broad same-owner guess or reliance on in-memory/browser-only Timeline IDs is invalid.
 
-## Non-functional and adversarial requirements
+**R11.04 — Exclusive live solo authority.** WHEN live original/challenge/branch recording is started or resumed, THE SYSTEM SHALL permit exactly one authoritative writer per attempt, bound to an existing named long-lived host and durable generation/append fence. Concurrent old/new controllers or stale processes SHALL NOT append divergent suffixes or double-apply inputs. This is separate from, not an alternative implementation of, multiplayer room authority.
 
-- Relevant source/contract semantics and ownership in `docs/architecture/03-contracts.md` must hold, and no cross-domain dependency may be added. Avoid unnecessary background jobs/abstractions.
-- API/auth/realtime commands must validate untrusted input and return typed failures; do not acknowledge persistence or successful replay before actual verification/commit.
-- Deterministic or transactional properties require real unit/property/integration evidence; only measured performance can be reported as achieved.
-- Work must be done with the actual source repository and tested in the prescribed context, not with invented previous artifacts.
+**R11.05 — Committed-prefix restart.** WHEN a solo recorder dies, restarts, loses an acknowledgement or races a concurrent resume, THE SYSTEM SHALL recover the unambiguous last durably committed source/attempt prefix, replay it with the frozen codec, and resume at the exact next legal tick/sequence once; on a verified disconnect/refresh it SHALL pause solo progression at a committed tick rather than silently finish an unseen match; never skip/reapply tick input or finalize an incomplete attempt as if it were verified.
 
-## Exit gate
+**R11.06 — Catalog and history.** WHEN the remembered owner reloads, THE SYSTEM SHALL list verified originals and completed child attempts with truthful status/parent/source/fork/versions/scores/visibility and pin metadata. `Recording`, `VerifiedButUnlisted`, `Incompatible` and `Failed` must not masquerade as completed/saved. Originals retained by default; no silent expiry of history.
 
-Owner records full solo once, refreshes, repeatedly challenges, rewinds nonzero-state tick, creates multiple independent saved children, inspects true tick-aligned scores; hashes/privacy/version tests pass.
+**R11.07 — Full challenge.** WHEN an owner challenges a completed verified original, THE SYSTEM SHALL start a separate current world at its exact tick-0 seed/rules/layout/spawn, show the immutable original ghost trace as read-only and permit repeated challenges without modifying the original; a challenge completion is an attempt, never a new original.
+
+**R11.08 — Exact fork.** WHEN an owner selects a **completed verified original** and integer tick `T` with `0 ≤ T < finalTick`, THE SYSTEM SHALL restore the entire source state and verify its hash at T, create a distinct independent child recording with the same state through T and accept new inputs only at T+1. A Recording/incompatible/foreign source yields a typed conflict or denial, never a guessed fallback.
+
+**R11.09 — Boundary and source selection.** WHEN T equals final tick (2,700 for `ghost-v1`), THE SYSTEM SHALL permit read-only inspect but deny branch; T=0 and T=2699 are valid. A paused/replaying original selected while another living attempt is running remains explicitly identified, and fork uses the **selected verified original**, not the current living attempt.
+
+**R11.10 — Historical independence.** WHEN current and original worlds evolve, THE SYSTEM SHALL retain separate candle-consumption ledgers, RNG and pending actions. The original ghost never blocks, collects from, damages, scores for or consumes Burst on behalf of the living world. Future scheduled candle opportunity IDs/ticks/locations remain independently reproducible from pinned rules/layout/seed.
+
+**R11.11 — Complete codec/restore.** WHEN seeking, verifying or branching, THE SYSTEM SHALL reuse the sole versioned Spec 06 input/state codec with every game-significant field (tick, position/velocity, score components + fixed-point distance remainder, charge/Overlit, cooldowns, effective/accepted input, sequence/latch and Burst-edge state **to the extent required by that pinned Spec 06 reducer for a deterministic next step**, candle schedule/collection, pending auto-Burst, RNG and rules/layout identity). A position/score-only snapshot is invalid. State hash at restored T must equal canonical source hash.
+
+**R11.12 — True time alignment.** WHEN comparing living and historical progress, THE SYSTEM SHALL derive past/current positions, events and score curves at the **same integer tick**, from verified canonical simulation/history rather than sprite interpolation, final-score substitution or unverified materialized samples. Signed delta `currentScore(T)-sourceScore(T)` must be unambiguous.
+
+**R11.13 — Children and immutable source.** WHEN multiple full challenges/forks of one original complete, THE SYSTEM SHALL save distinct child attempt metadata and only independent suffix inputs/checkpoints via frozen Timeline branch semantics; the original prefix/hash never changes. Nested forks and direct fork from a child remain out of Phase 1.
+
+**R11.14 — Rules/version longevity.** WHEN game tuning, layout or codec changes, THE SYSTEM SHALL keep histories pinned to their original reducer/codec/layout and prefer retaining the historical implementation/fixtures as a supported Ghost Lap compatibility profile. If unsupported, metadata remains readable but replay/fork fails closed with explicit `Incompatible`; never recalculate old bytes under new physics or alter Marrow.
+
+**R11.15 — Access and verified guest identity.** WHEN a guest requests private history/list/source/fork/recording, THE SYSTEM SHALL derive owner from valid server principal and check resource ownership at every service/port read/write. A read-only share session issued by Spec 12 may authorize **specific** replay reads, never source enumeration or new branch/write; losing a guest cookie must not grant access to another owner.
+
+**R11.16 — Bounded restore and quota honesty.** WHEN restoring old sources, THE SYSTEM SHALL measure actual checkpoint-fold seek cost, storage growth and concurrent solo-loop resource use, bound abuse/attempt creation, and provide recoverable errors for quota/corrupt/missing/verification failures. It SHALL not silently delete user originals or claim fabricated compression savings.
+
+**R11.17 — Cross-domain isolation.** WHEN composing the production solo endpoints and Realtime owner, THE SYSTEM SHALL use actual existing host routes/DI, least-privilege Ghost Lap and existing Timeline access ports, without replacing Marrow or Revenant policy/registrations. Production never relies on test-only bridge or `/__e2e` routes.
+
+**R11.18 — Shared-host performance isolation.** WHEN live solo recording, checkpoint folding, rapid seeks and multiplayer rooms execute concurrently in the existing Realtime deployment, THE SYSTEM SHALL bound per-attempt seek/restore work and prevent blocking Ghost Lap multiplayer tick scheduling. Historical verification/storage tasks SHALL use appropriate separate execution or bounded work lanes rather than the room reducer thread.
+
+## Fixed compatibility and acceptance rules
+
+- Baseline original `ghost-v1`: **tick 0 initial, ticks 1..2700 applied, final state at 2700**. Restore(T) is state after exactly T steps. Branch first divergent command is T+1. Physical rules/hashes remain pinned even if later MP uses a different version.
+- Solo original recording must not be confused with a multiplayer match: no multiplayer rating, no ghost collision, no AI. A challenge is a child attempt at starting tick 0; an exact fork is a child attempt at selected T. Both are nonranked.
+- Timeline journal/checkpoints own canonical input and state bytes. Ghost Lap owns owner/catalog/intent/correlation and **derived** score samples; do not duplicate authoritative canonical per-tick log in `ghostlap`, create a cross-schema FK, or introduce distributed two-phase commit.
+- **Blocking exit:** full original verified/linked once; two simultaneous sources for one owner can be recovered unambiguously after lost catalog ACK; crash/restart with competing resumes has one valid committed suffix; complete nonzero-state fork at T=1140 yields same hash through T and independent children; shared source remains unchanged; cold reload, privacy, old-rule/version, score-alignment and actual DB/host tests pass, including simultaneous multiplayer and solo replay/recording load. Unverified ports or tests remain explicit blockers.

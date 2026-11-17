@@ -1,46 +1,38 @@
-# Spec 11 implementation tasks — Ghost Lap V2: persistent solo histories, exact ghosts and branching
+# Spec 11 implementation tasks — Exact and durable Ghost Lap solo history
 
-**Execute tasks in listed order.** Dependencies: spec-02, spec-03, spec-06. Only check a box after actual changed files, tests and observed proof exist. Tasks are bounded work packages, **not AI chat prompts**. The user-supplied context is a requirements baseline, not permission to invent completed code. For actual code inspection, open the relevant named paths plus narrow dependent contract/migration/tests; follow a genuine dependency when discovered, but do not load the entire repo automatically.
+**All unchecked; work has not been performed.** Dependencies: Spec 02/03/06, their real public contracts/fixtures, actual project host and schemas. Spec 11 does not require speculative changes to shared Marrow or any Revenant feature. Do not begin later tasks until the explicit upstream compatibility blockers have evidence. Log test commands, failures, artifacts and commits in `docs/kiro-log.md`.
 
-## Ordered implementation tasks
+- [ ] **11.0 Mandatory frozen-port / recovery feasibility gate**
+  - **Inspect:** actual exported `Marrow.Timeline` and Spec 06 solo create/record/verify/recovery/branch APIs, canonical codec full GameState, tick/input append semantics, manifest uniqueness, `SoloOriginals`/`SoloBranches`, existing migrations, `docs/architecture/{01-master,02-spec-map,03-contracts}.md`, guest identity and host DI.
+  - **Produce:** explicit matrix proving (a) owner+operation key identifies one exact Timeline source across lost creation/verification response, and (b) stale writer cannot commit an append after authority replacement using existing ports; choose a compatible GhostLap-only design and name existing Realtime host/`ISoloAttemptOwner` registry. If not provable, record hard blocker, not a made-up port. Document verified original format, `ghost-v1` hashes and tick semantics.
+  - **Verify:** real upstream fixtures and narrow concurrency/port tests. Confirm no extra canonical codec/log, cross-schema FK, test-only runtime bridge, shared ABI or Revenant change.
+  - **Done when:** source correlation **and** storage-enforced single-writer feasibility are established before 11.2/11.3 coding.
 
-- [ ] **11.1 Link existing canonical codec to immutable solo catalog schema**
-  - **Precondition/input & inspect:** ghostlap tables, spec-02 Timeline API, Spec-06 **existing finalized** input/state codec and full GameState. Completed prerequisite spec exit gate must already have evidence.
-  - **Produce/modify:** GhostLap owner/catalog metadata schema and references to already verified Marrow source ID; **reuse** Spec-06 codec/fixtures unchanged (do not implement another codec).
-  - **Forbidden changes:** partial position-only checkpoint or silent record update. Do not change frozen shared public contracts without ADR.
-  - **Verification:** real DB catalog migration, cold reload and Spec-06 codec-fixture/hash compatibility checks; no second codec in project.
-  - **Done when:** full original survives reload.
+- [ ] **11.1 Canonical codec and Ghost Lap-owned persistence mapping**
+  - **Produce:** small `ghostlap` recording-intent/catalog/idempotency and derived score-sample persistence matching existing conventions; sealed owner/operation/attempt identity, statuses, Timeline scalar IDs with unique constraints, source/root/parent/fork metadata and version/hash binding. Existing `ghost-v1` codec, source and branch services remain the only canonical serializer/Timeline writer.
+  - **Verify:** migration, DB constraints, same-owner two-operation case, ID/key conflicting duplicate, real 2700-tick cold reload and canonical codec hash fixtures. Test no second log/checkpoint byte store in `ghostlap`.
+  - **Done when:** new metadata faithfully references verified canonical sources, with no version reinterpretation.
 
-- [ ] **11.2 Original save and history listing**
-  - **Precondition/input & inspect:** guest actor, solo completion semantics, REST endpoints. Completed prerequisite spec exit gate must already have evidence.
-  - **Produce/modify:** idempotent verified-source-to-catalog transaction, original/attempt queries and pin metadata; retry links orphaned verified source by same operation key. Own production solo/history endpoints, existing Timeline/domain-store and authoritative solo-loop composition, REST/OpenAPI/generated frontend contracts and API/authority runtime grants, including `ghostlap_runtime` and Timeline login mapping in migration-role management. Reuse `SoloOriginals`, `SoloBranches` and existing verified/branch metadata through catalog links; test-only bridge is reference only, never a production dependency, and solo recording does not require multiplayer rooms.
-  - **Forbidden changes:** success before commit, new original from branch by default. Do not change frozen shared public contracts without ADR.
-  - **Verification:** double save/retry/not-found, failed catalog commit, lost success response and owner-owned verified-but-unlisted source recovery; no false receipt tests.
-  - **Done when:** owner sees reliable original list.
+- [ ] **11.2 Real original recording, crash correlation and saved catalog**
+  - **Produce:** production solo creation/recording flow using confirmed existing ports, durable intent-to-source recovery, verified source -> idempotent catalog handoff, owner retrieval/pins, truthful `Pending`, `VerifiedUnlisted`, `Saved`/failure states; full 2700-tick original only, no fake offline source. Bind API and runtime roles through existing DI/port mechanisms.
+  - **Verify:** fault at intent commit/source creation/lost creation ACK/append/verify/catalog commit/HTTP ACK; two different source keys belonging to one owner; recovery after process death with **only durable identity**. Same request returns same source; no duplicate original; no success before verified source plus committed catalog.
+  - **Done when:** a guest can complete/refresh/recover one genuine original even after failure at every handoff boundary.
 
-- [ ] **11.3 Challenge/ghost + branch completion**
-  - **Precondition/input & inspect:** Timeline engine, source codec, independent GameState instances. Completed prerequisite spec exit gate must already have evidence.
-  - **Produce/modify:** same seed/spawn, read-only trace, any-valid-T fork from a completed verified original and child suffix persistence. Own production branch endpoints/generated contracts and durable solo-loop restoration after restart from the last committed persisted state/tick; concurrent resumes yield one authoritative loop per attempt. Preserve an active attempt independently while navigating a selected original; label source/tick, disable fork without an eligible original, and never auto-complete partial histories or introduce nested forks.
-  - **Forbidden changes:** ghost inserted into living entities or mutable source reuse. Do not change frozen shared public contracts without ADR.
-  - **Verification:** T=1140 charge/consumed same + siblings independent. While a divergent attempt is Recording, choose a completed original and verify child parent identity, fork-state bytes and hash against that selected original; direct Recording-source fork returns Conflict.
-  - **Done when:** repeated challenge/forks behave truly.
+- [ ] **11.3 Long-lived solo writer, resume and exact branch/challenge**
+  - **Produce:** separate hosted solo attempt owner (not MP room service), guarded canonical append at actual storage boundary, controller epoch, explicit pause at committed boundary on navigation/disconnect, tick N -> N+1 restore, selected verified original and independent ghost/living states; challenge as child from tick0, fork at eligible T with suffix-only persistence and full-state hash proof. Preserve current unrelated paused attempt when selecting original.
+  - **Verify:** crash during append/after commit/before ACK; old process retains ordinary DB connection after guard loss, replacement startup and two competing resume clients; one verified suffix after cold reload. Golden T1140 with complete nonzero state, independent siblings, T0/2699/2700 and Recording/source mismatch, old solo fixture unchanged. If storage cannot fence writes through frozen port, **stop and record explicit architecture blocker**.
+  - **Done when:** histories cannot diverge under restart races and no fork mutates original.
 
-- [ ] **11.4 Score alignment and viewer API**
-  - **Precondition/input & inspect:** score sample/verified replay, shared adapter APIs. Completed prerequisite spec exit gate must already have evidence.
-  - **Produce/modify:** source/current aligned tick curves and explicit branching errors.
-  - **Forbidden changes:** score from Pixi coordinates or past final score during live. Do not change frozen shared public contracts without ADR.
-  - **Verification:** T0/final tick and arbitrary positions, curve delta assertions.
-  - **Done when:** source and current comparison reconciles to backend.
+- [ ] **11.4 Time-aligned reconstruction and viewer data contracts**
+  - **Produce:** source vs current true tick score/charge/action samples, verified derived score cache or on-demand reducer fold, typed errors `RecordingNotForkable`, `FinalTickInspectOnly`, `VersionUnsupported`, `Unauthorized`, `SourceMissing`, `RetryableSave`. Avoid frontend ownership of score or game state.
+  - **Verify:** T0,1140,2699,2700; historical score not final score at T; verified candle opportunity independence and ghost visual-only events; cache corruption/regeneration cannot falsify result. Share-read scope cannot reach writer/fork API.
+  - **Done when:** backend source/current timelines reconcile at identical ticks.
 
-- [ ] **11.5 Ownership/version/performance gate**
-  - **Precondition/input & inspect:** real Postgres history, guest privacy and rules migration. Completed prerequisite spec exit gate must already have evidence.
-  - **Produce/modify:** incompatible notice, permission enforcement and checkpoint cadence measurement.
-  - **Forbidden changes:** silent old-rules reinterpretation or unmeasured compression claim. Do not change frozen shared public contracts without ADR.
-  - **Verification:** two owners, version mismatch, storage size sampling and no alternate game codec; original and branch hash/score fixtures agree with Spec 06. Cold-restart actual product registrations, reopen a completed original and race resumes of a recording child at its last committed tick: one loop, durable identity preserved. Through real sessions/runtime logins prove Revenant and Ghost Lap policies coexist without registration overwrite, valid distinct-staff workflow access, cross-tenant denial, private guest histories, unknown domain/resource denial and revoked membership enforcement at API/relevant hub paths. Keep fixture assemblies and `/__e2e` routes absent from production; narrowly adapt old blanket route-isolation assertions to permit intended production domain routes/contracts.
-  - **Done when:** history verified and denied readers blocked.
+- [ ] **11.5 Cross-domain, compatibility, storage and cold-runtime assurance**
+  - **Produce:** explicit rule/codec compatibility policy with goldens, history integrity failures and measured checkpoint sizes/seek latency/attempt volume; production endpoints/host DI/role grants coexist with Marrow and certified Revenant. Keep original histories by default and bound guest abuse without silent deletion.
+  - **Verify:** real DB/API/Realtime and guest principal, cold restart of recording and completed source, foreign-owner denial, incompatibility without decoding under new rules, session revocation, Testcontainers as needed; concurrent four-room MP tick-load during solo recording, cold seek and verification must remain within recorded Spec 10 scheduling budgets; actual distinct-staff Revenant access and forbidden cross-domain guest access remain correct. No `/__e2e` route or test bridge deployed.
+  - **Done when:** required capabilities survive cold restart and unverified owners/versions cannot access or mutate private history.
 
-## Spec exit verification (blocking)
+## Blocking exit certificate
 
-Owner records full solo once, refreshes, repeatedly challenges, rewinds nonzero-state tick, creates multiple independent saved children, inspects true tick-aligned scores; hashes/privacy/version tests pass.
-
-Minimum proof includes successful targeted automated tests and relevant integration observation **actually performed**. Record real result paths, commands, commit IDs, encountered defects and measured Kiro credit use (if observable) in `docs/kiro-log.md`; if any check cannot run, mark blocker and leave task/spec incomplete. Do **not** infer a passing test from this document.
+Publish actual canonical source/child IDs and final hashes (redact owner secrets), two-source recovery test, old-guard-with-live-pool suffix race result, T1140 full-state equality and sibling independence, tick-align score sample tests, real runtime/authorization evidence, performance measurements, commit IDs. **A design statement is not a passing test.** If a frozen port is insufficient, leave Spec 11 incomplete and escalate with precise evidence rather than rewriting Marrow.

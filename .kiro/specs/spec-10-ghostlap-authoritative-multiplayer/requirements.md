@@ -1,39 +1,58 @@
 # Spec 10 — Ghost Lap V2: authoritative 2–4-player multiplayer and rooms
 
-**Basket:** 4 | **Dependencies:** spec-03, spec-06 | **Owner paths:** `src/GhostLap` room/session loop, `src/Hosts.Realtime`, multiplayer API and contracts, `tests/GhostLap/Multiplayer`
+**Basket:** 4 | **Status:** replacement specification, NOT implemented | **Dependencies:** Spec 03 (identity/transport), Spec 06 (canonical deterministic Ghost Lap rules and codec) | **Owned paths:** `src/GhostLap` multiplayer domain/application, `src/Hosts.Realtime` ownership/transport composition, multiplayer contracts/API, `ghostlap` match-result schema, `tests/GhostLap/Multiplayer`.
 
-## User value and outcome
+## Outcome and preservation contract
 
-One authority per room, true 2–4 remote players, fair room/lobby lifecycle, real interactive matches and idempotent final result persistence.
+Real 2–4-player, ~90-second competitive haunted arena matches. Exactly one authoritative simulation per running room, responsive network play, deterministic and fair mechanics, durable final outcomes/rematches, crash-honest results. Ghost Lap consumes the frozen Marrow interfaces; neither Marrow nor certified Revenant is modified. Preserve original `ghost-v1` solo history bytes, rules, codecs and hashes. Spec 10 does **not** archive multiplayer per-tick inputs/checkpoints, create ghosts as active multiplayer opponents, or implement a distributed room-ownership cluster. It must not claim features are already built.
 
-## In scope / excluded
+**Before coding:** inspect actual Spec 03/06 exported contracts, deterministic fixture hashes, GameState completeness, collision/candle/contact/Burst phase order, guest identity semantics, `docs/architecture/{01-master,02-spec-map,03-contracts}.md`, runtime DI/roles and current migrations. A missing/contradictory frozen contract is a stop-and-escalate finding; solve through compatible Ghost-Lap-owned adapters/versioned game logic, not an assumed upstream rewrite. The following are requirements for the *new work*, not descriptions of existing V1 evidence.
 
-**In scope:** Implement the named outcome including its authoritative state and integration tests as detailed below. **Explicitly excluded:** No permanent full multiplayer input archive, no ghost as live rival, no multi-replica tick ownership without fencing, no client-written score.
+## EARS-style requirements
 
-**Existing versus new:** This is a planning package, not evidence of existing implementation. A greenfield repo has none of these files. When working in an existing repo, inspect named owned paths and dependent public contracts first; adapt *private* implementation to existing real code without rewriting frozen interfaces. Public interface owner is the spec named by `docs/architecture/03-contracts.md`.
+**R10.01 — Room roster.** WHEN guests create/join a valid invitation room, THE SYSTEM SHALL bind distinct verified guest principals to 2–4 competitor slots, keep permitted spectators separate, authorize roster/host transitions server-side and cap memberships. Lobby host transfer, empty-room expiry and typed failures shall be deterministic under concurrent commands.
 
-## EARS-style functional requirements and acceptance criteria
+**R10.02 — Start/countdown.** WHEN the host starts a lobby with 2–4 distinct, connected, ready competitors, THE SYSTEM SHALL validate roster/seed/layout/spawn fairness, seal a versioned round configuration **including an opaque `ratingAlgorithmId` (initial `elo-pair-v1`, whose formula is owned by Spec 12)** and run a server-owned 3-second countdown. A required participant loss in Countdown cancels to Lobby; no one enters Running until a minimal match-start receipt has committed. Duplicate starts create at most one Running transition.
 
-**R10.01 — Real lobby.** WHEN a guest creates/joins valid invitation room, THE SYSTEM SHALL enforce 2–4 active competitor slots and separate read-only spectators with owner-controlled membership.
-**R10.02 — Ready/start.** WHEN 2–4 valid ready players request start, THE SYSTEM SHALL server commit seed/rules/layout/spawn sockets and count down before exactly one active tick loop.
-**R10.03 — Authority.** WHEN a client submits movement/Burst input, THE SYSTEM SHALL validate slot, sequence, tick window and rate, never accept position/score/hit claims.
-**R10.04 — Deterministic simulation.** WHEN real 2/3/4-player match runs, THE SYSTEM SHALL reuse spec-06 GameRules engine for walls, candles, collisions, contact, Burst, authoritative score and terminal tick.
-**R10.05 — Room single owner.** WHEN multiple starts/reconnects are attempted, THE SYSTEM SHALL retain at most one active tick loop with explicit lifecycle fence in single Realtime replica.
-**R10.06 — Connectivity.** WHEN an active user disconnects, THE SYSTEM SHALL use neutral input and grace window, valid reconnection restores snapshot/sequence, expired grace records clear forfeit policy.
-**R10.07 — Result finalization.** WHEN match expires or finalization retries, THE SYSTEM SHALL persist one roster/score/stat/placement result and one outbox event without double rating trigger.
-**R10.08 — Rematch.** WHEN finished roster votes/request rematch, THE SYSTEM SHALL create fresh match ID/seed and reset game state without leaking old score/charge.
-**R10.09 — Spectator restraint.** WHEN a spectator calls any gameplay command, THE SYSTEM SHALL deny at hub and app service; display state without changing world.
-**R10.10 — Fairness.** WHEN 2,3,4 participants spawn, THE SYSTEM SHALL spawn assignments and candle reachability pass seed/fairness checks before match start.
-**R10.11 — Effective input.** WHEN a connected player omits input, sends a stale command, disconnects or retries Burst, THE SYSTEM SHALL use the versioned Spec-06 effective-input/latch rule without phantom score/Burst; resumed snapshots show accepted sequence.
-**R10.12 — Crash-safe result claim.** WHEN final-result persistence fails or the authoritative room dies without a committed result, THE SYSTEM SHALL show a bounded pending outcome then `Aborted/Unrated` (no rating event), **using a minimal committed match-start identity receipt**, unless a valid durable result already exists; it shall never fabricate a winner or rating.
+**R10.03 — Input authority.** WHEN any input arrives, THE SYSTEM SHALL authenticate the actor and currently controlling connection, validate room/match/generation/slot, monotonic sequence, bounded target-tick window, rate and quantized direction/Burst edge. It SHALL reject position, hit, pickup, score, cooldown or time claims. Client timestamps cannot authoritatively move the match clock.
 
-## Non-functional and adversarial requirements
+**R10.04 — Single deterministic world.** WHEN a round runs, THE SYSTEM SHALL evolve 2, 3 or 4 real competitors through a serialized, versioned multiplayer extension of Spec 06's **one** canonical GameRules simulation (walls, players, scheduled candles, contact, charge, manual/auto-Burst, scoring and terminal tick). It SHALL not fork a second physics engine or reinterpret `ghost-v1` histories.
 
-- Relevant source/contract semantics and ownership in `docs/architecture/03-contracts.md` must hold, and no cross-domain dependency may be added. Avoid unnecessary background jobs/abstractions.
-- API/auth/realtime commands must validate untrusted input and return typed failures; do not acknowledge persistence or successful replay before actual verification/commit.
-- Deterministic or transactional properties require real unit/property/integration evidence; only measured performance can be reported as achieved.
-- Work must be done with the actual source repository and tested in the prescribed context, not with invented previous artifacts.
+**R10.05 — Ownership/fencing.** WHEN starts, restarts or process replacement race, THE SYSTEM SHALL run at most one active room loop per room in the single Realtime authority process, require a continuously monitored session advisory guard, attach match receipts to a durable process generation, and serialize generation retirement/terminal result commits through the same PostgreSQL receipt fence. Old generations cannot create new results after retirement.
 
-## Exit gate
+**R10.06 — Connectivity/forfeit.** WHEN an active competitor disconnects, THE SYSTEM SHALL immediately force neutral direction/no Burst (not the packet-loss latch), preserve the participant normally for 450 canonical ticks of grace, permit a verified controller takeover/reconnect during grace, and then freeze results and exclude forfeited slots as actor/target from **all** gameplay interactions, including pending auto-Burst. Reconnection after forfeit is spectator-only for that match.
 
-Actual 2–4 browser/socket clients play 90s authoritative session through result/rematch; spectator denied control; reconnect and single-match-result tests pass.
+**R10.07 — Input hold and one-shot Burst.** WHEN a *connected* competitor temporarily sends no accepted input, THE SYSTEM SHALL apply the pinned Spec 06 effective-input rule (last legal direction for at most six simulation ticks, then neutral); rejected/duplicate input cannot renew the hold; Burst is edge-triggered once, never repeated by held input. Input and acknowledgement semantics shall be versioned and tested under jitter.
+
+**R10.08 — Responsiveness contract.** WHEN a client predicts movement or corrects itself from authoritative updates, THE SYSTEM SHALL provide monotonically identifiable snapshots with match/generation/tick, last accepted input sequence and necessary current state. It SHALL expose unambiguous authoritative movement/Burst event IDs for responsive rendering and sound without accepting render state as truth. Local prediction and interpolation are nonauthoritative.
+
+**R10.09 — Tick-time correctness.** WHEN scheduling is late, THE SYSTEM SHALL advance complete logical ticks sequentially, never skip world ticks, multiply movement by elapsed wall time or grant catch-up score. It SHALL implement bounded catch-up, drift telemetry, and a specified sustained-overload fail-safe (truthful aborted/unrated rather than indefinite lag or a fabricated winner). A monotonic server clock schedules work; canonical tick count controls gameplay.
+
+**R10.10 — Slow-client isolation.** WHEN spectators, players, chat or outbound transport are slow, THE SYSTEM SHALL keep database I/O and network fan-out off the serialized reducer critical path, bound per-client/room queues and memory, coalesce obsolete read-only state snapshots and preserve reliable control/terminal event delivery or state resync. No slow observer may stall the 30 Hz game loop.
+
+**R10.11 — Speed/geometry safety.** BEFORE approving the ruleset's maximum legal movement speed and collider geometry, THE SYSTEM SHALL demonstrate collision and collection correctness for walls, player contact, candles and diagonals using the actual Spec 06 collision method (swept/substep or proven displacement envelope). Distance score SHALL accrue only from legitimate post-collision, player-driven movement, never depenetration/teleport correction, stale client interpolation or repeated input.
+
+**R10.12 — Fair gameplay and versioning.** WHEN preparing 2/3/4P play, THE SYSTEM SHALL validate authored deterministic layout, spawn symmetry/access, wall/pickup reachability and stable same-tick priority rules. All gameplay-significant values (speed, 30 Hz/2,700 ticks baseline, layout geometry, candle schedule, Burst/contact, score coefficients and forfeiture rules) SHALL be pinned by immutable rules/layout identity; tuning creates a new compatible domain version, never silently changes saved `ghost-v1` behavior.
+
+**R10.13 — Authoritative competitive placement.** WHEN a match reaches tick 2700, THE SYSTEM SHALL produce one immutable result: normal finishers rank above forfeits; within each class higher authoritative frozen/final total score ranks above lower; equal scores share competitive placement. Stable slot ordering is **display-only**, not a rating win. The immutable match-start `ratingAlgorithmId`, terminal/rating eligibility policy and decision must be recorded in the result/outbox, not inferred from worker deployment defaults or current player connection state later.
+
+**R10.14 — Durable result once.** WHEN a valid Running match finishes and its generation remains authorized, THE SYSTEM SHALL atomically commit the receipt terminal decision, a unique `MatchResult` with roster, competitive placement, rating eligibility, pinned `ratingAlgorithmId` and breakdown, and one `MatchFinalizedV1` transactional outbox item. Retried finalization SHALL recover an existing identical result; conflicting duplicates SHALL fail visibly. Only a committed valid result can trigger downstream rating.
+
+**R10.15 — Crash and uncertain commits.** WHEN the start receipt cannot commit, THE SYSTEM SHALL not start a ranked match. WHEN the result database is temporarily unavailable, the system SHALL report bounded `PendingFinalization` while valid authority can retry; when no authorized finalizer remains, an uncommitted match must resolve to `Aborted/Unrated` via the receipt's **authoritative terminal decision**, never a missing-row guess. A committed result preceding lost acknowledgement or generation retirement survives. Provisional messages are not falsely presented as durable abort decisions.
+
+**R10.16 — Rematch.** WHEN a completed roster requests rematch, THE SYSTEM SHALL create a **fresh** match ID, sealed seed/rules/layout and reset state through the normal lobby/ready/start policy, never reuse previous charge, score, receipt generation or rating identity. Aborted matches may be retried via a fresh match ID, never retroactively rated.
+
+**R10.17 — Spectator restraint.** WHEN any spectator or noncontrolling connection invokes gameplay/membership-only commands, THE SYSTEM SHALL reject them at transport and application boundaries. Spectator access is capacity-bounded and produces read-only authoritative projections only.
+
+**R10.18 — Observable real performance.** BEFORE exit, THE SYSTEM SHALL measure actual target-host 30 Hz tick duration/jitter, missed/catch-up ticks, allocations/GC, fan-out, queue depth, snapshot size and reconciliation experience with multiple simultaneous rooms and spectators. A functioning single room is insufficient evidence of capacity. Performance tuning remains within frozen contracts and rules identities.
+
+**R10.19 — Gameplay quality gate.** BEFORE declaring multiplayer ready for presentation, THE SYSTEM SHALL evaluate actual fast-turn control, high-speed wall-slide, pickup/Burst readability and whether active candle competition beats empty-corner distance farming, using representative seeds and 2/3/4-player runs. Only measured, versioned tuning may change physical/scoring rules.
+
+**R10.20 — Cross-domain preservation and access.** WHEN registering the Realtime and API runtime, THE SYSTEM SHALL use existing host/contract mechanisms and least-privilege Ghost Lap grants without overriding Revenant policies or Marrow public APIs. Revoked membership and forged actor identities SHALL be denied at real API/hub boundaries.
+
+## Nonfunctional constraints and exit gate
+
+- Baseline **30 authoritative ticks/sec**, **2,700 canonical ticks/90 s**, **six-tick hold**, **450-tick grace**; 3 s pre-start countdown. Do not pretend higher render FPS implies higher authoritative tick rate. Initial state snapshots may be sent **every 2 ticks (~15 Hz)**, configurable up to tick rate after bandwidth/jitter measurement; a local predicted player must not require an RTT to visibly move. Version any game-significant changes.
+- No invented `ghost-v1` API/codec behavior. If original Spec 06 physics lacks high-speed safety, stop speed approval, document the necessary **Ghost-Lap-owned versioned** correction and preserve historical fixtures. No mandatory 60 Hz mandate and no Marrow modification.
+- Authorization, bounded resources, typed failure states and reliable state resynchronization are required on real connections; no claimed proof from mocks alone.
+- **Blocking exit:** 2/3/4 independent remote clients complete genuine full matches and rematches; duplicate/late/controller-spoof inputs and spectator commands fail; no tunnel/score exploit at approved speed; guard-loss retirement races and DB uncertain commits pass; multi-room target-host profile meets a documented budget; score/fairness playtests recorded. All relevant actual checks and blockers logged in `docs/kiro-log.md`. Unrun tests remain unchecked.

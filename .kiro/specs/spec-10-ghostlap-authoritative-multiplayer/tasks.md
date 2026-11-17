@@ -1,46 +1,44 @@
-# Spec 10 implementation tasks — Ghost Lap V2: authoritative 2–4-player multiplayer and rooms
+# Spec 10 implementation tasks — Authoritative multiplayer and fast, honest matches
 
-**Execute tasks in listed order.** Dependencies: spec-03, spec-06. Only check a box after actual changed files, tests and observed proof exist. Tasks are bounded work packages, **not AI chat prompts**. The user-supplied context is a requirements baseline, not permission to invent completed code. For actual code inspection, open the relevant named paths plus narrow dependent contract/migration/tests; follow a genuine dependency when discovered, but do not load the entire repo automatically.
+**All unchecked; none claimed implemented.** Execute in order, respecting dependencies Spec 03/06. Each task is a real implementation/test package, not an AI prompt. Inspect actual frozen upstream contracts and named files before editing; adapt private Ghost Lap code without rewiring Marrow or certified Revenant. Log actual commands, evidence, commits, environment and blockers in `docs/kiro-log.md`; **no observed evidence = not done**.
 
-## Ordered implementation tasks
+- [ ] **10.0 Contract and game-rules preflight (BLOCKER for 10.2)**
+  - **Inspect:** `docs/architecture/{01-master,02-spec-map,03-contracts}.md`, Spec 03 identity/hub contracts, Spec 06 canonical `ghost-v1` GameState/codec/reducer, input-latch/edge rules, phase ordering, wall/pickup/player collision, score distance calculation, rules/layout hashes, actual goldens/migrations and Realtime deployment.
+  - **Produce:** compatibility matrix showing what exists, what must be added only within Ghost Lap; a sealed MP rules profile defining any originally-open wall/Burst/candle/score/terminal phase decisions and initial opaque `ratingAlgorithmId` handoff to Spec 12; max-speed safety hypothesis and input-window profile. Identify the exact owner of login/ingress and the existing runtime grant path. Where upstream evidence is absent or contradictory, mark BLOCKED rather than invent an API.
+  - **Verify:** run existing golden `ghost-v1` tests/hash assertions unchanged; inspect/measure collision at max considered speed and retained input under loss. Confirm no shared ABI, Timeline, Revenant or historical byte change.
+  - **Done when:** factual evidence supports a versioned compatible MP extension; every gameplay-significant unresolved rule has a documented decision before MP runs.
 
-- [ ] **10.1 Implement lobby/roster lifecycle**
-  - **Precondition/input & inspect:** GhostLap guest/session contracts and realtime host. Completed prerequisite spec exit gate must already have evidence.
-  - **Produce/modify:** create/join/link, 2–4 slots, ready/host/transition logic, spectator role. Define typed command ingress to the sole Realtime room owner; API and Realtime processes must not instantiate independent room authorities.
-  - **Forbidden changes:** client-side slot authority or game lobby in Redis alone. Do not change frozen shared public contracts without ADR.
-  - **Verification:** unit transition matrix and API membership tests.
-  - **Done when:** room cannot start invalid roster.
+- [ ] **10.1 Room/lobby, controller and start admission**
+  - **Produce:** genuine guest-bound invitation/roster/ready/host lifecycle, separate bounded spectators, one controlling-connection epoch/competitor, safe host transfer, countdown cancel/duplicate start idempotency; typed API/hub commands that route to the only Realtime owner. Sealed seed/rules/layout/spawn/`ratingAlgorithmId` roster config; fair 2/3/4 sockets and startup validation.
+  - **Verify:** transition matrix including concurrent joins/leave/host changes, duplicate countdown requests, 2 tabs, foreign identity, expired room codes, snapshot permissions and no competitor admission after countdown.
+  - **Done when:** illegal roster cannot start; old controller cannot submit gameplay after takeover; the lobby remains recoverable after cancelled countdown.
 
-- [ ] **10.2 Implement authoritative per-room tick loop**
-  - **Precondition/input & inspect:** spec-06 reducer/rules, Realtime host, input validation. Completed prerequisite spec exit gate must already have evidence.
-  - **Produce/modify:** minimal durable ranked match-start identity receipt before declaring Running; single process loop, tick scheduling, accepted input queues, server snapshots; reuse Spec-06 six-tick hold/neutral effective-input and one-shot Burst semantics. Add the design's compatible multiplayer participation identity using existing simulation phases, preserving `ghost-v1` solo bytes/codecs/hashes. Record participation/compatibility and focused authority/terminal-decision ADRs during implementation. Bind receipts to a durable generation; replacement startup registers the new generation and retires unfinished predecessors before new starts, and detected guard loss cancels loops/finalizers. Own Realtime-domain registration, least-privilege login grants and composition of membership/stream policies without replacing Revenant policy.
-  - **Forbidden changes:** game logic in Hub methods or Pixi, two owners. Do not change frozen shared public contracts without ADR.
-  - **Verification:** same-seed 2/3/4 socket integration plus spoofed, missing, late and duplicate Burst input tests; no extra score after checkpoint. Preserve old solo replay fixtures; actual Realtime runtime login can execute intended domain operations and revoked membership is denied within the existing revalidation bound.
-  - **Done when:** real remote players influence one world.
+- [ ] **10.2 Single-authority tick loop, inputs and physics safety**
+  - **Produce:** durable receipt-before-Running, dedicated session-held advisory guard, monitored one-Realtime process generation, startup predecessor retirement, one serial mailbox per room, 30 Hz/2700-tick monotonic scheduler with **bounded** catch-up and overload fail-safe, per-slot authenticated admitted-input/one-shot Burst, canonical MP reducer extension, deterministic phases, applied-input acknowledgements. Queue/DB/transport are off the simulation critical path. Preserve six-tick connected hold and immediate disconnect neutral. Record focused authority/terminal ADR and gameplay version identity.
+  - **Forbidden:** two tick authorities, game logic in Hub methods, magic clock-based score, changes to `ghost-v1` codec/hashes, MP full input archive or synchronous SQL/network work inside reducer.
+  - **Verify:** 2/3/4 sockets affect same world; same applied inputs reproduce same hashes; target-tick edge/candle/contact/Burst ordering; extreme speed, diagonals, wall-slide and narrow pickup; scoring excludes corrections; scheduler 700-ms-stall and persistent overrun behavior; dedicated guard connection loss and old process cancellation. Test target host registrations and least-privilege grants, preserving Revenant.
+  - **Done when:** one real authority produces correct fast gameplay without tunnel/phantom score, and delayed ticks have defined safe outcomes.
 
-- [ ] **10.3 Reconnect/forfeit and snapshot recovery**
-  - **Precondition/input & inspect:** Identity session, hub sequence, room lifecycle. Completed prerequisite spec exit gate must already have evidence.
-  - **Produce/modify:** 450-tick grace as a regular neutral-input participant, rejoin, then stable-slot forfeit/spectator conversion with frozen authoritative breakdown and no movement/pickup/contact/Burst participation as actor or target; preserve normal live-player interaction and existing placement rules.
-  - **Forbidden changes:** unbounded disconnected active player scoring. Do not change frozen shared public contracts without ADR.
-  - **Verification:** jitter/reconnect stale input, forced neutral on disconnect, accepted-sequence resume and duplicate join tests. Forfeit on a future candle location and while Overlit/automatic Burst pending; live players still collect/contact normally, forfeited breakdown stays frozen and placement is consistent. Verify regular participation during grace before actual forfeit.
-  - **Done when:** state stable through refresh/outage.
+- [ ] **10.3 Snapshots, network quality, reconnect and forfeit**
+  - **Produce:** immutable authoritative state snapshots at initially every two ticks (configurable), event IDs, applied-sequence ack, monotonic generation/sequence filters, resync and bounded recent event tail; asynchronous bounded fan-out/drop-stale-snapshot policy; controller epoch handoff and 450-tick grace/forfeit semantics. No effect/score for forfeited slot as actor/target.
+  - **Verify:** 50/150/300ms RTT + jitter/loss, stale/duplicate/reordered input, refresh/controller takeover, old connection spoof, key-release during six-tick hold, tab suspension; overlit auto-Burst before/after forfeit; boundary 450/451; slow spectators and saturated outbound buffers do not stall authoritative tick. Spectator gameplay calls denied in both layers.
+  - **Done when:** lost packets do not create repeated Burst, client can recover from a snapshot, and disconnected/forfeited behavior stays deterministic.
 
-- [ ] **10.4 Finalize and rematch**
-  - **Precondition/input & inspect:** `ghostlap.match_result`, outbox, room session version. Completed prerequisite spec exit gate must already have evidence.
-  - **Produce/modify:** idempotent result, full breakdown, bounded PendingFinalization then Aborted/Unrated on missing durable result after crash, next-match reset; never emit rating event for aborted match. Enforce commit-time generation validation, terminal receipt transition, result and result outbox in the same database transaction/serialization boundary; retirement/abort uses the same generation/receipt state. Retired generations cannot finalize, result and abort cannot both win, aborted receipts cannot publish results, and valid pre-retirement commits survive.
-  - **Forbidden changes:** rating effect in gameplay loop or MP full histories. Do not change frozen shared public contracts without ADR.
-  - **Verification:** DB outage before start-receipt commit (must not start), DB outage just before result commit, process crash before/after result commit, pending/aborted versus valid existing-result lookup, no phantom rating, rematch state reset. Drop only the old authority's advisory-lock connection, keep its process/ordinary PostgreSQL pool alive, delay its loss probe, start a replacement and race the old finalizer against durable retirement/abort. Exercise both serialization orders: one truthful terminal outcome, no stale-generation result/event after retirement, legitimate earlier commits survive acknowledgement loss, and detected guard loss cancels loops/finalizers.
-  - **Done when:** one result/outbox event per completed match.
+- [ ] **10.4 Transactional terminal results and rematch**
+  - **Produce:** `match_session` receipt/generation and `MatchResult`/`MatchFinalizedV1` outbox uniqueness; terminal/replacement serialized under same locked receipt row; honest pending/provisional outcome and recovery; exact per-player stats, finishers-before-forfeits, genuine tied placements, immutable rating eligibility and carried-through start-pinned `ratingAlgorithmId`; rematch fresh identity/seed/state.
+  - **Verify:** guard-loss race with old process's ordinary DB pool alive, both commit orderings; before/after SQL result commit and lost ACK, DB down at start/finish, old receipt aborted while new epoch starts, duplicate/concurrent finalize and payload conflict, unrated all-forfeit and rated one-finisher cases, tie/forfeit placement, frozen algorithm identity across delayed finalization and fresh rematch. `Aborted` never emits rankable result; committed winner survives lost acknowledgement.
+  - **Done when:** exactly one truthful durable terminal decision and outbox per finalized match, no double result, no fake winner after crash.
 
-- [ ] **10.5 Real multi-client gate**
-  - **Precondition/input & inspect:** Playwright websocket harness and authoritative trace. Completed prerequisite spec exit gate must already have evidence.
-  - **Produce/modify:** 2,3,4 actual remote users, spectator snapshots/denials.
-  - **Forbidden changes:** simulated fake extra player or score from pixels. Do not change frozen shared public contracts without ADR.
-  - **Verification:** real clients move, collect, Burst, compare server-state.
-  - **Done when:** multiplayer is demonstrably genuine.
+- [ ] **10.5 Competitive fairness and multicurrent-room load proof**
+  - **Produce:** deterministic seeded fairness/collision property fixtures, measured target-host multi-room scheduling/fan-out test, explicit admission limits and performance configuration, representative score-incentive playtests. Record adjusted *new MP versioned* tuning only if proven necessary.
+  - **Verify:** at least four 4P rooms + two spectators each (or an explicit blocking target-host capacity result); p50/p95/p99 tick/start-lateness/GC/queue/drop/byte/snapshot size, overload recovery and no unbounded backlog; adversarial high-speed wall/player/pickup crossing, 2/3/4 reachable layouts, corner-farming vs contesting. Preserve old solo deterministic fixtures.
+  - **Done when:** game meets documented measured performance targets and competitive incentives are defensible, not inferred from a single empty room.
 
-## Spec exit verification (blocking)
+- [ ] **10.6 Full real-client and cross-domain exit gate**
+  - **Produce:** run reproducible 2/3/4-client full 90-s sessions, spectator denial, reconnect, actual results/rematch; operational instructions for single-replica guard and observed overload behavior. Confirm typed clients correspond to implemented contracts.
+  - **Verify:** exact command/evidence logs, production DI/API/Realtime roles and Revenant coexistence, unknown resource/actor denial, no test-only bridges/routes in production, final persisted result and outbox. Any missing real-environment check is a blocker, not an inferred pass.
+  - **Done when:** R10.01–R10.20 are evidenced and no architectural compatibility blocker remains.
 
-Actual 2–4 browser/socket clients play 90s authoritative session through result/rematch; spectator denied control; reconnect and single-match-result tests pass.
+## Blocking exit certificate (write evidence; don't pre-fill)
 
-Minimum proof includes successful targeted automated tests and relevant integration observation **actually performed**. Record real result paths, commands, commit IDs, encountered defects and measured Kiro credit use (if observable) in `docs/kiro-log.md`; if any check cannot run, mark blocker and leave task/spec incomplete. Do **not** infer a passing test from this document.
+Record actual tests and hashes; final implementation commit; matched immutable rules/layout IDs and 06 goldens; socket recordings/results; fault-injection SQL assertions; multi-room tick/latency profile and host hardware; privacy/policy observations; gameplay balance observations; known limitations. Missing proof keeps Spec 10 incomplete. Do not start Spec 12's production rating application until Spec 10's terminal result/placement contract is verified.
