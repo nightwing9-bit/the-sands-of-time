@@ -131,4 +131,35 @@ public sealed class MultiplayerOptions
     /// and therefore the delay before the 450-tick grace of a vanished competitor starts. Clients must keep a ping interval of at most half of it.
     /// </summary>
     public int HubClientTimeoutSeconds { get; set; } = 15;
+
+    // ---- Task 10.5: admission limits and performance instrumentation. Safety bounds chosen for the intended envelope (at least four 4-player
+    // rooms with two spectators each = 4 matches, 24 connections); they are NOT measured capacity. Measured capacity comes from the benchmark
+    // procedure (docs/architecture/ghostlap-mp-load-benchmark.md) and is recorded there, never assumed here.
+
+    /// <summary>
+    /// Authoritative matches this process runs at once (admitted but not yet ended, including ones whose receipt is being committed). A start beyond
+    /// it is refused BEFORE any receipt is written: the room returns to its lobby, nothing partial exists. Lobby rooms are bounded
+    /// separately by <see cref="MaxRooms"/> (the two limits are independent).
+    /// </summary>
+    public int MaxConcurrentMatches { get; set; } = 16;
+
+    /// <summary>
+    /// Open Ghost Lap hub connections for the whole process (competitors, spectators and extra tabs). A connection beyond it is refused at connect
+    /// time, before it can join a room.
+    /// </summary>
+    public int MaxTotalConnections { get; set; } = 512;
+
+    /// <summary>
+    /// When true, the size of each snapshot frame sent to a recipient is estimated by serializing it to JSON on the recipient's own sender task
+    /// (never on the tick). It costs CPU, so it is off by default and on for benchmark runs. An estimate of the payload, not wire bytes.
+    /// </summary>
+    public bool MeasureSnapshotBytes { get; set; }
+
+    /// <summary>
+    /// When set, the host appends one JSON line of load measurements to this file every <see cref="ProfileIntervalSeconds"/> (and once at stop).
+    /// Empty = no profile output. The file is local to the host: no network endpoint exposes it.
+    /// </summary>
+    public string ProfileOutputPath { get; set; } = "";
+
+    public int ProfileIntervalSeconds { get; set; } = 5;
 }

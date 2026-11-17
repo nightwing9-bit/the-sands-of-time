@@ -146,7 +146,7 @@ public sealed class MatchFeed
                 forfeitTick != 0 ? 0 : seen.GraceEndsTick);
         }
         return new MatchSnapshot(
-            _matchId, _generationId, MpRulesProfile.RulesId, MpRulesProfile.LayoutId, tick, sequence, isFinal, players, world.ActiveCandleIds);
+            _matchId, _generationId, state.RulesId, MpRulesProfile.LayoutId, tick, sequence, isFinal, players, world.ActiveCandleIds);
     }
 
     /// <summary>

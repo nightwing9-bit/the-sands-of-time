@@ -11,6 +11,8 @@ namespace GhostLap.Multiplayer;
 public static class MpRulesProfile
 {
     public const string RulesId = "ghost-mp-v1";
+    public const string CurrentRulesId = "ghost-mp-v2";
+    public const string CurrentStateSchema = "ghost-mp-state/2";
     public const string StateSchema = "ghost-mp-state/1";
     public const string EligibilityPolicy = "mp-eligibility-v1";
     public const string InitialRatingAlgorithmId = "elo-pair-v1";
@@ -18,6 +20,10 @@ public static class MpRulesProfile
     public static string LayoutId => GameRulesV1.LayoutVersion;
 
     public static string RulesHash => $"{RulesId}+{GameRulesV1.LayoutVersion}";
+
+    public static bool Supports(string rulesId) => rulesId is RulesId or CurrentRulesId;
+
+    internal static string HashFor(string rulesId) => $"{rulesId}+{GameRulesV1.LayoutVersion}";
 
     public static int TargetTicks => GameRulesV1.RoundTicks;
 
@@ -95,6 +101,17 @@ public static class MultiplayerStartup
         Range(errors, nameof(o.ControlQueueCapacity), o.ControlQueueCapacity, 8, 1024);
         Range(errors, nameof(o.HubKeepAliveSeconds), o.HubKeepAliveSeconds, 1, 60);
         Range(errors, nameof(o.HubClientTimeoutSeconds), o.HubClientTimeoutSeconds, 2, 300);
+        Range(errors, nameof(o.MaxConcurrentMatches), o.MaxConcurrentMatches, 1, 1024);
+        Range(errors, nameof(o.MaxTotalConnections), o.MaxTotalConnections, 1, 100_000);
+        Range(errors, nameof(o.ProfileIntervalSeconds), o.ProfileIntervalSeconds, 1, 3600);
+        if (o.MaxTotalConnections < o.MaxConnectionsPerPrincipal)
+        {
+            errors.Add($"{MultiplayerOptions.SectionName}:{nameof(o.MaxTotalConnections)} must be at least {nameof(o.MaxConnectionsPerPrincipal)}.");
+        }
+        if (o.ProfileOutputPath is null || (o.ProfileOutputPath.Length > 0 && (string.IsNullOrWhiteSpace(o.ProfileOutputPath) || o.ProfileOutputPath.Length > 400)))
+        {
+            errors.Add($"{MultiplayerOptions.SectionName}:{nameof(o.ProfileOutputPath)} must be empty or a path of at most 400 characters.");
+        }
         if (o.HubClientTimeoutSeconds < 2 * o.HubKeepAliveSeconds)
         {
             errors.Add($"{MultiplayerOptions.SectionName}:{nameof(o.HubClientTimeoutSeconds)} must be at least twice {nameof(o.HubKeepAliveSeconds)}.");

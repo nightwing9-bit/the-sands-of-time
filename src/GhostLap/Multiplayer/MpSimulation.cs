@@ -9,16 +9,17 @@ using Marrow.Timeline;
 namespace GhostLap.Multiplayer;
 
 /// <summary>
-/// The pinned facts of one <c>ghost-mp-v1</c> match, taken from its sealed round configuration. Only what the reducer needs:
-/// player count, seed and the candle plan derived from it. The plan is independent of roster and of any action (R10.12).
+/// The pinned facts of one multiplayer match, taken from its sealed round configuration. Only what the reducer needs:
+/// rules identity, player count, seed and the candle plan derived from it. The plan is independent of roster and of any action (R10.12).
 /// </summary>
 public sealed class MpMatchContext
 {
-    private MpMatchContext(Guid matchId, long seed, int playerCount)
+    private MpMatchContext(Guid matchId, long seed, int playerCount, string rulesId)
     {
         MatchId = matchId;
         Seed = seed;
         PlayerCount = playerCount;
+        RulesId = rulesId;
         Plan = CandlePlan.Create(seed);
     }
 
@@ -28,17 +29,19 @@ public sealed class MpMatchContext
 
     public int PlayerCount { get; }
 
+    public string RulesId { get; }
+
     public CandlePlan Plan { get; }
 
     /// <summary>
-    /// Validates the sealed identity against this build's single implemented profile. A config naming any other rules, layout,
+    /// Validates the sealed identity against the implemented profiles. A config naming any other rules, layout,
     /// tick budget or spawn assignment is refused rather than reinterpreted (R10.12).
     /// </summary>
     public static MpMatchContext From(SealedRoundConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
-        if (config.RulesId != MpRulesProfile.RulesId || config.LayoutId != MpRulesProfile.LayoutId
-            || config.RulesHash != MpRulesProfile.RulesHash || config.LayoutFingerprint != MpRulesProfile.LayoutFingerprint
+        if (!MpRulesProfile.Supports(config.RulesId) || config.LayoutId != MpRulesProfile.LayoutId
+            || config.RulesHash != MpRulesProfile.HashFor(config.RulesId) || config.LayoutFingerprint != MpRulesProfile.LayoutFingerprint
             || config.TargetTicks != MpRulesProfile.TargetTicks)
         {
             throw new ArgumentException("The sealed round names a rules/layout identity this build does not implement.", nameof(config));
@@ -57,26 +60,32 @@ public sealed class MpMatchContext
                 throw new ArgumentException("The sealed slot/spawn assignment does not match arena-v1.", nameof(config));
             }
         }
-        return new MpMatchContext(config.MatchId, config.Seed, n);
+        return new MpMatchContext(config.MatchId, config.Seed, n, config.RulesId);
     }
 
     /// <summary>For tests and tools: a context with the given seed and player count.</summary>
-    public static MpMatchContext Create(long seed, int playerCount)
+    public static MpMatchContext Create(long seed, int playerCount, string rulesId = MpRulesProfile.RulesId)
     {
         if (playerCount is < MultiplayerOptions.MinCompetitorsFixed or > MultiplayerOptions.MaxCompetitorsCeiling)
         {
             throw new ArgumentOutOfRangeException(nameof(playerCount), playerCount, "A multiplayer match has 2 to 4 slots.");
         }
-        return new MpMatchContext(Guid.Empty, seed, playerCount);
+        if (!MpRulesProfile.Supports(rulesId))
+        {
+            throw new ArgumentException("Unknown multiplayer rules identity.", nameof(rulesId));
+        }
+        return new MpMatchContext(Guid.Empty, seed, playerCount, rulesId);
     }
 }
 
 /// <summary>
-/// Complete authoritative <c>ghost-mp-v1</c> world at the end of <see cref="Tick"/>: the shared ghost-v1 world record plus one
+/// Complete authoritative multiplayer world at the end of <see cref="Tick"/>: the shared ghost-v1 world record plus one
 /// forfeit tick per slot (0 = taking part). Not archived anywhere (no multiplayer per-tick journal); hashed for determinism checks.
 /// </summary>
 public sealed record MpMatchState(GameState World, ImmutableArray<long> ForfeitTicks)
 {
+    public string RulesId { get; init; } = MpRulesProfile.RulesId;
+
     public long Tick => World.Tick;
 
     public bool IsFinal => World.IsFinal;
@@ -87,13 +96,13 @@ public sealed record MpMatchState(GameState World, ImmutableArray<long> ForfeitT
     {
         ArgumentNullException.ThrowIfNull(context);
         var world = GameState.Initial(GameContext.Create(context.Seed, context.PlayerCount));
-        return new MpMatchState(world, [.. new long[context.PlayerCount]]);
+        return new MpMatchState(world, [.. new long[context.PlayerCount]]) { RulesId = context.RulesId };
     }
 }
 
 /// <summary>
-/// The <c>ghost-mp-v1</c> transition (ADR-P1-22): phase 0 applies forfeits scheduled for this tick, then the ONE shared ghost-v1
-/// phase implementation runs with the forfeited slots masked. There is no second physics engine. Pure: no clock, no random
+/// The versioned multiplayer transition: phase 0 applies forfeits scheduled for this tick, then the shared phase
+/// implementation runs the sealed conflict rules with the forfeited slots masked. There is no second physics engine. Pure: no clock, no random
 /// source, no I/O; equal inputs give equal states.
 /// </summary>
 public static class MpRules
@@ -101,12 +110,21 @@ public static class MpRules
     /// <param name="inputs">The admitted inputs of tick <c>previous.Tick + 1</c>, in admission order.</param>
     /// <param name="forfeitNow">Slots whose forfeit takes effect on this tick (task 10.3 schedules them; empty otherwise).</param>
     public static MpMatchState Step(MpMatchState previous, IReadOnlyList<GameInput> inputs, IReadOnlyCollection<int> forfeitNow, MpMatchContext context)
+        => StepWithPhases(previous, inputs, forfeitNow, context,
+            context.RulesId == MpRulesProfile.CurrentRulesId ? CompetitivePhases.All : CompetitivePhases.Legacy);
+
+    internal static MpMatchState StepWithPhases(MpMatchState previous, IReadOnlyList<GameInput> inputs,
+        IReadOnlyCollection<int> forfeitNow, MpMatchContext context, CompetitivePhases phases)
     {
         ArgumentNullException.ThrowIfNull(previous);
         ArgumentNullException.ThrowIfNull(inputs);
         ArgumentNullException.ThrowIfNull(forfeitNow);
         ArgumentNullException.ThrowIfNull(context);
         var n = previous.World.Players.Length;
+        if (previous.RulesId != context.RulesId)
+        {
+            throw new GhostLapTransitionException("State and context have different multiplayer rules identities.");
+        }
         if (n != context.PlayerCount || previous.ForfeitTicks.Length != n
             || previous.World.PairContactReadyTicks.Length != GameState.PairCount(n))
         {
@@ -158,13 +176,13 @@ public static class MpRules
             var g = inputs[i];
             ordered[i] = new OrderedInput<GameInput>($"mp-t{g.Tick}-s{g.Slot}-q{g.Sequence}", i, g);
         }
-        var next = GhostLapPhases.Resolve(world, position, ordered, context.Plan, mask);
-        return new MpMatchState(next, [.. forfeits]);
+        var next = GhostLapPhases.Resolve(world, position, ordered, context.Plan, mask, context.Seed, phases);
+        return previous with { World = next, ForfeitTicks = [.. forfeits] };
     }
 }
 
 /// <summary>
-/// Canonical encoding of <see cref="MpMatchState"/>, schema <see cref="MpRulesProfile.StateSchema"/>: the rules id, the world
+/// Canonical encoding of <see cref="MpMatchState"/> under its sealed rules schema: the rules id, the world
 /// encoded with the ghost-v1 state layout (embedded as bytes, so ghost-v1's codec is reused and never changed), then the forfeit
 /// tick of every slot. Encode only: multiplayer state is never archived or restored from bytes in this task; the hash is
 /// the determinism check (same seed and applied inputs give the same hash).
@@ -175,7 +193,7 @@ public static class MpStateCodec
     {
         ArgumentNullException.ThrowIfNull(state);
         var w = new CanonicalWriter()
-            .WriteString(MpRulesProfile.RulesId)
+            .WriteString(state.RulesId)
             .WriteBytes(GameStateCodec.Instance.EncodeCanonical(state.World))
             .WriteCount(state.ForfeitTicks.Length);
         foreach (var f in state.ForfeitTicks)
@@ -187,5 +205,7 @@ public static class MpStateCodec
 
     /// <summary>SHA-256 over (state schema, canonical bytes), lower-case hex. Same definition shape as the ghost-v1 Timeline hash.</summary>
     public static string Hash(MpMatchState state) => Convert.ToHexStringLower(SHA256.HashData(
-        new CanonicalWriter().WriteString(MpRulesProfile.StateSchema).WriteBytes(EncodeCanonical(state)).ToArray()));
+        new CanonicalWriter()
+            .WriteString(state.RulesId == MpRulesProfile.CurrentRulesId ? MpRulesProfile.CurrentStateSchema : MpRulesProfile.StateSchema)
+            .WriteBytes(EncodeCanonical(state)).ToArray()));
 }

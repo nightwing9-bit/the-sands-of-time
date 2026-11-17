@@ -56,13 +56,14 @@ public sealed class GhostLapTransition : IDeterministicTransition<GameState, Gam
 /// tick masked out. A masked slot is skipped as actor and as target by every phase: it receives no input, does not move, cannot
 /// collect, is in no contact pair, cannot fire a Burst and cannot be hit.
 /// </summary>
-internal static class GhostLapPhases
+internal static partial class GhostLapPhases
 {
     private static readonly long BurstRadiusSquared = (long)GameRulesV1.BurstRadiusFixed * GameRulesV1.BurstRadiusFixed;
 
     /// <param name="forfeited">Null for ghost-v1. Otherwise one flag per slot; true = excluded from this tick's phases.</param>
     internal static GameState Resolve(
-        GameState previous, long position, IReadOnlyList<OrderedInput<GameInput>> inputs, CandlePlan plan, bool[]? forfeited)
+        GameState previous, long position, IReadOnlyList<OrderedInput<GameInput>> inputs, CandlePlan plan, bool[]? forfeited,
+        long seed = 0, CompetitivePhases phases = CompetitivePhases.Legacy)
     {
         var n = previous.Players.Length;
         if (forfeited is not null && forfeited.Length != n)
@@ -155,7 +156,7 @@ internal static class GhostLapPhases
         var collectedIds = previous.Collected.Select(c => c.Id).ToHashSet(StringComparer.Ordinal);
         var available = plan.ActiveAt(position).Where(c => !collectedIds.Contains(c.Id)).ToList();
 
-        // Phase 4: pickups by candle id, lowest overlapping slot wins.
+        // Phase 4: pickups by candle id; the profile selects the winner among overlapping slots.
         var stillActive = ImmutableArray.CreateBuilder<string>(available.Count);
         foreach (var candle in available)
         {
@@ -163,11 +164,23 @@ internal static class GhostLapPhases
                 candle.Site.X - GameRulesV1.CandleHalfExtentFixed, candle.Site.Y - GameRulesV1.CandleHalfExtentFixed,
                 candle.Site.X + GameRulesV1.CandleHalfExtentFixed, candle.Site.Y + GameRulesV1.CandleHalfExtentFixed);
             var collector = -1;
-            for (var slot = 0; slot < n && collector < 0; slot++)
+            ulong priority = 0;
+            for (var slot = 0; slot < n; slot++)
             {
-                if (!Masked(forfeited, slot) && ArenaV1.ColliderAt(players[slot].XFixed, players[slot].YFixed).Overlaps(box))
+                if (Masked(forfeited, slot) || !ArenaV1.ColliderAt(players[slot].XFixed, players[slot].YFixed).Overlaps(box))
+                {
+                    continue;
+                }
+                if ((phases & CompetitivePhases.Pickups) == 0)
                 {
                     collector = slot;
+                    break;
+                }
+                var rank = SeededContest.Priority(seed, position, candle.SiteIndex, slot);
+                if (collector < 0 || rank > priority)
+                {
+                    collector = slot;
+                    priority = rank;
                 }
             }
             if (collector < 0)
@@ -192,44 +205,58 @@ internal static class GhostLapPhases
         }
         collected.Sort((a, b) => string.CompareOrdinal(a.Id, b.Id));
 
-        // Phase 5: contact in sorted pair order.
+        // Phase 5: contact, with pair event order stable in both profiles.
         var pairs = previous.PairContactReadyTicks.ToArray();
-        for (var a = 0; a < n; a++)
+        if ((phases & CompetitivePhases.Contact) != 0)
         {
-            for (var b = a + 1; b < n; b++)
+            ResolveSharedContact(players, pairs, position, events, forfeited);
+        }
+        else
+        {
+            for (var a = 0; a < n; a++)
             {
-                var k = GameState.PairIndex(a, b, n);
-                if (Masked(forfeited, a) || Masked(forfeited, b) || pairs[k] > position || players[a].Charge == players[b].Charge
-                    || !ArenaV1.ColliderAt(players[a].XFixed, players[a].YFixed)
-                        .Overlaps(ArenaV1.ColliderAt(players[b].XFixed, players[b].YFixed)))
+                for (var b = a + 1; b < n; b++)
                 {
-                    continue;
+                    var k = GameState.PairIndex(a, b, n);
+                    if (Masked(forfeited, a) || Masked(forfeited, b) || pairs[k] > position || players[a].Charge == players[b].Charge
+                        || !ArenaV1.ColliderAt(players[a].XFixed, players[a].YFixed)
+                            .Overlaps(ArenaV1.ColliderAt(players[b].XFixed, players[b].YFixed)))
+                    {
+                        continue;
+                    }
+                    var (weak, strong) = players[a].Charge < players[b].Charge ? (a, b) : (b, a);
+                    var before = players[weak].Charge;
+                    // The weaker charge is below the stronger, so contact can never drain an Overlit (full) player.
+                    players[weak] = Drain(players[weak], GameRulesV1.ContactChargeLoss, events);
+                    events.Add(new GameEvent(GameEventKind.ContactDrain, (byte)weak, (byte)strong, before - players[weak].Charge));
+                    pairs[k] = position + GameRulesV1.ContactCooldownTicks;
                 }
-                var (weak, strong) = players[a].Charge < players[b].Charge ? (a, b) : (b, a);
-                var before = players[weak].Charge;
-                // The weaker charge is below the stronger, so contact can never drain an Overlit (full) player.
-                players[weak] = Drain(players[weak], GameRulesV1.ContactChargeLoss, events);
-                events.Add(new GameEvent(GameEventKind.ContactDrain, (byte)weak, (byte)strong, before - players[weak].Charge));
-                pairs[k] = position + GameRulesV1.ContactCooldownTicks;
             }
         }
 
-        // Phase 6: requested Bursts, then due auto-Bursts; at most one per player per tick.
-        var burst = new bool[n];
-        for (var slot = 0; slot < n; slot++)
+        if ((phases & CompetitivePhases.Burst) != 0)
         {
-            if (burstEdge[slot] && players[slot].IsOverlit && !Masked(forfeited, slot))
-            {
-                Fire(players, slot, GameEventKind.BurstManual, events, forfeited);
-                burst[slot] = true;
-            }
+            ResolveSharedBursts(players, burstEdge, position, events, forfeited);
         }
-        for (var slot = 0; slot < n; slot++)
+        else
         {
-            if (!burst[slot] && players[slot].IsOverlit && !Masked(forfeited, slot) && players[slot].OverlitDeadlineTick <= position)
+            // Phase 6: requested Bursts, then due auto-Bursts; at most one per player per tick.
+            var burst = new bool[n];
+            for (var slot = 0; slot < n; slot++)
             {
-                Fire(players, slot, GameEventKind.BurstAuto, events, forfeited);
-                burst[slot] = true;
+                if (burstEdge[slot] && players[slot].IsOverlit && !Masked(forfeited, slot))
+                {
+                    Fire(players, slot, GameEventKind.BurstManual, events, forfeited);
+                    burst[slot] = true;
+                }
+            }
+            for (var slot = 0; slot < n; slot++)
+            {
+                if (!burst[slot] && players[slot].IsOverlit && !Masked(forfeited, slot) && players[slot].OverlitDeadlineTick <= position)
+                {
+                    Fire(players, slot, GameEventKind.BurstAuto, events, forfeited);
+                    burst[slot] = true;
+                }
             }
         }
 

@@ -55,7 +55,12 @@ public sealed class GhostLapConnections(TimeProvider time, IOptions<MultiplayerO
     private readonly ConcurrentDictionary<string, GhostLapConnection> _open = new(StringComparer.Ordinal);
     private readonly object _gate = new();
 
+    private long _refusedForCapacity;
+
     public int Count => _open.Count;
+
+    /// <summary>Connections refused because the process-wide cap was reached (observability).</summary>
+    public long RefusedForCapacity => Interlocked.Read(ref _refusedForCapacity);
 
     public bool TryAdd(HubCallerContext context, int maxPerPrincipal, out string reason)
     {
@@ -66,6 +71,14 @@ public sealed class GhostLapConnections(TimeProvider time, IOptions<MultiplayerO
         }
         lock (_gate)
         {
+            // Task 10.5: process-wide cap, checked before the per-principal count. A refused connection never reaches a room, so it cannot
+            // leave a partial room, receipt or controller behind.
+            if (_open.Count >= options.Value.MaxTotalConnections)
+            {
+                Interlocked.Increment(ref _refusedForCapacity);
+                reason = "server_busy";
+                return false;
+            }
             if (_open.Values.Count(c => c.Session.Subject == session.Subject) >= maxPerPrincipal)
             {
                 reason = "too_many_connections";

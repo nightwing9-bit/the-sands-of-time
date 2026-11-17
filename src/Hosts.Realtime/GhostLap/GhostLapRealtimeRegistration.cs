@@ -150,6 +150,7 @@ public static class GhostLapRealtimeRegistration
         services.AddHostedService<GhostLapPublicationPump>();
         services.AddHostedService<GhostLapNoticePump>();
         services.AddHostedService<GhostLapAccessRevalidator>();
+        services.AddHostedService<GhostLapLoadReporter>(); // task 10.5: inert unless GhostLap:Multiplayer:ProfileOutputPath is set
         services.AddHostedService<GhostLapCompositionVerifier>();
         return services;
     }

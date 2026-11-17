@@ -295,7 +295,8 @@ public sealed class ActiveRoomOwner : IActiveRoomOwner
                 return OwnerResult<RoomCommandResult>.Fail(GhostLapFailure.NotReady);
             }
             room.Config = RoundSealing.Seal(
-                room.Secret, room.Id, room.RoundOrdinal, [.. competitors.Select(m => new RosterEntry(m.MemberId, m.Subject))], _options, _generation);
+                room.Secret, room.Id, room.RoundOrdinal, [.. competitors.Select(m => new RosterEntry(m.MemberId, m.Subject))],
+                _options, _generation, MpRulesProfile.CurrentRulesId);
             room.CountdownDeadline = _time.GetTimestamp() + MillisecondsToTimestamp(_options.CountdownMilliseconds);
             room.Phase = RoomPhases.Countdown;
             Touch(room);

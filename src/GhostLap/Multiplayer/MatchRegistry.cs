@@ -20,6 +20,9 @@ public sealed class MatchRuntime
     /// <summary>The read side: latest authoritative snapshot and bounded event tail (task 10.3).</summary>
     public MatchFeed Feed { get; internal set; } = null!;
 
+    /// <summary>Task 10.5 measurements of this match (tick time, lateness, backlog, mailbox, snapshot bytes). Observation only.</summary>
+    public MatchTelemetry Telemetry { get; } = new();
+
     /// <summary>
     /// Telemetry hook called on the loop thread with every tick's outcome (applied inputs, rejections, events). For tests and the task 10.5 profile;
     /// the callee must be non-blocking. Nothing in production sets it, and it is never an archive of inputs (no multiplayer input journal).
@@ -78,7 +81,8 @@ public sealed class MatchRuntime
         var feed = new MatchFeed(config.MatchId, authority.GenerationId, options);
         feed.PublishInitial(engine.State, [.. Enumerable.Repeat(new SlotPresence(true, 0), engine.Context.PlayerCount)]);
         runtime.Feed = feed;
-        runtime.Fanout = new MatchFanout(config.MatchId, authority.GenerationId, feed, transport, authority, options, fanoutTime ?? time, runtime.Lifecycle);
+        runtime.Fanout = new MatchFanout(
+            config.MatchId, authority.GenerationId, feed, transport, authority, options, fanoutTime ?? time, runtime.Lifecycle, runtime.Telemetry);
         return runtime;
     }
 
@@ -96,17 +100,28 @@ public sealed class MatchRuntime
         {
             Fanout.OfferAck(ack.ConnectionId, new InputAck(matchId, ack.ControllerEpoch, ack.Tick, ack.LastAppliedSeq));
         }
-        foreach (var reject in outcome.Rejections)
+        OfferRejections(outcome.Rejections, outcome.Tick);
+        if (published)
+        {
+            Fanout.SignalSnapshot();
+        }
+    }
+
+    internal void CloseAndSettleIngress()
+    {
+        Engine.CloseIngress();
+        OfferRejections(Engine.RefuseUndrainedInputs(), Engine.State.Tick);
+    }
+
+    private void OfferRejections(IEnumerable<RejectItem> rejections, long tick)
+    {
+        foreach (var reject in rejections)
         {
             if (reject.ConnectionId.Length > 0)
             {
                 Fanout.OfferRejection(reject.ConnectionId, new InputRejection(
-                    reject.Seq, reject.Code, reject.SequenceFloor >= 0 ? reject.SequenceFloor : null, outcome.Tick));
+                    reject.Seq, reject.Code, reject.SequenceFloor >= 0 ? reject.SequenceFloor : null, tick));
             }
-        }
-        if (published)
-        {
-            Fanout.SignalSnapshot();
         }
     }
 
@@ -147,6 +162,8 @@ public sealed class MatchRegistry : IMatchStartAdmission, IGameplayInputSink, IM
     private readonly object _gate = new();
     private readonly Dictionary<Guid, MatchRuntime> _byMatch = [];
     private readonly Dictionary<Guid, MatchRuntime> _byRoom = [];
+    private readonly HashSet<Guid> _reserved = [];
+    private long _startsDeniedForCapacity;
     private readonly MultiplayerOptions _options;
     private readonly TimeProvider _time;
     private readonly IRealtimeAuthority _authority;
@@ -199,6 +216,7 @@ public sealed class MatchRegistry : IMatchStartAdmission, IGameplayInputSink, IM
         {
             return StartAdmissionOutcome.Unavailable;
         }
+        var ownsReservation = false;
         lock (_gate)
         {
             if (_byMatch.TryGetValue(config.MatchId, out var known))
@@ -220,33 +238,154 @@ public sealed class MatchRegistry : IMatchStartAdmission, IGameplayInputSink, IM
             {
                 return StartAdmissionOutcome.Unavailable;
             }
+            // Task 10.5 capacity gate. Decided BEFORE the receipt commit, so a refused start leaves no receipt, runtime or authority behind (the
+            // room returns to its lobby and may retry). Live runtimes plus starts whose receipt is being committed count against the limit, so
+            // concurrent starts cannot together exceed it.
+            if (!_reserved.Contains(config.MatchId))
+            {
+                if (LiveCountLocked() + _reserved.Count >= _options.MaxConcurrentMatches)
+                {
+                    Interlocked.Increment(ref _startsDeniedForCapacity);
+                    return StartAdmissionOutcome.Unavailable;
+                }
+                _reserved.Add(config.MatchId);
+                ownsReservation = true;
+            }
         }
         // The receipt commit is not cancelled by the room's admission timeout: its outcome is always learned, and a committed receipt
         // always gets a runtime (activated by the room, or aborted as an orphan). The caller stops waiting on ct.
-        var commit = CommitAndRegisterAsync(config);
+        var commit = CommitAndRegisterAsync(config, ownsReservation);
         return await commit.WaitAsync(ct).ConfigureAwait(false);
     }
 
-    private async Task<StartAdmissionOutcome> CommitAndRegisterAsync(SealedRoundConfig config)
+    private int LiveCountLocked() => _byMatch.Values.Count(r => r.EndedAt is null);
+
+    private async Task<StartAdmissionOutcome> CommitAndRegisterAsync(SealedRoundConfig config, bool ownsReservation)
     {
-        var (outcome, _) = await _store.CommitStartReceiptAsync(config, _authority.GenerationId, CancellationToken.None).ConfigureAwait(false);
-        switch (outcome)
+        var registered = false;
+        try
         {
-            case StartReceiptOutcome.Committed or StartReceiptOutcome.AlreadyStarted:
+            var (outcome, _) = await _store.CommitStartReceiptAsync(config, _authority.GenerationId, CancellationToken.None).ConfigureAwait(false);
+            switch (outcome)
+            {
+                case StartReceiptOutcome.Committed or StartReceiptOutcome.AlreadyStarted:
+                    lock (_gate)
+                    {
+                        if (!_byMatch.ContainsKey(config.MatchId))
+                        {
+                            var runtime = NewRuntime(config);
+                            _byMatch[config.MatchId] = runtime;
+                            _byRoom[config.RoomId] = runtime;
+                        }
+                        _reserved.Remove(config.MatchId); // the runtime now counts as live; never counted twice
+                        registered = true;
+                    }
+                    return StartAdmissionOutcome.Admitted;
+                case StartReceiptOutcome.Terminal:
+                    return StartAdmissionOutcome.Closed;
+                default:
+                    return StartAdmissionOutcome.Unavailable;
+            }
+        }
+        finally
+        {
+            if (!registered && ownsReservation)
+            {
                 lock (_gate)
                 {
-                    if (!_byMatch.ContainsKey(config.MatchId))
-                    {
-                        var runtime = NewRuntime(config);
-                        _byMatch[config.MatchId] = runtime;
-                        _byRoom[config.RoomId] = runtime;
-                    }
+                    _reserved.Remove(config.MatchId); // a failed or refused commit frees its reservation
                 }
-                return StartAdmissionOutcome.Admitted;
-            case StartReceiptOutcome.Terminal:
-                return StartAdmissionOutcome.Closed;
-            default:
-                return StartAdmissionOutcome.Unavailable;
+            }
+        }
+    }
+
+    /// <summary>
+    /// A snapshot of live load for the task 10.5 profile: per-match series and recipient totals and admission counters (the host adds process GC/CPU). Cheap
+    /// and read-only; safe to call from any thread.
+    /// </summary>
+    public MatchLoadReport CaptureLoad(long connectionsRefusedForCapacity = 0)
+    {
+        MatchRuntime[] all;
+        int live;
+        int reserved;
+        lock (_gate)
+        {
+            all = [.. _byMatch.Values];
+            live = LiveCountLocked();
+            reserved = _reserved.Count;
+        }
+        var matches = all.Select(Describe).ToArray();
+        return new MatchLoadReport(
+            new CapacityLoad(live, reserved, _options.MaxConcurrentMatches, Interlocked.Read(ref _startsDeniedForCapacity), connectionsRefusedForCapacity),
+            matches);
+    }
+
+    private static MatchLoad Describe(MatchRuntime runtime)
+    {
+        var scheduler = runtime.Driver?.Scheduler?.Telemetry;
+        var recipients = runtime.Fanout.Recipients;
+        var totals = new RecipientTotals(
+            recipients.Count,
+            recipients.Sum(r => Interlocked.Read(ref r.Stats.SnapshotsSent)),
+            recipients.Sum(r => Interlocked.Read(ref r.Stats.SnapshotsSkipped)),
+            recipients.Sum(r => Interlocked.Read(ref r.Stats.ResyncFrames)),
+            recipients.Sum(r => Interlocked.Read(ref r.Stats.AcksSent)),
+            recipients.Sum(r => Interlocked.Read(ref r.Stats.AcksCoalesced)),
+            recipients.Sum(r => Interlocked.Read(ref r.Stats.RejectionsSent)),
+            recipients.Sum(r => Interlocked.Read(ref r.Stats.RejectionsDropped)),
+            recipients.Sum(r => Interlocked.Read(ref r.Stats.Failures)),
+            recipients.Count(r => r.Stats.Stalled),
+            recipients.Sum(r => r.QueuedControl),
+            recipients.Select(r => Interlocked.Read(ref r.Stats.MaxSendMicroseconds)).DefaultIfEmpty(0).Max(),
+            recipients.Select(r => Interlocked.Read(ref r.Stats.MaxSnapshotAgeTicks)).DefaultIfEmpty(0).Max());
+        var telemetry = runtime.Telemetry;
+        return new MatchLoad(
+            runtime.Config.MatchId.ToString("N"),
+            runtime.Status,
+            runtime.Config.Slots.Count,
+            runtime.Engine.State.Tick,
+            scheduler?.MaxBacklogTicks ?? 0,
+            scheduler?.CatchUpIterations ?? 0,
+            scheduler?.LateTicks ?? 0,
+            telemetry.TickExecutionMicros.Summarize(),
+            telemetry.StartLatenessMicros.Summarize(),
+            telemetry.BacklogTicks.Summarize(),
+            telemetry.MailboxDepth.Summarize(),
+            telemetry.SnapshotBytes.Summarize(),
+            telemetry.BytesSent,
+            runtime.Engine.TotalAccepted,
+            runtime.Engine.TotalRejected,
+            runtime.Engine.QueuedInputs,
+            totals,
+            recipients.Select(r =>
+            {
+                var viewer = r.Viewer;
+                return new RecipientLoad(
+                    viewer.MemberId,
+                    viewer.Slot,
+                    r.QueuedControl,
+                    Volatile.Read(ref r.Stats.MaxControlQueueDepth),
+                    Interlocked.Read(ref r.Stats.SnapshotsSent),
+                    Interlocked.Read(ref r.Stats.SnapshotsSkipped),
+                    Interlocked.Read(ref r.Stats.ResyncFrames),
+                    Interlocked.Read(ref r.Stats.AcksCoalesced),
+                    Interlocked.Read(ref r.Stats.Failures),
+                    r.Stats.Stalled);
+            }).ToArray());
+    }
+
+    /// <summary>Starts refused because the process already ran <see cref="MultiplayerOptions.MaxConcurrentMatches"/> matches (observability).</summary>
+    public long StartsDeniedForCapacity => Interlocked.Read(ref _startsDeniedForCapacity);
+
+    /// <summary>Starts whose receipt commit is in flight (observability and tests; zero once every commit settled).</summary>
+    public int ReservedStarts
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _reserved.Count;
+            }
         }
     }
 
@@ -269,7 +408,8 @@ public sealed class MatchRegistry : IMatchStartAdmission, IGameplayInputSink, IM
     {
         lock (_gate)
         {
-            if (!_byMatch.TryGetValue(matchId, out var runtime) || runtime.Activated || runtime.Status != MatchStatuses.Running)
+            if (!_byMatch.TryGetValue(matchId, out var runtime) || runtime.Activated || runtime.AbortStarted != 0
+                || runtime.Status != MatchStatuses.Running)
             {
                 return;
             }
@@ -282,7 +422,7 @@ public sealed class MatchRegistry : IMatchStartAdmission, IGameplayInputSink, IM
                 runtime.Fanout.Attach(viewer);
             }
             runtime.Activated = true;
-            var driver = new MatchDriver(runtime.Engine, _authority, _time, _options, runtime.PublishTick);
+            var driver = new MatchDriver(runtime.Engine, _authority, _time, _options, runtime.PublishTick, runtime.Telemetry);
             runtime.Driver = driver;
             runtime.Loop = Task.Run(() => RunAsync(runtime, driver));
         }
@@ -419,6 +559,7 @@ public sealed class MatchRegistry : IMatchStartAdmission, IGameplayInputSink, IM
         }
         foreach (var runtime in all)
         {
+            runtime.Engine.CloseIngress();
             await runtime.Cancellation.CancelAsync().ConfigureAwait(false);
         }
         var loops = all.Select(r => r.Loop).OfType<Task>().ToArray();
@@ -447,6 +588,7 @@ public sealed class MatchRegistry : IMatchStartAdmission, IGameplayInputSink, IM
             // A reducer or engine fault is not a player outcome: stop and abort, never invent a result.
             reason = MatchStopReason.Overloaded;
         }
+        runtime.CloseAndSettleIngress();
         runtime.StopReason = reason;
         if (reason == MatchStopReason.Finished)
         {
@@ -559,9 +701,14 @@ public sealed class MatchRegistry : IMatchStartAdmission, IGameplayInputSink, IM
     /// <summary>Writes the fenced abort with bounded retries. Only a durable Aborted decision is reported as aborted.</summary>
     private async Task AbortAsync(MatchRuntime runtime, string reason, CancellationToken ct)
     {
-        if (Interlocked.Exchange(ref runtime.AbortStarted, 1) == 1)
+        lock (_gate)
         {
-            return;
+            if ((reason == AbortReasons.NotActivated && runtime.Activated) || runtime.AbortStarted != 0)
+            {
+                return;
+            }
+            runtime.AbortStarted = 1;
+            runtime.Engine.CloseIngress();
         }
         runtime.SetStatus(MatchStatuses.Aborting);
         var status = MatchStatuses.Unverified;

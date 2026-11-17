@@ -82,9 +82,9 @@ public static class MatchResults
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(final);
         ArgumentNullException.ThrowIfNull(stats);
-        if (!final.IsFinal || final.Tick != config.TargetTicks)
+        if (!final.IsFinal || final.Tick != config.TargetTicks || final.RulesId != config.RulesId)
         {
-            throw new ArgumentException("A result is built only from the resolved final tick.", nameof(final));
+            throw new ArgumentException("A result requires the resolved final tick under the sealed rules identity.", nameof(final));
         }
         var n = config.Slots.Count;
         if (final.World.Players.Length != n || stats.PlayerCount != n)

@@ -192,7 +192,7 @@ public sealed class LobbyStateMachineTests
         Assert.Equal(Enumerable.Range(0, players), round.Slots.Select(s => s.Slot).Order());
         Assert.Equal(players, round.Slots.Select(s => (s.SpawnXUnits, s.SpawnYUnits)).Distinct().Count());
         Assert.Equal(players, round.Slots.Select(s => s.MemberId).Distinct().Count());
-        Assert.Equal("ghost-mp-v1", round.RulesId);
+        Assert.Equal(MpRulesProfile.CurrentRulesId, round.RulesId);
         Assert.Equal("arena-v1", round.LayoutId);
         Assert.Equal("elo-pair-v1", round.RatingAlgorithmId);
         Assert.Equal(2700, round.TargetTicks);

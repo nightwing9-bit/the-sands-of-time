@@ -50,6 +50,9 @@ internal sealed class PgFaultProxy : IAsyncDisposable
 
     public int CommitsDroppedAfter;
 
+    /// <summary>With <see cref="CommitFault.DropAfterCommit"/>: the database also becomes unreachable at that instant (the process can no longer even look the commit up).</summary>
+    public volatile bool DownAfterDroppedCommit;
+
     /// <summary>Refuse every new connection and cut the open ones (the database looks unreachable). False restores normal relaying.</summary>
     public bool Down
     {
@@ -191,6 +194,10 @@ internal sealed class PgFaultProxy : IAsyncDisposable
                 if (swallow.Task.IsCompleted)
                 {
                     Interlocked.Increment(ref CommitsDroppedAfter);
+                    if (DownAfterDroppedCommit)
+                    {
+                        Down = true;
+                    }
                     return; // the server answered the COMMIT (CommandComplete/ReadyForQuery): it committed; the client never sees it
                 }
                 await to.WriteAsync(buffer.AsMemory(0, n), cut.Token);

@@ -49,6 +49,9 @@ public sealed record TickOutcome(
 public sealed class MatchEngine
 {
     private readonly Channel<AdmittedInput> _mailbox;
+    private int _ingressClosed;
+    private readonly List<AdmittedInput> _applying = [];
+    private List<RejectItem>? _failedTickRefusals;
     private readonly Dictionary<string, int> _slotByMember = new(StringComparer.Ordinal);
     private readonly SlotControlCell[] _controllers;
     private readonly bool[] _lastConnected;
@@ -105,6 +108,8 @@ public sealed class MatchEngine
 
     public int QueuedInputs => _mailbox.Reader.Count;
 
+    public long TotalAccepted { get; private set; }
+
     public long TotalRejected { get; private set; }
 
     /// <summary>Set by the room owner (under its lock) through the registry. Read by <see cref="Step"/> at application time.</summary>
@@ -132,6 +137,10 @@ public sealed class MatchEngine
         {
             return GhostLapFailure.Forbidden;
         }
+        if (Volatile.Read(ref _ingressClosed) != 0)
+        {
+            return GhostLapFailure.NoRunningMatch;
+        }
         // Aggregate per-slot budget across every connection the principal holds (the per-connection budget is in the hub).
         var budget = _budgets[slot];
         lock (budget)
@@ -141,7 +150,37 @@ public sealed class MatchEngine
                 return GhostLapFailure.RateLimited;
             }
         }
-        return _mailbox.Writer.TryWrite(input) ? null : GhostLapFailure.MailboxFull;
+        if (_mailbox.Writer.TryWrite(input))
+        {
+            return null;
+        }
+        return Volatile.Read(ref _ingressClosed) != 0 ? GhostLapFailure.NoRunningMatch : GhostLapFailure.MailboxFull;
+    }
+
+    internal void CloseIngress()
+    {
+        Volatile.Write(ref _ingressClosed, 1);
+        _mailbox.Writer.TryComplete(); // Channel completion and TryWrite share the admission boundary.
+    }
+
+    /// <summary>Called after the sole reader stopped. All still queued items receive a terminal refusal.</summary>
+    internal IEnumerable<RejectItem> RefuseUndrainedInputs()
+    {
+        if (_failedTickRefusals is { } failed)
+        {
+            _failedTickRefusals = null;
+            foreach (var item in failed)
+            {
+                yield return item;
+            }
+        }
+        while (_mailbox.Reader.TryRead(out var item))
+        {
+            TotalRejected++;
+            var slot = _slotByMember[item.MemberId];
+            yield return new RejectItem(item.ConnectionId, slot, item.Input.Seq, GhostLapFailure.NoRunningMatch,
+                State.World.Players[slot].LastSequence);
+        }
     }
 
     /// <summary>
@@ -149,7 +188,7 @@ public sealed class MatchEngine
     /// the previous tick gets the Spec 06 server neutral for this tick (immediate, no six-tick hold) and that tick D starts its grace; a slot that
     /// is still unconnected when tick <c>D + 450</c> begins is forfeited in phase 0 of that tick; a controller present at that read keeps the slot
     /// (a takeover processed before the tick resolves wins, one after it is spectator-only). (2) drain the mailbox in arrival order and admit each
-    /// item against the controllers read in (1) and the Spec 06 admission policy; (3) run the ghost-mp-v1 reducer; (4) emit acknowledgements and
+    /// item against the controllers read in (1) and the Spec 06 admission policy; (3) run the sealed multiplayer reducer; (4) emit acknowledgements and
     /// events. Pure CPU: no I/O, no clock, no await.
     /// </summary>
     public TickOutcome Step()
@@ -161,6 +200,10 @@ public sealed class MatchEngine
         var world = State.World;
         var n = Context.PlayerCount;
         var next = State.Tick + 1;
+        if (next == Config.TargetTicks)
+        {
+            CloseIngress(); // Freeze the last batch before any final-tick adjudication.
+        }
         var controls = new SlotControl[n];
         var pending = new List<GameInput>();
         var neutralized = new List<int>();
@@ -225,6 +268,7 @@ public sealed class MatchEngine
                 if (admitted.TryGetValue(out var input))
                 {
                     pending.Add(input);
+                    _applying.Add(item);
                     perSlot[slot]++;
                     lastSeq[slot] = input.Sequence;
                     ackConnection[slot] = control.ConnectionId;
@@ -241,7 +285,32 @@ public sealed class MatchEngine
             }
         }
 
-        State = MpRules.Step(State, pending, forfeitNow, Context);
+        try
+        {
+            State = MpRules.Step(State, pending, forfeitNow, Context);
+            TotalAccepted += _applying.Count;
+        }
+        catch
+        {
+            CloseIngress();
+            // The world did not advance, so none of this tick's provisional accepts were applied.
+            _failedTickRefusals = rejections;
+            foreach (var item in _applying)
+            {
+                var slot = _slotByMember[item.MemberId];
+                rejections.Add(new RejectItem(item.ConnectionId, slot, item.Input.Seq, GhostLapFailure.NoRunningMatch));
+                TotalRejected++;
+            }
+            for (var i = 0; i < rejections.Count; i++)
+            {
+                rejections[i] = rejections[i] with { SequenceFloor = world.Players[rejections[i].Slot].LastSequence };
+            }
+            throw;
+        }
+        finally
+        {
+            _applying.Clear();
+        }
         Stats.Add(State.World.Events);
         var acks = new List<AckItem>();
         for (var slot = 0; slot < n; slot++)
@@ -418,15 +487,17 @@ public sealed class TickScheduler
         return new SchedulerDecision(run, backlog, overloaded, wait);
     }
 
-    /// <summary>Records the start lateness of a tick that is about to run.</summary>
-    public void Started(long tick, long now)
+    /// <summary>Records the start lateness of a tick that is about to run and returns it in microseconds (never negative).</summary>
+    public long Started(long tick, long now)
     {
         var late = now - DueAt(tick);
         if (late * GameRulesV1.TickRate > _frequency)
         {
             Telemetry.LateTicks++;
         }
-        Telemetry.MaxStartLatenessMicroseconds = Math.Max(Telemetry.MaxStartLatenessMicroseconds, Math.Max(0, late) * 1_000_000 / _frequency);
+        var micros = Math.Max(0, late) * 1_000_000 / _frequency;
+        Telemetry.MaxStartLatenessMicroseconds = Math.Max(Telemetry.MaxStartLatenessMicroseconds, micros);
+        return micros;
     }
 }
 
@@ -450,7 +521,13 @@ public enum MatchStopReason
 /// read); once authority is gone it executes and publishes nothing more. Publication is a non-blocking hand-off; the tick never
 /// awaits a socket or the database.
 /// </summary>
-public sealed class MatchDriver(MatchEngine engine, IRealtimeAuthority authority, TimeProvider time, MultiplayerOptions options, Action<TickOutcome> publish)
+public sealed class MatchDriver(
+    MatchEngine engine,
+    IRealtimeAuthority authority,
+    TimeProvider time,
+    MultiplayerOptions options,
+    Action<TickOutcome> publish,
+    MatchTelemetry? telemetry = null)
 {
     public TickScheduler? Scheduler { get; private set; }
 
@@ -491,8 +568,23 @@ public sealed class MatchDriver(MatchEngine engine, IRealtimeAuthority authority
                     {
                         return Stopped();
                     }
-                    scheduler.Started(engine.State.Tick + 1, time.GetTimestamp());
-                    publish(engine.Step());
+                    var lateness = scheduler.Started(engine.State.Tick + 1, time.GetTimestamp());
+                    if (telemetry is null)
+                    {
+                        publish(engine.Step());
+                    }
+                    else
+                    {
+                        // Observation only: two reads of the injected monotonic clock around the unchanged step and its non-blocking publication.
+                        var mailbox = engine.QueuedInputs;
+                        var began = time.GetTimestamp();
+                        publish(engine.Step());
+                        telemetry.RecordTick(
+                            time.GetElapsedTime(began, time.GetTimestamp()).Ticks / (TimeSpan.TicksPerMillisecond / 1000),
+                            lateness,
+                            Math.Max(0, decision.BacklogTicks - i - 1), // ticks still due after this one: 0 = on time
+                            mailbox);
+                    }
                 }
                 if (decision.RunNow < decision.BacklogTicks)
                 {

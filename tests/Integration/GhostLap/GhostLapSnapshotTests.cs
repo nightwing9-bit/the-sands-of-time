@@ -391,7 +391,10 @@ public sealed class GhostLapSnapshotTests(IdentityDatabase db, ITestOutputHelper
         Assert.Equal(a2.Joined.ControllerEpoch, frame.You.ControllerEpoch);
         Assert.True(frame.You.AppliedSeq >= floorBefore, $"floor {frame.You.AppliedSeq} below the last acknowledgement {floorBefore}");
         Assert.Equal(frame.Snapshot.Tick, frame.Events.ThroughTick);
-        Assert.True(a2.Filter.Offer(frame).Applied);
+        // A newer pushed frame can arrive before the invocation response is offered.
+        Assert.Contains(a2.OfferSnapshot(frame).Verdict, new[] { SnapshotVerdict.Baseline, SnapshotVerdict.Stale });
+        Assert.Equal(a.MatchId, a2.Last!.MatchId);
+        Assert.True(a2.Last.Tick >= frame.Snapshot.Tick);
 
         // Below the floor it is refused, with the floor to resume from; above it, it is applied and acknowledged.
         a2.Send(1, 0, false, seq: 1);

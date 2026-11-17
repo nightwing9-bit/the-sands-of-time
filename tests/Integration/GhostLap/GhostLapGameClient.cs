@@ -115,7 +115,7 @@ internal sealed class GameClient : IAsyncDisposable
 
     private readonly object _gate = new();
     private readonly Stopwatch _clock = Stopwatch.StartNew();
-    private readonly Func<long> _serverTick;
+    private readonly Func<long>? _serverTick;
     private readonly List<double> _ackMs = [];
     private readonly List<double> _aimErr = [];
     private readonly List<double> _ageTicks = [];
@@ -133,7 +133,7 @@ internal sealed class GameClient : IAsyncDisposable
 
     internal sealed record SentInput(double AtMs, long Aim, sbyte Mx, sbyte My, bool Burst);
 
-    public GameClient(Tab tab, NetworkConditions net, GhostLapHubTests.GuestLogin login, Func<long> serverTick)
+    public GameClient(Tab tab, NetworkConditions net, GhostLapHubTests.GuestLogin login, Func<long>? serverTick)
     {
         Tab = tab;
         Net = net;
@@ -227,26 +227,31 @@ internal sealed class GameClient : IAsyncDisposable
 
     public void OpenStream() => Stream = Tab.StreamAsync(Inputs.Reader);
 
-    private void OnFrame(SnapshotFrame frame)
+    private void OnFrame(SnapshotFrame frame) => OfferSnapshot(frame);
+
+    public FilterResult OfferSnapshot(SnapshotFrame frame)
     {
         var now = _clock.Elapsed.TotalMilliseconds;
-        var serverTick = _serverTick();
-        var result = Filter.Offer(frame);
-        Verdicts.Enqueue(result.Verdict);
-        Frames.Enqueue(frame);
-        if (!result.Applied)
-        {
-            return;
-        }
-        foreach (var e in result.NewEvents)
-        {
-            AppliedEvents.Enqueue(e);
-        }
+        var serverTick = _serverTick?.Invoke();
         lock (_gate)
         {
+            var result = Filter.Offer(frame);
+            Verdicts.Enqueue(result.Verdict);
+            Frames.Enqueue(frame);
+            if (!result.Applied)
+            {
+                return result;
+            }
+            foreach (var e in result.NewEvents)
+            {
+                AppliedEvents.Enqueue(e);
+            }
             _last = frame.Snapshot;
             _lastRecvMs = now;
-            _ageTicks.Add(Math.Max(0, serverTick - frame.Snapshot.Tick));
+            if (serverTick is { } tick)
+            {
+                _ageTicks.Add(Math.Max(0, tick - frame.Snapshot.Tick));
+            }
             if (Slot >= 0 && Slot < frame.Snapshot.Players.Count)
             {
                 var me = frame.Snapshot.Players[Slot];
@@ -257,6 +262,7 @@ internal sealed class GameClient : IAsyncDisposable
                 }
                 _base = (frame.Snapshot.Tick, me.XFixed, me.YFixed);
             }
+            return result;
         }
     }
 
@@ -368,7 +374,7 @@ internal sealed class GameClient : IAsyncDisposable
     }
 
     /// <summary>Plays at 30 Hz on a fixed schedule until cancelled: sends on change and a keepalive every fourth tick while moving.</summary>
-    public async Task PlayAsync(CandleBrain brain, CancellationToken ct)
+    public async Task PlayAsync(CandleBrain brain, CancellationToken ct, int? workloadSeed = null)
     {
         var next = _clock.Elapsed.TotalMilliseconds;
         (sbyte X, sbyte Y, bool Burst) lastSent = (0, 0, false);
@@ -390,9 +396,15 @@ internal sealed class GameClient : IAsyncDisposable
                 }
                 var aim = AimTick();
                 var want = brain.Decide(snapshot, Slot, aim);
+                if (workloadSeed is { } seed && snapshot.Tick % 180 < 24)
+                {
+                    // Reproducible short rapid-turn segments between candle chases. Keep Burst edges from the candle policy.
+                    var turn = (snapshot.Tick / 2 + seed + Slot) % 4;
+                    want = (turn < 2 ? (sbyte)1 : (sbyte)-1, turn % 2 == 0 ? (sbyte)1 : (sbyte)-1, want.Burst);
+                }
                 sinceSend++;
                 var moving = want.X != 0 || want.Y != 0;
-                if (want != lastSent || (moving && sinceSend >= 4))
+                if (workloadSeed.HasValue || want != lastSent || (moving && sinceSend >= 4))
                 {
                     Send(want.X, want.Y, want.Burst, aim);
                     lastSent = want;
@@ -424,7 +436,7 @@ internal sealed class GameClient : IAsyncDisposable
                 Stat.P(_aimErr, 0.95),
                 Stat.P(_ageTicks, 0.5) * TickMs,
                 Stat.P(_ageTicks, 0.95) * TickMs,
-                _ageTicks.Count == 0 ? 0 : _ageTicks.Max() * TickMs,
+                _serverTick is null ? double.NaN : (_ageTicks.Count == 0 ? 0 : _ageTicks.Max() * TickMs),
                 _corrections.Count == 0 ? 0 : _corrections.Count(c => c > 0) / (double)_corrections.Count,
                 Stat.P(_corrections, 0.95),
                 _corrections.Count == 0 ? 0 : _corrections.Max(),

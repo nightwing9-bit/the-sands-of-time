@@ -68,9 +68,11 @@ public sealed class GhostLapHubTests(IdentityDatabase db)
 
     internal sealed record GuestLogin(TestBrowser Browser, string Cookie, string Subject);
 
-    internal static async Task<GuestLogin> GuestAsync(Stack stack)
+    internal static Task<GuestLogin> GuestAsync(Stack stack) => GuestAsync(stack.Api);
+
+    internal static async Task<GuestLogin> GuestAsync(IdentityApiFactory api)
     {
-        var browser = stack.Api.NewBrowser();
+        var browser = api.NewBrowser();
         var start = await browser.PostAsync("/auth/guest/start");
         return new GuestLogin(browser, browser.Cookies[Flows.GuestCookie], start.Str("subject"));
     }
@@ -438,6 +440,84 @@ public sealed class GhostLapHubTests(IdentityDatabase db)
         await c.Connection.StartAsync();
         await Eventually.TrueAsync(() => c.Connection.State != HubConnectionState.Connected, "the third connection is closed");
         Assert.Equal(HubConnectionState.Connected, a.Connection.State);
+    }
+
+    /// <summary>Task 10.5: the process-wide cap refuses a connection from ANOTHER principal before it can touch a room; existing ones are unaffected.</summary>
+    [Fact]
+    public async Task The_process_wide_connection_cap_refuses_new_connections_without_disturbing_existing_ones()
+    {
+        await using var stack = NewStack(new()
+        {
+            ["GhostLap:Multiplayer:MaxTotalConnections"] = "2",
+            ["GhostLap:Multiplayer:MaxConnectionsPerPrincipal"] = "2", // the total may not be below the per-principal cap
+        });
+        var first = await GuestAsync(stack);
+        var second = await GuestAsync(stack);
+        var third = await GuestAsync(stack);
+        await using var a = await OpenAsync(stack, first);
+        await using var b = await OpenAsync(stack, second);
+        await using var c = new Tab(stack.Hub.ConnectTo(GhostLapWire.HubPath, guestCookie: third.Cookie));
+        await c.Connection.StartAsync();
+        await Eventually.TrueAsync(() => c.Connection.State != HubConnectionState.Connected, "the connection beyond the cap is closed");
+        Assert.Equal(HubConnectionState.Connected, a.Connection.State);
+        Assert.Equal(HubConnectionState.Connected, b.Connection.State);
+        Assert.Contains(stack.Hub.Logs.Lines, l => l.EventId == 4101);
+    }
+
+    [Fact]
+    public async Task A_full_connection_cap_counts_spectator_tabs_and_reopens_exactly_one_place_after_disconnect()
+    {
+        await using var stack = NewStack(new() { ["GhostLap:Multiplayer:MaxTotalConnections"] = "24" });
+        const int capacity = 24;
+        var connections = stack.Hub.Services.GetRequiredService<GhostLapConnections>();
+        var tabs = new List<Tab>();
+        GuestLogin spectatorLogin = null!;
+        string spectatorRoom = null!;
+        try
+        {
+            for (var room = 0; room < 4; room++)
+            {
+                var owner = await OpenAsync(stack, await GuestAsync(stack));
+                tabs.Add(owner);
+                var created = (await owner.CreateAsync()).Value!;
+                for (var slot = 1; slot < 6; slot++)
+                {
+                    var login = await GuestAsync(stack);
+                    var tab = await OpenAsync(stack, login);
+                    tabs.Add(tab);
+                    Assert.True((await tab.JoinAsync(created.RoomCode, spectator: slot >= 4)).Ok);
+                    if (room == 3 && slot == 5)
+                    {
+                        spectatorLogin = login;
+                        spectatorRoom = created.RoomCode;
+                    }
+                }
+            }
+            Assert.Equal(capacity, connections.Count);
+
+            var extras = await Task.WhenAll(Enumerable.Range(0, 2).Select(_ => GuestAsync(stack)));
+            var rejected = extras.Select(g => new Tab(stack.Hub.ConnectTo(GhostLapWire.HubPath, guestCookie: g.Cookie))).ToArray();
+            tabs.AddRange(rejected);
+            await Task.WhenAll(rejected.Select(t => t.Connection.StartAsync()));
+            await Eventually.TrueAsync(() => rejected.All(t => t.Connection.State == HubConnectionState.Disconnected),
+                "Both concurrent over-capacity attempts close.");
+            Assert.Equal(capacity, connections.Count);
+            Assert.Equal(2, connections.RefusedForCapacity);
+            Assert.Equal(2, stack.Hub.Logs.Lines.Count(l => l.EventId == 4101 && l.Message.Contains("server_busy", StringComparison.Ordinal)));
+
+            await tabs[capacity - 1].DisposeAsync(); // a spectator
+            await Eventually.TrueAsync(() => connections.Count == capacity - 1, "The spectator released one place.");
+            var replacement = await OpenAsync(stack, spectatorLogin);
+            tabs.Add(replacement);
+            var rejoin = await replacement.JoinAsync(spectatorRoom, spectator: true);
+            Assert.True(rejoin.Ok, rejoin.Code);
+            Assert.Equal(capacity, connections.Count);
+            Assert.All(tabs.Take(capacity - 1), tab => Assert.Equal(HubConnectionState.Connected, tab.Connection.State));
+        }
+        finally
+        {
+            await Task.WhenAll(tabs.Select(t => t.DisposeAsync().AsTask()));
+        }
     }
 
     // ---- revocation -----------------------------------------------------------------------------------------

@@ -305,10 +305,13 @@ public sealed partial class MatchFinalizationTests
 
             var second = await ReadyAndStartAsync(owner, caller, joined, ct);
             Assert.NotEqual(first.MatchId, second.MatchId);
+            Assert.Equal(MpRulesProfile.CurrentRulesId, firstRuntime.Result!.Document.RulesId);
+            Assert.Equal(first.RulesId, second.RulesId);
             Assert.NotEqual(first.Seed, second.Seed);
             Assert.Equal("elo-pair-v1", second.RatingAlgorithmId);
             var secondRuntime = await AdmitAndRunAsync(owner, registry, roomTime, second, ct);
             Assert.NotSame(firstRuntime.Engine, secondRuntime.Engine);
+            Assert.Equal(second.RulesId, secondRuntime.Feed.Latest!.Snapshot.RulesId);
             await UntilAsync(() => secondRuntime.Status == MatchStatuses.Finalized, "second match finalized", ct);
 
             Assert.Equal("1|elo-pair-v1|2|elo-pair-v1", await db.ScalarAsync<string>(

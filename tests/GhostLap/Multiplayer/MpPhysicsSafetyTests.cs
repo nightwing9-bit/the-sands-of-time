@@ -104,4 +104,25 @@ public sealed class MpPhysicsSafetyTests(ITestOutputHelper output)
         output.WriteLine($"full-speed cardinal pickup cases: {cases}, misses: 0");
         Assert.True(cases > 500, $"only {cases} open-lane cases");
     }
+
+    [Fact]
+    public void Contact_resolves_before_the_lower_slot_preempts_a_simultaneous_burst()
+    {
+        var context = MpMatchContext.Create(21, 3);
+        var state = With(context, 0,
+            Far(context, 0) with { XFixed = U(650), YFixed = U(100), Charge = 4, OverlitDeadlineTick = 1 },
+            Far(context, 1) with { XFixed = U(660), YFixed = U(100), Charge = 4, OverlitDeadlineTick = 1 },
+            Far(context, 2) with { XFixed = U(655), YFixed = U(100), Charge = 2 });
+        GameInput[] presses = [new(1, 0, 1, 0, 0, true), new(1, 1, 1, 0, 0, true)];
+        var resolved = MpRules.Step(state, presses, [], context);
+        var rivalFirst = MpRules.Step(state, presses.Reverse().ToArray(), [], context);
+        Assert.Equal(MpStateCodec.Hash(resolved), MpStateCodec.Hash(rivalFirst));
+        Assert.Equal(new[] { (2, 0), (2, 1) }, resolved.World.Events
+            .Take(2).Where(e => e.Kind == GameEventKind.ContactDrain).Select(e => ((int)e.Slot, (int)e.OtherSlot)));
+        var burst = Assert.Single(resolved.World.Events, e => e.Kind is GameEventKind.BurstManual or GameEventKind.BurstAuto);
+        Assert.Equal((GameEventKind.BurstManual, (byte)0), (burst.Kind, burst.Slot));
+        Assert.Contains(resolved.World.Events, e => e.Kind == GameEventKind.OverlitCancelled && e.Slot == 1);
+        Assert.All(resolved.World.Players, p => Assert.Equal(0, p.DistanceFixed));
+    }
+
 }

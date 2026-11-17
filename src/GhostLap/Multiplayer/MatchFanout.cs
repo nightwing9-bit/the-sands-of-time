@@ -63,6 +63,7 @@ public sealed class RecipientStats
     public long Failures;
     public long MaxSendMicroseconds;
     public long MaxSnapshotAgeTicks;
+    public int MaxControlQueueDepth;
     public bool Stalled;
 }
 
@@ -129,6 +130,9 @@ public sealed class MatchRecipient
 
     public bool IsClosed => Volatile.Read(ref _closed) == 1;
 
+    /// <summary>Rejections queued for this recipient and not yet sent (the bounded outbound control queue).</summary>
+    public int QueuedControl => Volatile.Read(ref _rejectionCount);
+
     internal Task Loop { get; }
 
     internal void Update(MatchViewer viewer)
@@ -171,7 +175,17 @@ public sealed class MatchRecipient
             Wake();
             return;
         }
-        Interlocked.Increment(ref _rejectionCount);
+        var depth = Interlocked.Increment(ref _rejectionCount);
+        var previous = Volatile.Read(ref Stats.MaxControlQueueDepth);
+        while (depth > previous)
+        {
+            var observed = Interlocked.CompareExchange(ref Stats.MaxControlQueueDepth, depth, previous);
+            if (observed == previous)
+            {
+                break;
+            }
+            previous = observed;
+        }
         _rejections.Enqueue(rejection);
         Wake();
     }
@@ -332,6 +346,11 @@ public sealed class MatchRecipient
                 return false;
             }
             Interlocked.Increment(ref Stats.SnapshotsSent);
+            if (_fanout.Telemetry is { } telemetry && _fanout.Options.MeasureSnapshotBytes)
+            {
+                // On this recipient's own sender task, after the send: never on the tick and never delaying another recipient.
+                telemetry.RecordSnapshotBytes(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(frame, System.Text.Json.JsonSerializerOptions.Web).Length);
+            }
         }
         return did;
     }
@@ -415,8 +434,10 @@ public sealed class MatchFanout
         IRealtimeAuthority authority,
         MultiplayerOptions options,
         TimeProvider time,
-        Func<(long Version, string Status)> lifecycle)
+        Func<(long Version, string Status)> lifecycle,
+        MatchTelemetry? telemetry = null)
     {
+        Telemetry = telemetry;
         MatchId = matchId.ToString("N");
         GenerationId = generationId.ToString("N");
         Feed = feed;
@@ -426,6 +447,9 @@ public sealed class MatchFanout
         Time = time;
         _lifecycle = lifecycle;
     }
+
+    /// <summary>Optional task 10.5 measurements; null when the fan-out is built without a profile.</summary>
+    public MatchTelemetry? Telemetry { get; }
 
     public string MatchId { get; }
 

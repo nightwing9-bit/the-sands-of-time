@@ -52,8 +52,13 @@ public static class RoundSealing
         int roundOrdinal,
         IReadOnlyCollection<RosterEntry> roster,
         MultiplayerOptions options,
-        Guid authorityGeneration)
+        Guid authorityGeneration,
+        string rulesId = MpRulesProfile.RulesId)
     {
+        if (!MpRulesProfile.Supports(rulesId))
+        {
+            throw new ArgumentException("Unknown multiplayer rules identity.", nameof(rulesId));
+        }
         if (roomSecret.Length < 32)
         {
             throw new ArgumentException("The room secret must be at least 32 bytes.", nameof(roomSecret));
@@ -83,22 +88,23 @@ public static class RoundSealing
             .Select((entry, slot) => new SealedSlot(slot, entry.MemberId, entry.Subject, sockets[slot].X, sockets[slot].Y))
             .ToArray();
 
-        var digest = Digest(roomId, roundOrdinal, seed, slots, options, authorityGeneration);
+        var rulesHash = MpRulesProfile.HashFor(rulesId);
+        var digest = Digest(roomId, roundOrdinal, seed, slots, options, authorityGeneration, rulesHash);
         var matchBytes = Mac(secret, "match/1", Encoding.ASCII.GetBytes(digest));
         var matchId = new Guid(matchBytes.AsSpan(0, 16), bigEndian: true);
         return new SealedRoundConfig(
-            roomId, roundOrdinal, matchId, MpRulesProfile.RulesId, MpRulesProfile.LayoutId, MpRulesProfile.RulesHash,
+            roomId, roundOrdinal, matchId, rulesId, MpRulesProfile.LayoutId, rulesHash,
             MpRulesProfile.LayoutFingerprint, seed, options.RatingAlgorithmId, MpRulesProfile.TargetTicks, options.CountdownMilliseconds,
             authorityGeneration, slots, digest);
     }
 
-    private static string Digest(Guid roomId, int ordinal, long seed, SealedSlot[] slots, MultiplayerOptions options, Guid generation)
+    private static string Digest(Guid roomId, int ordinal, long seed, SealedSlot[] slots, MultiplayerOptions options, Guid generation, string rulesHash)
     {
         var text = new StringBuilder();
         text.Append(ConfigVersion).Append('\n')
             .Append("room=").Append(roomId.ToString("N")).Append('\n')
             .Append("ordinal=").Append(ordinal.ToString(CultureInfo.InvariantCulture)).Append('\n')
-            .Append("rules=").Append(MpRulesProfile.RulesHash).Append('\n')
+            .Append("rules=").Append(rulesHash).Append('\n')
             .Append("layout=").Append(MpRulesProfile.LayoutId).Append('\n')
             .Append("layoutFingerprint=").Append(MpRulesProfile.LayoutFingerprint).Append('\n')
             .Append("seed=").Append(seed.ToString(CultureInfo.InvariantCulture)).Append('\n')
