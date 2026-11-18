@@ -1,0 +1,271 @@
+{
+  "focused": {
+    "counters": {
+      "total": "20",
+      "executed": "20",
+      "passed": "20",
+      "failed": "0",
+      "error": "0",
+      "timeout": "0",
+      "aborted": "0",
+      "inconclusive": "0",
+      "passedButRunAborted": "0",
+      "notRunnable": "0",
+      "notExecuted": "0",
+      "disconnected": "0",
+      "warning": "0",
+      "completed": "0",
+      "inProgress": "0",
+      "pending": "0"
+    },
+    "tests": [
+      {
+        "name": "GhostLap.Tests.Solo.SoloChallengeTests.Cancelled_preparation_starts_nothing_a_retry_succeeds_and_a_matching_trace_is_reused_without_history_reads",
+        "outcome": "Passed"
+      },
+      {
+        "name": "GhostLap.Tests.Solo.SoloChallengeTests.A_cancelled_running_challenge_releases_its_trace_and_leaves_no_result_or_original",
+        "outcome": "Passed"
+      },
+      {
+        "name": "GhostLap.Tests.Solo.SoloBranchTests.The_database_keeps_branch_source_fork_tick_owner_and_completion_immutable",
+        "outcome": "Passed"
+      },
+      {
+        "name": "GhostLap.Tests.Solo.SoloBranchTests.Ghost_and_branch_collect_independently_from_the_same_candle_schedule",
+        "outcome": "Passed"
+      },
+      {
+        "name": "GhostLap.Tests.Solo.SoloForkTests.Foreign_unknown_unfinished_nested_and_incompatible_originals_fail_closed_without_creating_anything",
+        "outcome": "Passed"
+      },
+      {
+        "name": "GhostLap.Tests.Solo.SoloBranchTests.Fork_is_owned_idempotent_rejects_the_final_tick_and_conflicting_duplicates_without_creating_histories",
+        "outcome": "Passed"
+      },
+      {
+        "name": "GhostLap.Tests.Solo.SoloBranchTests.Branch_with_changed_inputs_changes_the_outcome_and_leaves_every_source_row_unchanged",
+        "outcome": "Passed"
+      },
+      {
+        "name": "GhostLap.Tests.Solo.SoloChallengeTests.A_full_challenge_races_the_exact_ghost_with_no_history_reads_and_finishes_a_verified_challenge_child",
+        "outcome": "Passed"
+      },
+      {
+        "name": "GhostLap.Tests.Solo.SoloChallengeTests.Preparation_ends_Ready_with_the_exact_verified_trace_at_every_tick",
+        "outcome": "Passed"
+      },
+      {
+        "name": "GhostLap.Tests.Solo.SoloBranchTests.Aligned_comparison_reports_per_tick_scores_and_signed_delta_from_the_database",
+        "outcome": "Passed"
+      },
+      {
+        "name": "GhostLap.Tests.Solo.SoloForkTests.Retrying_an_operation_never_duplicates_a_child_a_new_key_creates_a_distinct_sibling_and_a_key_cannot_move_its_tick",
+        "outcome": "Passed"
+      },
+      {
+        "name": "GhostLap.Tests.Solo.SoloForkTests.Fork_restores_the_exact_source_state_at_T0_T1140_and_T2699_and_T2700_is_inspect_only",
+        "outcome": "Passed"
+      },
+      {
+        "name": "GhostLap.Tests.Solo.SoloBranchTests.A_timeline_child_orphaned_before_its_branch_row_is_adopted_by_a_retry_with_the_same_key_exactly_once",
+        "outcome": "Passed"
+      },
+      {
+        "name": "GhostLap.Tests.Solo.SoloGhostTraceCacheTests.Capacity_is_bounded_leased_traces_are_never_evicted_and_idle_ones_expire",
+        "outcome": "Passed"
+      },
+      {
+        "name": "GhostLap.Tests.Solo.SoloBranchTests.Fork_at_a_tick_with_charge_timers_remainder_and_collected_candles_starts_from_the_exact_source_state",
+        "outcome": "Passed"
+      },
+      {
+        "name": "GhostLap.Tests.Solo.SoloForkTests.Two_siblings_from_T1140_play_different_futures_save_verified_Fork_children_and_leave_the_original_unchanged",
+        "outcome": "Passed"
+      },
+      {
+        "name": "GhostLap.Tests.Solo.SoloGhostTraceCacheTests.Reuse_requires_the_same_owner_original_versions_and_verified_final_hash",
+        "outcome": "Passed"
+      },
+      {
+        "name": "GhostLap.Tests.Solo.SoloForkTests.The_first_new_transition_is_T_plus_1_and_replaying_source_inputs_from_a_fork_reproduces_the_source_exactly",
+        "outcome": "Passed"
+      },
+      {
+        "name": "GhostLap.Tests.Solo.SoloChallengeTests.A_foreign_unknown_or_unready_original_never_starts_and_forks_nothing",
+        "outcome": "Passed"
+      },
+      {
+        "name": "GhostLap.Tests.Solo.SoloBranchTests.Fork_restores_an_active_contact_cooldown_in_a_four_player_history",
+        "outcome": "Passed"
+      }
+    ]
+  },
+  "timeline": {
+    "counters": {
+      "total": "17",
+      "executed": "17",
+      "passed": "17",
+      "failed": "0",
+      "error": "0",
+      "timeout": "0",
+      "aborted": "0",
+      "inconclusive": "0",
+      "passedButRunAborted": "0",
+      "notRunnable": "0",
+      "notExecuted": "0",
+      "disconnected": "0",
+      "warning": "0",
+      "completed": "0",
+      "inProgress": "0",
+      "pending": "0"
+    },
+    "tests": [
+      {
+        "name": "Marrow.Tests.Timeline.Engine.RestoreReplayTests.Child_prefix_uses_ancestor_context_and_reducer_and_suffix_uses_its_own_after_cold_restart",
+        "outcome": "Passed"
+      },
+      {
+        "name": "Marrow.Tests.Timeline.Engine.RestoreReplayTests.A_rehashed_forged_checkpoint_a_changed_step_hash_and_a_swapped_context_pin_are_CorruptHistory",
+        "outcome": "Passed"
+      },
+      {
+        "name": "Marrow.Tests.Timeline.Engine.ForkPropertyTests.Tick_branches_share_the_exact_prefix_and_keep_independent_suffixes",
+        "outcome": "Passed"
+      },
+      {
+        "name": "Marrow.Tests.Timeline.Engine.ForkContinueCompareTests.Fork_key_is_idempotent_a_changed_context_conflicts_and_concurrent_forks_create_one_branch",
+        "outcome": "Passed"
+      },
+      {
+        "name": "Marrow.Tests.Timeline.Engine.ForkContinueCompareTests.Cancelled_fork_or_child_completion_leaves_nothing_verified_and_a_retry_succeeds",
+        "outcome": "Passed"
+      },
+      {
+        "name": "Marrow.Tests.Timeline.Engine.RestoreReplayTests.Corrupted_input_bytes_fail_restore_through_that_step_and_completion_marks_the_history_Failed",
+        "outcome": "Passed"
+      },
+      {
+        "name": "Marrow.Tests.Timeline.Engine.ForkContinueCompareTests.Missing_reducer_or_corrupted_prefix_fails_closed_and_creates_no_branch",
+        "outcome": "Passed"
+      },
+      {
+        "name": "Marrow.Tests.Timeline.Engine.ForkPropertyTests.Event_branches_share_the_exact_prefix_and_keep_independent_suffixes",
+        "outcome": "Passed"
+      },
+      {
+        "name": "Marrow.Tests.Timeline.Engine.ForkContinueCompareTests.Sibling_branches_with_changed_contexts_are_independent_and_reproducible_after_a_cold_restart",
+        "outcome": "Passed"
+      },
+      {
+        "name": "Marrow.Tests.Timeline.Engine.RestoreReplayTests.Position_zero_is_the_initial_state_and_bounds_and_identity_errors_are_typed",
+        "outcome": "Passed"
+      },
+      {
+        "name": "Marrow.Tests.Timeline.Engine.RestoreReplayTests.Cancellation_during_the_fold_returns_Cancelled_and_never_marks_Verified",
+        "outcome": "Passed"
+      },
+      {
+        "name": "Marrow.Tests.Timeline.Engine.ForkContinueCompareTests.Aligned_compare_returns_verified_states_per_position_with_each_history_status",
+        "outcome": "Passed"
+      },
+      {
+        "name": "Marrow.Tests.Timeline.Engine.RestoreReplayTests.Engine_append_maps_position_identity_and_retry_cases_to_typed_results",
+        "outcome": "Passed"
+      },
+      {
+        "name": "Marrow.Tests.Timeline.Engine.RestoreReplayTests.Cold_server_restart_replays_with_the_pinned_v7_reducer_and_context_not_current_v8",
+        "outcome": "Passed"
+      },
+      {
+        "name": "Marrow.Tests.Timeline.Persistence.TimelineStoreRestartTests.Initial_checkpoint_pinned_context_and_steps_survive_a_server_restart",
+        "outcome": "Passed"
+      },
+      {
+        "name": "Marrow.Tests.Timeline.Engine.RestoreReplayTests.Missing_or_mismatched_codec_or_context_is_IncompatibleVersion_and_a_changed_reducer_is_CorruptHistory",
+        "outcome": "Passed"
+      },
+      {
+        "name": "Marrow.Tests.Timeline.Engine.ForkContinueCompareTests.Terminal_and_out_of_range_positions_lifecycle_and_identity_errors_are_typed",
+        "outcome": "Passed"
+      }
+    ]
+  },
+  "architecture": {
+    "counters": {
+      "total": "11",
+      "executed": "11",
+      "passed": "11",
+      "failed": "0",
+      "error": "0",
+      "timeout": "0",
+      "aborted": "0",
+      "inconclusive": "0",
+      "passedButRunAborted": "0",
+      "notRunnable": "0",
+      "notExecuted": "0",
+      "disconnected": "0",
+      "warning": "0",
+      "completed": "0",
+      "inProgress": "0",
+      "pending": "0"
+    },
+    "tests": [
+      {
+        "name": "TheSandsOfTime.Architecture.Tests.ModuleArchitectureTests.Infrastructure_knows_no_domain_and_no_host",
+        "outcome": "Passed"
+      },
+      {
+        "name": "TheSandsOfTime.Architecture.Tests.ModuleArchitectureTests.Kernel_references_nothing_beyond_the_base_class_library",
+        "outcome": "Passed"
+      },
+      {
+        "name": "TheSandsOfTime.Architecture.Tests.ModuleArchitectureTests.GhostLap_assemblies_do_not_reach_Infrastructure_hosts_or_Revenant",
+        "outcome": "Passed"
+      },
+      {
+        "name": "TheSandsOfTime.Architecture.Tests.ModuleArchitectureTests.No_assembly_references_a_host",
+        "outcome": "Passed"
+      },
+      {
+        "name": "TheSandsOfTime.Architecture.Tests.ModuleArchitectureTests.Domain_rule_reports_a_real_Infrastructure_edge_when_applied_to_a_host",
+        "outcome": "Passed"
+      },
+      {
+        "name": "TheSandsOfTime.Architecture.Tests.ModuleArchitectureTests.No_product_assembly_references_a_test_only_assembly",
+        "outcome": "Passed"
+      },
+      {
+        "name": "TheSandsOfTime.Architecture.Tests.ModuleArchitectureTests.Game_domain_has_no_rendering_dependency",
+        "outcome": "Passed"
+      },
+      {
+        "name": "TheSandsOfTime.Architecture.Tests.ModuleArchitectureTests.Expected_modules_are_present_as_compiled_assemblies",
+        "outcome": "Passed"
+      },
+      {
+        "name": "TheSandsOfTime.Architecture.Tests.ModuleArchitectureTests.Revenant_assemblies_do_not_reach_Infrastructure_hosts_or_GhostLap",
+        "outcome": "Passed"
+      },
+      {
+        "name": "TheSandsOfTime.Architecture.Tests.ModuleArchitectureTests.Timeline_references_Kernel_only",
+        "outcome": "Passed"
+      },
+      {
+        "name": "TheSandsOfTime.Architecture.Tests.ModuleArchitectureTests.Finance_domain_has_no_game_dependency",
+        "outcome": "Passed"
+      }
+    ]
+  },
+  "sibling_evidence": [
+    "owner guest:1a534b84-ed46-4cbd-bcb4-b4faf82f4846; seed 42; mascot 2; layout arena-v1; versions TimelineVersionKey { DomainId = ghost-lap, ReducerVersion = ghost-v1, InputSchemaVersion = ghost-input/1, StateSchemaVersion = ghost-state/1, ContextSchemaVersion = ghost-context/1 }",
+    "T1140 state hash 7a76dc5e16e9be321695f964a3eb2cbb4d117c5a040c274a7e2e71fd68706f9e; canonical byte length 669",
+    "source fingerprint before/after restart f71f876531264c4ee7cf3347a9cf83c8|2700:38afe85c03c55871a2d310d44a16b82e|46:003e7072a3305b5fa6e81c5695afd536|2160:19c52ecc661e96501eb737b82fa4b702|80511086205f440d1fd87e19ef5acb3d",
+    "source last record a4754d7eed7bbd121b07425cb6c43293590cdc3caadaed30531ac1129c35776f; X last record 2587df9ea585d40a4e1f443d7622b70856132bc23e47d470b897241c6180f11a; Y last record 9bf9bb149209300d858bd9b57c26a469918aaf9e3fc506194495b1626b390abb",
+    "Writer provider disposed; PostgreSQL stopped/started; new restricted runtime provider and empty cache; both histories replay Verified.",
+    "source 01a1ecbd-90a6-7ca8-8b52-18ad69562c56 final 351dbb0b9a84f58e90fb847b8ad41c72af4785823239ae633eae457d6a088a5e score 3325",
+    "sibling X 01a1ecbd-e44a-776b-bb7c-5107c84b8b36 final 7d661efe4e14206460e6e21b88411f2f69685c5a55056bbac5856ed311353eb6 score 2327 delta -998",
+    "sibling Y 01a1ecbe-031a-75ab-bc15-687ac804a4b0 final c83a5f30bc92f8eb6b453d078930eb68b6616ab63298f01de02b54dc8bf0bca9 score 1920 delta -1405",
+    "T1140+1 divergence: X 1311 / Y 1311 / source 1311"
+  ]
+}

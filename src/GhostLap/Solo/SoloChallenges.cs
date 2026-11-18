@@ -24,7 +24,18 @@ public static class SoloBranchKinds
 {
     public const string ChallengeKeyPrefix = "challenge.";
 
+    public const string ForkKeyPrefix = "fork.";
+
     public static string ChallengeKey(string clientKey) => ChallengeKeyPrefix + clientKey;
+
+    public static string ForkKey(string clientKey) => ForkKeyPrefix + clientKey;
+
+    /// <summary>The server-minted operation key of a client key for the given kind.</summary>
+    public static string KeyFor(SoloBranchKind kind, string clientKey) =>
+        kind == SoloBranchKind.Challenge ? ChallengeKey(clientKey) : ForkKey(clientKey);
+
+    public static int PrefixLength(SoloBranchKind kind) =>
+        kind == SoloBranchKind.Challenge ? ChallengeKeyPrefix.Length : ForkKeyPrefix.Length;
 
     public static SoloBranchKind Of(SoloBranchRecord branch)
     {
@@ -51,7 +62,10 @@ public enum SoloChallengePhase
     Cancelled,
 }
 
-/// <summary>The sealed start of the living challenge: identical seed/layout/mascot to the original, and both worlds at tick 0.</summary>
+/// <summary>
+/// The sealed start of the living challenge (both worlds at tick 0) or fork (both worlds at the fork tick, <see cref="ForkTick"/>):
+/// identical seed/layout/mascot to the original. The first new living input belongs to tick <c>ForkTick + 1</c>.
+/// </summary>
 public sealed record SoloChallengeStarted(
     TimelineId Child,
     TimelineId Original,
@@ -61,7 +75,9 @@ public sealed record SoloChallengeStarted(
     string RulesVersion,
     string LayoutVersion,
     WorldFrame Living,
-    SoloTraceFrame Ghost);
+    SoloTraceFrame Ghost,
+    SoloBranchKind Kind = SoloBranchKind.Challenge,
+    long ForkTick = 0);
 
 /// <summary>
 /// One committed living tick and the historical ghost at the same tick (a local array lookup). <see cref="Delta"/> is the
@@ -117,7 +133,18 @@ public sealed class SoloChallenges(
     public SoloChallenge Begin(IActorContext actor, TimelineId original)
     {
         ArgumentNullException.ThrowIfNull(actor);
-        return new SoloChallenge(this, actor, original);
+        return new SoloChallenge(this, actor, original, SoloBranchKind.Challenge, 0);
+    }
+
+    /// <summary>
+    /// Task 11.4: creates a <see cref="SoloBranchKind.Fork"/> session of the owner's original at <paramref name="forkTick"/>. It uses
+    /// the same lifecycle, prepared ghost trace, living recorder and completion as a challenge; only the starting tick (T instead of 0)
+    /// and the classification differ. <see cref="SoloChallenge.PrepareAsync"/> refuses ticks outside 0..2699 (2700 is inspect-only).
+    /// </summary>
+    public SoloChallenge BeginFork(IActorContext actor, TimelineId original, long forkTick)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+        return new SoloChallenge(this, actor, original, SoloBranchKind.Fork, forkTick);
     }
 
     /// <summary>
@@ -125,10 +152,18 @@ public sealed class SoloChallenges(
     /// stored child must be a Complete <see cref="SoloBranchKind.Challenge"/> whose verified final state reproduces the recorded
     /// hash, and the source original must still replay to its own. An unfinished challenge is <see cref="SoloErrorCode.NotComplete"/>.
     /// </summary>
-    public Task<Result<SoloChallengeResult, SoloError>> ResolveAsync(IActorContext actor, string clientKey, CancellationToken ct)
+    public Task<Result<SoloChallengeResult, SoloError>> ResolveAsync(IActorContext actor, string clientKey, CancellationToken ct) =>
+        ResolveCoreAsync(actor, clientKey, SoloBranchKind.Challenge, ct);
+
+    /// <summary>The <see cref="SoloBranchKind.Fork"/> counterpart of <see cref="ResolveAsync"/>: the owner's finished, verified fork by client key.</summary>
+    public Task<Result<SoloChallengeResult, SoloError>> ResolveForkAsync(IActorContext actor, string clientKey, CancellationToken ct) =>
+        ResolveCoreAsync(actor, clientKey, SoloBranchKind.Fork, ct);
+
+    private Task<Result<SoloChallengeResult, SoloError>> ResolveCoreAsync(
+        IActorContext actor, string clientKey, SoloBranchKind kind, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(actor);
-        var key = clientKey is null ? "" : SoloBranchKinds.ChallengeKey(clientKey);
+        var key = clientKey is null ? "" : SoloBranchKinds.KeyFor(kind, clientKey);
         if (!actor.IsAuthenticated || string.IsNullOrEmpty(actor.SubjectId))
         {
             return Task.FromResult(SoloResult.Fail<SoloChallengeResult>(SoloErrorCode.Unauthenticated, "A verified actor is required."));
@@ -142,7 +177,7 @@ public sealed class SoloChallenges(
         return SoloResult.GuardAsync(async () =>
         {
             var row = await Store.ReadBranchByKeyAsync(actor.SubjectId, key, ct).ConfigureAwait(false);
-            if (row is null || SoloBranchKinds.Of(row) != SoloBranchKind.Challenge)
+            if (row is null || SoloBranchKinds.Of(row) != kind)
             {
                 return SoloResult.Fail<SoloChallengeResult>(SoloErrorCode.NotFound, "No such challenge.");
             }
@@ -205,14 +240,22 @@ public sealed class SoloChallenge
     private SoloBranch? _branch;
     private SoloChallengeResult? _result;
 
-    internal SoloChallenge(SoloChallenges services, IActorContext actor, TimelineId original)
+    internal SoloChallenge(SoloChallenges services, IActorContext actor, TimelineId original, SoloBranchKind kind, long forkTick)
     {
         _services = services;
         _actor = actor;
         Original = original;
+        Kind = kind;
+        ForkTick = forkTick;
     }
 
     public TimelineId Original { get; }
+
+    /// <summary><see cref="SoloBranchKind.Challenge"/> (starts at tick 0) or <see cref="SoloBranchKind.Fork"/> (starts at <see cref="ForkTick"/>).</summary>
+    public SoloBranchKind Kind { get; }
+
+    /// <summary>The tick whose exact source state the living world starts from; its first new input is tick <c>ForkTick + 1</c>.</summary>
+    public long ForkTick { get; }
 
     public SoloChallengePhase Phase
     {
@@ -288,7 +331,9 @@ public sealed class SoloChallenge
         }
 
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _cts.Token);
-        var prepared = await SoloResult.GuardAsync(() => PrepareCoreAsync(linked.Token), linked.Token).ConfigureAwait(false);
+        var prepared = ForkTickRefusal() is { } refusal
+            ? SoloResult.Fail<PreparedTraceLease>(refusal)
+            : await SoloResult.GuardAsync(() => PrepareCoreAsync(linked.Token), linked.Token).ConfigureAwait(false);
         lock (_gate)
         {
             if (_phase != SoloChallengePhase.Preparing)
@@ -312,6 +357,16 @@ public sealed class SoloChallenge
             return SoloResult.Fail<PreparedGhostTrace>(prepared.Error);
         }
     }
+
+    /// <summary>A fork tick outside 0..2699 is refused before any history is read (the final tick is inspect-only).</summary>
+    private SoloError? ForkTickRefusal() => Kind switch
+    {
+        SoloBranchKind.Fork when ForkTick == GameRulesV1.RoundTicks => new SoloError(SoloErrorCode.ForkNotAllowed,
+            $"Tick {ForkTick} is the final tick; it can be inspected but not forked."),
+        SoloBranchKind.Fork when ForkTick < 0 || ForkTick > GameRulesV1.RoundTicks => new SoloError(SoloErrorCode.InvalidTick,
+            $"Fork tick must be 0-{GameRulesV1.RoundTicks - 1}."),
+        _ => null,
+    };
 
     private async Task<Result<PreparedTraceLease, SoloError>> PrepareCoreAsync(CancellationToken ct)
     {
@@ -413,11 +468,11 @@ public sealed class SoloChallenge
     /// </summary>
     public async Task<Result<SoloChallengeStarted, SoloError>> StartAsync(string clientKey, CancellationToken ct)
     {
-        var key = clientKey is null ? "" : SoloBranchKinds.ChallengeKey(clientKey);
+        var key = clientKey is null ? "" : SoloBranchKinds.KeyFor(Kind, clientKey);
         if (string.IsNullOrEmpty(clientKey) || !SoloOriginals.IsValidOperationKey(key))
         {
             return SoloResult.Fail<SoloChallengeStarted>(SoloErrorCode.InvalidRequest,
-                $"Challenge key must be 1-{SoloOriginals.MaxOperationKeyLength - SoloBranchKinds.ChallengeKeyPrefix.Length} characters of letters, digits, '-', '_' or '.'.");
+                $"{Kind} key must be 1-{SoloOriginals.MaxOperationKeyLength - SoloBranchKinds.PrefixLength(Kind)} characters of letters, digits, '-', '_' or '.'.");
         }
 
         PreparedGhostTrace trace;
@@ -436,25 +491,45 @@ public sealed class SoloChallenge
         try
         {
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _cts.Token);
-            var forked = await _services.Branches.ForkAsync(_actor, Original, 0, key, linked.Token).ConfigureAwait(false);
+            var forked = await _services.Branches.ForkAsync(_actor, Original, ForkTick, key, linked.Token).ConfigureAwait(false);
             if (!forked.TryGetValue(out var branch))
             {
                 return Refused(forked.Error);
             }
 
-            var start = trace.At(0);
+            var start = trace.At(ForkTick);
             var living = branch.State;
             var p = living.Players[0];
-            if (living.Tick != 0)
+            if (living.Tick != ForkTick)
             {
-                return Refused(new SoloError(SoloErrorCode.Conflict, "This challenge key already has committed ticks; use a new key."));
+                return Refused(new SoloError(SoloErrorCode.Conflict, $"This {Kind} key already has committed ticks; use a new key."));
             }
 
-            // The branch context is the source row's own seed/mascot/rules by construction; tick zero is checked against the ghost.
-            if (branch.Record.Source != Original || branch.ForkTick != 0 || p.XFixed != start.XFixed || p.YFixed != start.YFixed
-                || p.DistanceFixed != start.DistanceFixed || !living.ActiveCandleIds.SequenceEqual(start.ActiveCandleIds))
+            // The branch context is the source row's own seed/mascot/rules by construction; the start is checked against the ghost.
+            if (branch.Record.Source != Original || branch.ForkTick != ForkTick || p.XFixed != start.XFixed || p.YFixed != start.YFixed
+                || p.DistanceFixed != start.DistanceFixed || p.Charge != start.Charge || p.OverlitDeadlineTick != start.OverlitDeadlineTick
+                || p.TotalScore != start.TotalScore || !living.ActiveCandleIds.SequenceEqual(start.ActiveCandleIds))
             {
-                return Fail(new SoloError(SoloErrorCode.VerificationFailed, "The living world does not start from the original's tick-zero state."));
+                return Fail(new SoloError(SoloErrorCode.VerificationFailed,
+                    $"The living world does not start from the original's tick-{ForkTick} state."));
+            }
+
+            if (ForkTick > 0)
+            {
+                // One verified restore before gameplay (never inside the tick loop): the child's prefix at T must be the source's
+                // exact canonical state, byte for byte and by the hash the trace carries for the source at T.
+                var restored = await _services.Branches.RestoreAsync(_actor, branch.Timeline, ForkTick, linked.Token).ConfigureAwait(false);
+                if (!restored.TryGetValue(out var prefix))
+                {
+                    return Refused(restored.Error);
+                }
+
+                if (prefix.State.Tick != ForkTick || prefix.StateHash != start.StateHash
+                    || !GameStateCodec.Instance.EncodeCanonical(prefix.State).AsSpan().SequenceEqual(GameStateCodec.Instance.EncodeCanonical(living)))
+                {
+                    return Fail(new SoloError(SoloErrorCode.VerificationFailed,
+                        $"The fork prefix at tick {ForkTick} is not the verified source state."));
+                }
             }
 
             lock (_gate)
@@ -470,7 +545,7 @@ public sealed class SoloChallenge
 
             return SoloResult.Ok(new SoloChallengeStarted(
                 branch.Timeline, Original, branch.Record.OperationKey, branch.Record.Seed, branch.Record.MascotId,
-                branch.Record.RulesVersion, branch.Record.LayoutVersion, WorldFrame.Of(living), start));
+                branch.Record.RulesVersion, branch.Record.LayoutVersion, WorldFrame.Of(living), start, Kind, ForkTick));
         }
         finally
         {
@@ -594,12 +669,12 @@ public sealed class SoloChallenge
             return Rejected<SoloChallengeResult>(stored.Error);
         }
 
-        if (row.Status != SoloOriginalStatus.Complete || row.Source != Original || row.ForkTick != 0
-            || SoloBranchKinds.Of(row) != SoloBranchKind.Challenge
+        if (row.Status != SoloOriginalStatus.Complete || row.Source != Original || row.ForkTick != ForkTick
+            || SoloBranchKinds.Of(row) != Kind
             || row.FinalStateHash != child.FinalStateHash || row.LastRecordHash != child.LastRecordHash)
         {
             return Rejected<SoloChallengeResult>(new SoloError(SoloErrorCode.VerificationFailed,
-                "The stored child is not the verified Challenge that was played."));
+                $"The stored child is not the verified {Kind} that was played."));
         }
 
         var source = await _services.Originals.OpenAsync(_actor, Original, ct).ConfigureAwait(false);
