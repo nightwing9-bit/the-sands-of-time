@@ -128,6 +128,40 @@ public sealed partial class SoloOriginalStore
         }, ct);
     }
 
+    /// <summary>
+    /// The owner's <b>Complete</b> branches (Challenge and Fork children), newest first, at most <paramref name="limit"/>, optionally
+    /// only those of one <paramref name="source"/> original. <paramref name="after"/> is the last row of the previous page (keyset paging
+    /// on <c>(completed_at, timeline_id)</c>, resolved inside the owner's own rows). A branch that is still Recording is never returned.
+    /// Read-only SELECT over existing columns; no schema change.
+    /// </summary>
+    public Task<Result<IReadOnlyList<SoloBranchRecord>, SoloError>> ListCompleteBranchesByOwnerAsync(
+        string ownerSubjectId, TimelineId? source, TimelineId? after, int limit, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(ownerSubjectId);
+        ArgumentOutOfRangeException.ThrowIfLessThan(limit, 1);
+        return SoloResult.GuardAsync(async () =>
+        {
+            await using var select = _dataSource.CreateCommand(
+                $"SELECT {BranchColumns} FROM ghostlap.solo_branches WHERE owner_subject_id = @owner AND status = 'Complete' " +
+                "AND (@source::uuid IS NULL OR source_timeline_id = @source::uuid) " +
+                "AND (@after::uuid IS NULL OR (completed_at, timeline_id) < (SELECT completed_at, timeline_id FROM ghostlap.solo_branches " +
+                "WHERE timeline_id = @after::uuid AND owner_subject_id = @owner AND status = 'Complete')) " +
+                "ORDER BY completed_at DESC, timeline_id DESC LIMIT @limit");
+            select.Parameters.AddWithValue("owner", ownerSubjectId);
+            select.Parameters.Add(new Npgsql.NpgsqlParameter("source", NpgsqlTypes.NpgsqlDbType.Uuid) { Value = source is { } s ? s.Value : DBNull.Value });
+            select.Parameters.Add(new Npgsql.NpgsqlParameter("after", NpgsqlTypes.NpgsqlDbType.Uuid) { Value = after is { } a ? a.Value : DBNull.Value });
+            select.Parameters.AddWithValue("limit", limit);
+            var rows = new List<SoloBranchRecord>();
+            await using var r = await select.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            while (await r.ReadAsync(ct).ConfigureAwait(false))
+            {
+                rows.Add(MaterializeBranch(r));
+            }
+
+            return SoloResult.Ok<IReadOnlyList<SoloBranchRecord>>(rows);
+        }, ct);
+    }
+
     /// <summary>The actor's branch for an operation key, or null. Driver failures propagate (callers guard them).</summary>
     internal async Task<SoloBranchRecord?> ReadBranchByKeyAsync(string ownerSubjectId, string operationKey, CancellationToken ct)
     {
@@ -149,11 +183,11 @@ public sealed partial class SoloOriginalStore
     private static async Task<SoloBranchRecord?> ReadBranchRowAsync(Npgsql.NpgsqlCommand select, CancellationToken ct)
     {
         await using var r = await select.ExecuteReaderAsync(ct).ConfigureAwait(false);
-        if (!await r.ReadAsync(ct).ConfigureAwait(false))
-        {
-            return null;
-        }
+        return await r.ReadAsync(ct).ConfigureAwait(false) ? MaterializeBranch(r) : null;
+    }
 
+    private static SoloBranchRecord MaterializeBranch(Npgsql.NpgsqlDataReader r)
+    {
         return new SoloBranchRecord(
             new TimelineId(r.GetGuid(0)),
             new TimelineId(r.GetGuid(1)),

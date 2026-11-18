@@ -101,7 +101,11 @@ public sealed record SoloChallengeResult(
     int SourceScore,
     int Delta,
     string SourceFinalStateHash,
-    string SourceLastRecordHash);
+    string SourceLastRecordHash,
+    long Seed = 0,
+    byte MascotId = 0,
+    string RulesVersion = "",
+    string LayoutVersion = "");
 
 /// <summary>
 /// Race the original ghost: prepares a verified, owner-authenticated, full T0..T2700 trace of a completed <c>ghost-v1</c>
@@ -109,7 +113,7 @@ public sealed record SoloChallengeResult(
 /// Marrow port, schema or archive: the history comes from <see cref="SoloOriginals.TraceAsync"/>, the living history is a
 /// <see cref="SoloBranch"/>, and the trace is kept only in process memory (<see cref="SoloGhostTraceCache"/>).
 /// </summary>
-public sealed class SoloChallenges(
+public sealed partial class SoloChallenges(
     SoloOriginals originals,
     SoloBranches branches,
     SoloOriginalStore store,
@@ -177,32 +181,38 @@ public sealed class SoloChallenges(
         return SoloResult.GuardAsync(async () =>
         {
             var row = await Store.ReadBranchByKeyAsync(actor.SubjectId, key, ct).ConfigureAwait(false);
-            if (row is null || SoloBranchKinds.Of(row) != kind)
-            {
-                return SoloResult.Fail<SoloChallengeResult>(SoloErrorCode.NotFound, "No such challenge.");
-            }
-
-            if (row.Status != SoloOriginalStatus.Complete || row.FinalTick != GameRulesV1.RoundTicks)
-            {
-                return SoloResult.Fail<SoloChallengeResult>(SoloErrorCode.NotComplete, "This challenge was not completed and verified.");
-            }
-
-            var source = await Originals.OpenAsync(actor, row.Source, ct).ConfigureAwait(false);
-            if (!source.TryGetValue(out var original))
-            {
-                return SoloResult.Fail<SoloChallengeResult>(source.Error);
-            }
-
-            var restored = await Branches.RestoreAsync(actor, row.Timeline, GameRulesV1.RoundTicks, ct).ConfigureAwait(false);
-            if (!restored.TryGetValue(out var final))
-            {
-                return SoloResult.Fail<SoloChallengeResult>(restored.Error);
-            }
-
-            return final.HistoryStatus == HistoryStatus.Verified && final.State.IsFinal && final.StateHash == row.FinalStateHash
-                ? SoloResult.Ok(Build(row, final.State, original))
-                : SoloResult.Fail<SoloChallengeResult>(SoloErrorCode.VerificationFailed, "The stored challenge does not reproduce its recorded hash.");
+            return row is null || SoloBranchKinds.Of(row) != kind
+                ? SoloResult.Fail<SoloChallengeResult>(SoloErrorCode.NotFound, "No such challenge.")
+                : await VerifiedResultAsync(actor, row, ct).ConfigureAwait(false);
         }, ct);
+    }
+
+    /// <summary>
+    /// The verified result of the actor's own stored child: it must be Complete at the final tick, the source original must still replay
+    /// to its recorded hashes, and the child's final state must reproduce the recorded hash. Anything else is a typed failure.
+    /// </summary>
+    internal async Task<Result<SoloChallengeResult, SoloError>> VerifiedResultAsync(IActorContext actor, SoloBranchRecord row, CancellationToken ct)
+    {
+        if (row.Status != SoloOriginalStatus.Complete || row.FinalTick != GameRulesV1.RoundTicks)
+        {
+            return SoloResult.Fail<SoloChallengeResult>(SoloErrorCode.NotComplete, "This challenge was not completed and verified.");
+        }
+
+        var source = await Originals.OpenAsync(actor, row.Source, ct).ConfigureAwait(false);
+        if (!source.TryGetValue(out var original))
+        {
+            return SoloResult.Fail<SoloChallengeResult>(source.Error);
+        }
+
+        var restored = await Branches.RestoreAsync(actor, row.Timeline, GameRulesV1.RoundTicks, ct).ConfigureAwait(false);
+        if (!restored.TryGetValue(out var final))
+        {
+            return SoloResult.Fail<SoloChallengeResult>(restored.Error);
+        }
+
+        return final.HistoryStatus == HistoryStatus.Verified && final.State.IsFinal && final.StateHash == row.FinalStateHash
+            ? SoloResult.Ok(Build(row, final.State, original))
+            : SoloResult.Fail<SoloChallengeResult>(SoloErrorCode.VerificationFailed, "The stored challenge does not reproduce its recorded hash.");
     }
 
     internal static SoloChallengeResult Build(SoloBranchRecord row, GameState finalState, SoloOriginal original)
@@ -213,7 +223,7 @@ public sealed class SoloChallenges(
         return new SoloChallengeResult(
             row.Timeline, row.Source, SoloBranchKinds.Of(row), row.OperationKey, row.ForkTick, row.FinalTick!.Value,
             row.FinalStateHash!, row.LastRecordHash!, living, livingScore, sourceScore, checked(livingScore - sourceScore),
-            original.FinalStateHash, original.LastRecordHash);
+            original.FinalStateHash, original.LastRecordHash, row.Seed, row.MascotId, row.RulesVersion, row.LayoutVersion);
     }
 }
 

@@ -2,7 +2,7 @@ using Microsoft.Extensions.Logging;
 
 namespace GhostLapHost;
 
-/// <summary>Ghost Lap solo log events 4111-4118. Run ids, tick numbers and reason codes only: never principals, cookies or inputs.</summary>
+/// <summary>Ghost Lap solo log events 4111-4119. Run ids, tick numbers and reason codes only: never principals, cookies or inputs.</summary>
 public sealed partial class GhostLapSoloLog(ILogger<GhostLapSoloLog> logger)
 {
     [LoggerMessage(EventId = 4111, Level = LogLevel.Information, Message = "Ghost Lap solo run started: run {RunId}")]
@@ -28,6 +28,12 @@ public sealed partial class GhostLapSoloLog(ILogger<GhostLapSoloLog> logger)
 
     [LoggerMessage(EventId = 4118, Level = LogLevel.Information, Message = "Ghost Lap challenge finish: child {RunId}, outcome {Outcome}")]
     private static partial void LogChallengeEnded(ILogger logger, string runId, string outcome);
+
+    [LoggerMessage(EventId = 4119, Level = LogLevel.Information, Message = "Ghost Lap challenge timing: child {RunId}, ticks {Ticks}, commit interval p99 {P99Ms} ms, max {MaxMs} ms, schedule lag max {LagMs} ms, coalesced frames {Coalesced}, benign movement refusals {Benign}, Burst refusals {Burst}")]
+    private static partial void LogChallengeTiming(ILogger logger, string runId, int ticks, double p99Ms, double maxMs, double lagMs, int coalesced, int benign, int burst);
+
+    public void ChallengeTiming(string runId, int ticks, double p99Ms, double maxMs, double lagMs, int coalesced, int benign, int burst) =>
+        LogChallengeTiming(logger, runId, ticks, p99Ms, maxMs, lagMs, coalesced, benign, burst);
 
     public void ChallengePrepareFailed(string code) => LogChallengePrepareFailed(logger, code);
 

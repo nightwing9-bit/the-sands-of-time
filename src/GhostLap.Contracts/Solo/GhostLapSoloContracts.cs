@@ -27,6 +27,15 @@ public static class GhostLapSoloWire
     public const string RunEndedClientMethod = "RunEnded";
 
     public const int TickRateHz = 30;
+
+    /// <summary>GET: the signed-in guest's own completed Challenge and Fork children (paged). GET {route}/{id}: one verified child. GET {route}/{id}/comparison: same-tick source/child scores.</summary>
+    public const string ChildrenRoute = "/api/ghostlap/solo/children";
+
+    /// <summary>Version of the trace/inspect/comparison response shapes. A request that names another version is refused (<see cref="SoloFailure.ContractUnsupported"/>).</summary>
+    public const string HistoryContractVersion = "solo-history/1";
+
+    /// <summary>Largest number of ticks one trace request returns; a full round (2,701 states) is ten consecutive chunks.</summary>
+    public const int MaxTraceCount = 300;
 }
 
 public static class SoloFailure
@@ -46,6 +55,8 @@ public static class SoloFailure
     public const string NoRun = "no_run";
     public const string StreamAlreadyOpen = "stream_already_open";
     public const string NotFound = "not_found";
+    /// <summary>The request named a history contract version this server does not serve.</summary>
+    public const string ContractUnsupported = "contract_unsupported";
 }
 
 /// <summary>Start a solo run. <paramref name="OperationKey"/> (1-100 of letters, digits, '-', '_', '.') is the owner-scoped save identity.</summary>
@@ -59,14 +70,75 @@ public sealed record SoloRunStarted(
 public sealed record SoloInputItem(int Seq, long ClientTick, sbyte MoveX, sbyte MoveY, bool RequestBurst);
 
 /// <summary>The committed authoritative state after <paramref name="Tick"/> (fixed-point coordinates as in the reducer).</summary>
+/// <remarks>
+/// The first seven fields are the Task 11.1 contract. The trailing fields (Task 11.5) carry the rest of the living state a renderer needs:
+/// score components, fixed-point distance, Overlit/Burst state, the uncollected candle ids and this tick's events (state after
+/// <c>Tick</c> transitions; <c>Events[i]</c> of tick <c>t</c> is the one-shot effect <c>(t, i)</c>), and <c>AckedInputSeq</c>, the last input
+/// sequence the reducer applied (the reconciliation point for client-side prediction; -1 before any input).
+/// </remarks>
 public sealed record SoloFrame(
-    long Tick, int XFixed, int YFixed, int Charge, long OverlitDeadlineTick, int TotalScore, bool Final);
+    long Tick,
+    int XFixed,
+    int YFixed,
+    int Charge,
+    long OverlitDeadlineTick,
+    int TotalScore,
+    bool Final,
+    long DistanceFixed = 0,
+    bool Overlit = false,
+    int MovementPoints = 0,
+    int PickupPoints = 0,
+    int PenaltyPoints = 0,
+    int Pickups = 0,
+    int Bursts = 0,
+    int BurstHits = 0,
+    sbyte HeldMoveX = 0,
+    sbyte HeldMoveY = 0,
+    bool BurstLatch = false,
+    int CollectedCount = 0,
+    int AckedInputSeq = -1,
+    string[]? ActiveCandleIds = null,
+    GhostEventView[]? Events = null);
 
-/// <summary>A refused input (stale sequence, bad vector, late/early tick, commit in progress, rate limit). Bounded: at most ~20 per second.</summary>
-public sealed record SoloInputRejected(int Seq, string Code);
+/// <summary>A refused input (stale sequence, bad vector, late/early tick, commit in progress, rate limit). Movement notices are bounded; Burst refusals are always reported.</summary>
+/// <remarks>
+/// <c>Class</c> separates a benign refusal of movement (<c>benign_movement</c>: a stale/duplicate sequence, a late or future tick, a frozen
+/// commit) from a refused one-shot Burst request (<c>burst_rejected</c>, <c>BurstRequested</c> true: the client must resend the press) and
+/// from a malformed or rate-limited request (<c>refused</c>). Burst rejections are never throttled away. <c>NextServerTick</c> is the tick
+/// the server will accept input for next, so a client can resynchronize.
+/// </remarks>
+public sealed record SoloInputRejected(
+    int Seq, string Code, bool BurstRequested = false, string Class = InputRejectionClasses.Refused, long NextServerTick = 0);
+
+public static class InputRejectionClasses
+{
+    public const string BenignMovement = "benign_movement";
+    public const string BurstRejected = "burst_rejected";
+    public const string Refused = "refused";
+}
 
 /// <summary><paramref name="Reason"/> is <c>final</c> (all ticks committed; call FinishRun) or <c>interrupted</c> (not an original).</summary>
-public sealed record SoloRunEnded(string Reason, string? Code);
+public sealed record SoloRunEnded(string Reason, string? Code, SoloRunDiagnostics? Diagnostics = null);
+
+/// <summary>
+/// Server-side measurements of one challenge or fork round, so authoritative scheduling can be told apart from delivery:
+/// <c>CommitInterval*</c> are the intervals between consecutive committed ticks on the server (33.3 ms nominal), <c>MaxScheduleLagMs</c> is the
+/// worst commit time behind the ideal 30 Hz schedule, <c>FramesCoalesced</c> counts frames not pushed because the previous push was still in
+/// flight (their events travel in the next frame's <c>Missed</c>), and the input counters classify every admission outcome.
+/// </summary>
+public sealed record SoloRunDiagnostics(
+    int Ticks,
+    double CommitIntervalP50Ms,
+    double CommitIntervalP95Ms,
+    double CommitIntervalP99Ms,
+    double CommitIntervalMaxMs,
+    double MaxScheduleLagMs,
+    int FramesCoalesced,
+    int InputsAdmitted,
+    int BurstsAdmitted,
+    int RejectedBenignMovement,
+    int RejectedBurst,
+    int RejectedOther);
 
 /// <summary>
 /// A saved original. <paramref name="Score"/> is present only on a verified read of one original. Version fields are the pinned
@@ -127,6 +199,23 @@ public static class GhostLapChallengeWire
 
     /// <summary>Server-to-client, once: the challenge stopped (<see cref="SoloRunEnded"/>: <c>final</c> or <c>interrupted</c>).</summary>
     public const string ChallengeEndedClientMethod = "ChallengeEnded";
+
+    /// <summary>
+    /// Invocation (Task 11.5): <see cref="PrepareForkRequest"/> to <c>GhostLapReply&lt;ChallengePrepared&gt;</c>. Same lifecycle as
+    /// <see cref="PrepareChallengeMethod"/> for an arbitrary fork tick 0..2699; then <see cref="StartChallengeMethod"/>,
+    /// <see cref="StreamChallengeInputsMethod"/>, <see cref="CancelChallengeMethod"/> and the same server-to-client frames are used.
+    /// The first new input is for tick <c>ForkTick + 1</c>.
+    /// </summary>
+    public const string PrepareForkMethod = "PrepareFork";
+
+    /// <summary>Invocation (Task 11.5): the fork key to <c>GhostLapReply&lt;ChallengeFinishView&gt;</c>. Idempotent; resolves a stored Fork after a refresh or restart.</summary>
+    public const string FinishForkMethod = "FinishFork";
+}
+
+public static class ChallengeKinds
+{
+    public const string Challenge = "Challenge";
+    public const string Fork = "Fork";
 }
 
 public static class ChallengePhases
@@ -146,9 +235,27 @@ public static class ChallengeFailure
 
 public sealed record PrepareChallengeRequest(string OriginalId);
 
+/// <summary>Prepare a Fork of an owned original at <paramref name="ForkTick"/> (0..2699; 2700 is inspect-only). A Fork at tick 0 is still a Fork, not a Challenge.</summary>
+public sealed record PrepareForkRequest(string OriginalId, long ForkTick);
+
+/// <summary>The pinned identity a history was recorded under; frames from histories with different values must never be mixed.</summary>
+public sealed record SoloPinnedVersions(
+    string DomainId, string ReducerVersion, string InputSchemaVersion, string StateSchemaVersion, string ContextSchemaVersion,
+    string RulesVersion, string LayoutVersion);
+
 /// <summary>The verified, held ghost: nothing is started yet. The hashes name exactly the original the ghost was prepared from.</summary>
 public sealed record ChallengePrepared(
-    string OriginalId, string Phase, long FinalTick, string FinalStateHash, string RulesVersion, string LayoutVersion, int TickRateHz);
+    string OriginalId,
+    string Phase,
+    long FinalTick,
+    string FinalStateHash,
+    string RulesVersion,
+    string LayoutVersion,
+    int TickRateHz,
+    string Kind = ChallengeKinds.Challenge,
+    long ForkTick = 0,
+    long FirstInputTick = 1,
+    SoloPinnedVersions? Versions = null);
 
 /// <summary><paramref name="OperationKey"/> (1-90 of letters, digits, '-', '_', '.') is the owner-scoped identity of the challenge child.</summary>
 public sealed record StartChallengeRequest(string OperationKey);
@@ -180,14 +287,58 @@ public sealed record SoloGhostFrame(
     string[] ActiveCandleIds,
     GhostEventView[] Events,
     string StateHash,
-    bool Final);
+    bool Final,
+    long DistanceFixed = 0);
 
+/// <remarks>
+/// <c>Living</c> and <c>Ghost</c> are the states after <c>ForkTick</c> transitions (0 for a Challenge); the first input the server accepts is for
+/// <c>FirstInputTick = ForkTick + 1</c> and the round ends at tick <c>RoundTicks</c>. <c>SourceFinalStateHash</c> is the verified final hash of the original the ghost was prepared from.
+/// </remarks>
 public sealed record ChallengeStarted(
-    string OperationKey, string ChallengeId, string OriginalId, long Seed, byte MascotId, string RulesVersion, string LayoutVersion,
-    int TickRateHz, int RoundTicks, SoloFrame Living, SoloGhostFrame Ghost);
+    string OperationKey,
+    string ChallengeId,
+    string OriginalId,
+    long Seed,
+    byte MascotId,
+    string RulesVersion,
+    string LayoutVersion,
+    int TickRateHz,
+    int RoundTicks,
+    SoloFrame Living,
+    SoloGhostFrame Ghost,
+    string Kind = ChallengeKinds.Challenge,
+    long ForkTick = 0,
+    long FirstInputTick = 1,
+    string SourceFinalStateHash = "",
+    SoloPinnedVersions? Versions = null);
 
 /// <summary>The living state and the source ghost at the same committed tick; <paramref name="Delta"/> is living minus source running score.</summary>
-public sealed record ChallengeFrameView(long Tick, SoloFrame Living, SoloGhostFrame Ghost, int Delta, bool Final);
+/// <remarks>
+/// Pushes are latest-wins: a frame is skipped while the previous push is still in flight, so <c>Tick</c> may jump. One-shot effects of a skipped
+/// tick are not lost: they are listed in <c>Missed</c> of the next pushed frame (oldest first, only ticks that had events, bounded, with
+/// <c>MissedTruncated</c> set if older ones were dropped). An effect is identified by <c>(Tick, index in Events)</c>; a client renders each
+/// identity at most once. <c>Seq</c> counts pushed frames; <c>Pacing</c> separates server scheduling from delivery.
+/// </remarks>
+public sealed record ChallengeFrameView(
+    long Tick,
+    SoloFrame Living,
+    SoloGhostFrame Ghost,
+    int Delta,
+    bool Final,
+    long Seq = 0,
+    FramePacing? Pacing = null,
+    MissedTickEvents[]? Missed = null,
+    bool MissedTruncated = false);
+
+/// <summary>
+/// Server timing of one pushed frame. <c>CommitElapsedMs</c> is the time since the round clock started when this tick was committed,
+/// <c>ScheduleLagMs</c> how far that is behind the ideal 30 Hz schedule, <c>SendElapsedMs</c> the time the push started and
+/// <c>Coalesced</c> the number of ticks skipped since the previously pushed frame. Client arrival gaps minus server send gaps are delivery jitter.
+/// </summary>
+public sealed record FramePacing(double CommitElapsedMs, double ScheduleLagMs, double SendElapsedMs, int Coalesced);
+
+/// <summary>The one-shot events of one tick whose frame was not pushed.</summary>
+public sealed record MissedTickEvents(long Tick, GhostEventView[] Living, GhostEventView[] Ghost);
 
 /// <summary>A verified challenge child: a branch of the original at tick 0 with its own hashes. It is never an original.</summary>
 public sealed record ChallengeResultView(
@@ -203,7 +354,11 @@ public sealed record ChallengeResultView(
     int SourceScore,
     int Delta,
     string SourceFinalStateHash,
-    string SourceLastRecordHash);
+    string SourceLastRecordHash,
+    long Seed = 0,
+    byte MascotId = 0,
+    SoloPinnedVersions? Versions = null,
+    string Status = "Completed");
 
 public static class ChallengeFinishStatuses
 {
@@ -214,3 +369,79 @@ public static class ChallengeFinishStatuses
 
 /// <summary><c>Completed</c> only with <paramref name="Result"/>; <c>Pending</c> means retry FinishChallenge with the same key; <c>Failed</c> carries a code.</summary>
 public sealed record ChallengeFinishView(string Status, ChallengeResultView? Result, string? Code);
+
+// ---- Spec 11 task 11.5: owner-only history reads (inspect, trace), the child catalog and same-tick comparison ----
+
+/// <summary>Identity of the verified original a trace belongs to; repeated on every chunk so frames of different originals or versions are never mixed.</summary>
+public sealed record SoloSourceIdentity(string OriginalId, string FinalStateHash, long TerminalTick, SoloPinnedVersions Versions);
+
+/// <summary>
+/// <c>GET {OriginalsRoute}/{id}/trace?from=&amp;count=&amp;v=</c>: <c>Count</c> (1-300) consecutive states starting at <c>FromTick</c>, ascending, each the
+/// state after exactly that many transitions. <c>NextTick</c> is null once tick <c>Source.TerminalTick</c> is included.
+/// </summary>
+public sealed record SoloTraceView(string ContractVersion, SoloSourceIdentity Source, long FromTick, int Count, long? NextTick, SoloGhostFrame[] Frames);
+
+/// <summary><c>GET {OriginalsRoute}/{id}/inspect/{tick}</c>: the single verified state at one integer tick 0..2700.</summary>
+public sealed record SoloInspectView(string ContractVersion, SoloSourceIdentity Source, SoloGhostFrame Frame);
+
+/// <summary>A completed saved Challenge or Fork child. <c>Score</c> is present only when <c>Verified</c> (the final state was restored and matched the recorded hash).</summary>
+public sealed record SoloChildView(
+    string Id,
+    string SourceId,
+    string Kind,
+    string OperationKey,
+    long ForkTick,
+    long FinalTick,
+    string FinalStateHash,
+    string LastRecordHash,
+    int? Score,
+    bool Verified,
+    string Status,
+    long Seed,
+    byte MascotId,
+    SoloPinnedVersions Versions);
+
+/// <summary><c>GET {ChildrenRoute}?source=&amp;after=&amp;limit=</c>, newest first. <c>NextAfter</c> is the <c>after</c> value of the next page (null on the last page).</summary>
+public sealed record SoloChildPageView(SoloChildView[] Items, string? NextAfter);
+
+/// <summary>Score parts of one world at one tick. <c>DistanceFixed</c> is the fixed-point distance behind <c>Movement</c>.</summary>
+public sealed record SoloScorePartsView(
+    int Movement, int Pickup, int Penalty, int Total, int Pickups, int Bursts, int Charge, bool Overlit, long DistanceFixed);
+
+/// <summary><c>Delta = ChildScore - SourceScore</c> at the same absolute <c>Tick</c>. <c>AfterFork</c> is false through the fork tick, where both worlds are one state.</summary>
+public sealed record SoloComparisonPointView(
+    long Tick,
+    int SourceScore,
+    int ChildScore,
+    int Delta,
+    SoloScorePartsView Source,
+    SoloScorePartsView Child,
+    bool AfterFork,
+    bool Final,
+    string SourceStateHash,
+    string ChildStateHash);
+
+/// <summary>
+/// <c>GET {ChildrenRoute}/{id}/comparison?from=&amp;count=&amp;stride=&amp;v=</c>: up to 300 points at <c>FromTick + i * Stride</c>, ascending.
+/// <c>NextTick</c> is the first requested tick after this slice (null once tick 2700 is reachable no further).
+/// </summary>
+public sealed record SoloComparisonView(
+    string ContractVersion,
+    string ChildId,
+    string SourceId,
+    string Kind,
+    long ForkTick,
+    SoloPinnedVersions Versions,
+    long FinalTick,
+    string SourceFinalStateHash,
+    string ChildFinalStateHash,
+    long FromTick,
+    int Stride,
+    long? NextTick,
+    SoloComparisonPointView[] Points);
+
+/// <summary>Owner-only saved-child replay, with explicit parent identity; never an Original.</summary>
+public sealed record SoloChildTraceView(
+    string ContractVersion, string ChildId, string SourceId, string Kind, long ForkTick,
+    string SourceFinalStateHash, string ChildFinalStateHash, SoloPinnedVersions Versions,
+    long TerminalTick, long FromTick, int Count, long? NextTick, SoloGhostFrame[] Frames);

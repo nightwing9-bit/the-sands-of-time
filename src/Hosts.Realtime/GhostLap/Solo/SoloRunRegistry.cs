@@ -132,8 +132,6 @@ public sealed class SoloRunRegistry(
     public static readonly TimeSpan PendingSaveLifetime = TimeSpan.FromMinutes(10);
     public static readonly TimeSpan StartTimeout = TimeSpan.FromSeconds(15);
 
-    private static readonly TimeSpan TickInterval = TimeSpan.FromTicks(TimeSpan.TicksPerSecond / GhostLapSoloWire.TickRateHz);
-
     private readonly ConcurrentDictionary<string, SoloRunSession> _runs = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _startGate = new(1, 1);
     private readonly SemaphoreSlim _history = new(MaxConcurrentHistoryReads, MaxConcurrentHistoryReads);
@@ -349,7 +347,7 @@ public sealed class SoloRunRegistry(
         string? code = null;
         try
         {
-            using var timer = new PeriodicTimer(TickInterval);
+            var timer = new SoloTickClock();
             var failures = 0;
             while (await timer.WaitForNextTickAsync(token).ConfigureAwait(false))
             {

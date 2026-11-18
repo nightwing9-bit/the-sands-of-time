@@ -68,6 +68,7 @@ public static class GhostLapSoloRegistration
         var library = app.MapGroup(GhostLapSoloWire.OriginalsRoute).RequireAuthorization(GhostLapPolicies.Connect);
         library.MapGet("/", ListAsync);
         library.MapGet("/{id}", GetAsync);
+        GhostLapSoloHistoryRoutes.Map(app, library);
     }
 
     private static async Task<IResult> ListAsync(HttpContext http, SoloRunRegistry runs, CancellationToken ct)
