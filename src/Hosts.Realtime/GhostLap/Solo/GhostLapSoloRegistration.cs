@@ -38,8 +38,24 @@ public static class GhostLapSoloRegistration
                 sp.GetRequiredService<ITimelineEngine<GhostLap.Simulation.GameState, GhostLap.Simulation.GameInput, GhostLap.Simulation.GameContext>>(),
                 store, new OwnerResourceAuthorizer(new SoloOwnershipLookup(store)));
         });
+        services.AddSingleton(sp =>
+        {
+            var store = sp.GetRequiredService<SoloOriginalStore>();
+            return new SoloBranches(
+                sp.GetRequiredService<ITimelineEngine<GhostLap.Simulation.GameState, GhostLap.Simulation.GameInput, GhostLap.Simulation.GameContext>>(),
+                store, new OwnerResourceAuthorizer(new SoloOwnershipLookup(store)));
+        });
+        services.AddSingleton(_ => new SoloGhostTraceCache());
+        services.AddSingleton(sp =>
+        {
+            var store = sp.GetRequiredService<SoloOriginalStore>();
+            return new SoloChallenges(
+                sp.GetRequiredService<SoloOriginals>(), sp.GetRequiredService<SoloBranches>(), store,
+                new OwnerResourceAuthorizer(new SoloOwnershipLookup(store)), sp.GetRequiredService<SoloGhostTraceCache>());
+        });
         services.AddSingleton<GhostLapSoloLog>();
         services.AddSingleton<SoloRunRegistry>();
+        services.AddSingleton<SoloChallengeRegistry>();
         return services;
     }
 

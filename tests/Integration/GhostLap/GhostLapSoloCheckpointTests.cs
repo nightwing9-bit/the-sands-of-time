@@ -28,7 +28,7 @@ namespace Integration.Tests.GhostLap;
 
 [Collection(IdentityCollection.Name)]
 [Trait("Category", "Integration")]
-public sealed class GhostLapSoloCheckpointTests(IdentityDatabase db, ITestOutputHelper output)
+public sealed partial class GhostLapSoloCheckpointTests(IdentityDatabase db, ITestOutputHelper output)
 {
     [Fact]
     public async Task Full_solo_original_survives_lost_reply_and_a_cold_Kestrel_restart()
@@ -302,6 +302,8 @@ public sealed class GhostLapSoloCheckpointTests(IdentityDatabase db, ITestOutput
         private readonly HttpClient _http = new() { BaseAddress = origin };
         public int Pid => process.Id;
 
+        public (double CpuMs, long Rss) Resources() { process.Refresh(); return (process.TotalProcessorTime.TotalMilliseconds, process.WorkingSet64); }
+
         public static async Task<Kestrel> StartAsync(IdentityDatabase db, string secret, string? soloConnection, CancellationToken ct)
         {
             var settings = new ProcessStartInfo("dotnet", "Hosts.Realtime.dll")
@@ -379,7 +381,7 @@ public sealed class GhostLapSoloCheckpointTests(IdentityDatabase db, ITestOutput
             }
         }
 
-        public async Task DropFinishReplyAsync(string cookie, string key, CancellationToken ct)
+        public async Task DropFinishReplyAsync(string cookie, string key, CancellationToken ct, string method = GhostLapSoloWire.FinishRunMethod, string expectedStatus = SoloSaveStatuses.Saved)
         {
             using var socket = new ClientWebSocket();
             socket.Options.SetRequestHeader("Cookie", $"{Flows.GuestCookie}={cookie}");
@@ -387,7 +389,7 @@ public sealed class GhostLapSoloCheckpointTests(IdentityDatabase db, ITestOutput
             var ws = new UriBuilder(origin) { Scheme = "ws", Path = GhostLapSoloWire.HubPath };
             await socket.ConnectAsync(ws.Uri, ct);
             await SendAsync("{\"protocol\":\"json\",\"version\":1}");
-            await SendAsync(JsonSerializer.Serialize(new { type = 1, invocationId = "lost", target = GhostLapSoloWire.FinishRunMethod, arguments = new[] { key } }));
+            await SendAsync(JsonSerializer.Serialize(new { type = 1, invocationId = "lost", target = method, arguments = new[] { key } }));
             using var reader = new StreamReader(WebSocketStream.Create(socket, WebSocketMessageType.Text, ownsWebSocket: false));
             var ch = new char[1];
             while (true)
@@ -404,7 +406,7 @@ public sealed class GhostLapSoloCheckpointTests(IdentityDatabase db, ITestOutput
                 {
                     Assert.Equal(3, document.RootElement.GetProperty("type").GetInt32());
                     var reply = document.RootElement.GetProperty("result");
-                    Assert.Equal(SoloSaveStatuses.Saved, reply.GetProperty("value").GetProperty("status").GetString());
+                    Assert.Equal(expectedStatus, reply.GetProperty("value").GetProperty("status").GetString());
                     socket.Abort();
                     return;
                 }

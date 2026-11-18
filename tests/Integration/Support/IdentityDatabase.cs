@@ -28,6 +28,7 @@ public sealed class IdentityDatabase : IAsyncLifetime
     private readonly string _realtimeSoloPassword = NewPassword();
 
     private readonly PostgreSqlContainer _container = new PostgreSqlBuilder(Image)
+        .WithCommand("-c", "shared_preload_libraries=pg_stat_statements")
         .WithResourceMapping(new DirectoryInfo(Path.Combine(RepositoryRoot(), "scripts", "db")), "/sands/db/")
         .Build();
 

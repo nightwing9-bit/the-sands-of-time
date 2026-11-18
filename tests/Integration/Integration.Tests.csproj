@@ -17,6 +17,7 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="../GhostLap/Simulation/CandleSeekingDriver.cs" Link="GhostLap/CandleSeekingDriver.cs" />
     <!-- Spec 10 task 10.1: the Ghost Lap domain/contract types and the Revenant authorizer are asserted through the real Realtime host. -->
     <ProjectReference Include="..\..\src\GhostLap\GhostLap.csproj" />
     <ProjectReference Include="..\..\src\GhostLap.Contracts\GhostLap.Contracts.csproj" />

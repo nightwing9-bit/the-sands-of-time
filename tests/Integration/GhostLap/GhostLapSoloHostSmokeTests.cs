@@ -162,6 +162,46 @@ public sealed class GhostLapSoloHostSmokeTests(IdentityDatabase db)
         Assert.Equal(SoloFailure.Interrupted, restart.Code);
     }
 
+    /// <summary>
+    /// Task 11.3 composition smoke (no 90-second round): the real host wires the challenge registry and hub methods, a guest cannot
+    /// prepare an unknown or malformed original, cannot start without a Ready trace, and has nothing to cancel or finish.
+    /// </summary>
+    [Fact]
+    public async Task Challenge_methods_are_composed_and_refuse_unprepared_unknown_and_malformed_requests()
+    {
+        var secret = IdentityApiFactory.NewMasterSecret();
+        await using var api = new IdentityApiFactory(db, secret);
+        await using var hub = new RealtimeHostFactory(db, secret, new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:GhostLapSolo"] = db.RealtimeSoloConnectionString,
+        });
+        var browser = api.NewBrowser();
+        await browser.PostAsync("/auth/guest/start");
+        var challenges = hub.Services.GetRequiredService<SoloChallengeRegistry>();
+        await using var connection = hub.ConnectTo(GhostLapSoloWire.HubPath, guestCookie: browser.Cookies[Flows.GuestCookie]);
+        await connection.StartAsync();
+
+        var malformed = await connection.InvokeAsync<GhostLapReply<ChallengePrepared>>(
+            GhostLapChallengeWire.PrepareChallengeMethod, new PrepareChallengeRequest("not-a-guid"));
+        Assert.Equal((false, SoloFailure.InvalidRequest), (malformed.Ok, malformed.Code));
+        var unknown = await connection.InvokeAsync<GhostLapReply<ChallengePrepared>>(
+            GhostLapChallengeWire.PrepareChallengeMethod, new PrepareChallengeRequest(Guid.NewGuid().ToString("D")));
+        Assert.Equal((false, SoloFailure.NotFound), (unknown.Ok, unknown.Code));
+        Assert.Equal(0, challenges.Active);
+
+        var start = await connection.InvokeAsync<GhostLapReply<ChallengeStarted>>(
+            GhostLapChallengeWire.StartChallengeMethod, new StartChallengeRequest("composition"));
+        Assert.Equal((false, ChallengeFailure.NotReady), (start.Ok, start.Code));
+        var cancel = await connection.InvokeAsync<GhostLapReply<bool>>(GhostLapChallengeWire.CancelChallengeMethod);
+        Assert.True(cancel.Ok);
+        Assert.False(cancel.Value);
+        var finish = await connection.InvokeAsync<GhostLapReply<ChallengeFinishView>>(GhostLapChallengeWire.FinishChallengeMethod, "composition");
+        Assert.True(finish.Ok, finish.Code);
+        Assert.Equal((ChallengeFinishStatuses.Failed, SoloFailure.NotFound), (finish.Value!.Status, finish.Value.Code));
+        Assert.Null(finish.Value.Result);
+        Assert.Equal(0L, await db.ScalarAsync<long>("SELECT count(*) FROM ghostlap.solo_branches WHERE operation_key = 'challenge.composition'"));
+    }
+
     private static Task<HttpResponseMessage> Get(HttpClient http, string cookie, string path)
     {
         var request = new HttpRequestMessage(HttpMethod.Get, path);

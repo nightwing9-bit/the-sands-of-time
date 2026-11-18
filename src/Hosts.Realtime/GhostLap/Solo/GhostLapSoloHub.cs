@@ -17,7 +17,8 @@ namespace GhostLapHost;
 /// </summary>
 [Authorize(Policy = GhostLapPolicies.Connect)]
 public sealed class GhostLapSoloHub(
-    SoloRunRegistry runs, GhostLapSessionAccess access, RealtimeInstanceGuard guard, GhostLapSoloLog log) : Hub<IGhostLapSoloClient>
+    SoloRunRegistry runs, SoloChallengeRegistry challenges, GhostLapSessionAccess access, RealtimeInstanceGuard guard, GhostLapSoloLog log)
+    : Hub<IGhostLapSoloClient>
 {
     /// <summary>Items per second one stream may send (a 30 Hz client with headroom) and its burst.</summary>
     public const int InputsPerSecond = 60;
@@ -40,6 +41,7 @@ public sealed class GhostLapSoloHub(
         if (GhostLapSession.TryRead(Context.User, out var session))
         {
             runs.ConnectionClosed(session.Subject, Context.ConnectionId);
+            challenges.ConnectionClosed(session.Subject, Context.ConnectionId);
         }
 
         return Task.CompletedTask;
@@ -95,6 +97,83 @@ public sealed class GhostLapSoloHub(
             return GhostLapReply<InputStreamSummary>.Failure(SoloFailure.NoRun);
         }
 
+        return await ReadInputsAsync(inputs, subject, item => runs.Admit(subject, Context.ConnectionId, item), () => runs.TryTakeNotice(subject));
+    }
+
+    /// <summary>
+    /// Authenticates the guest's saved original and holds its full verified ghost trace. The reply is Ready or a typed failure; a
+    /// challenge can only start after it, and never with a partial trace.
+    /// </summary>
+    public async Task<GhostLapReply<ChallengePrepared>> PrepareChallenge(PrepareChallengeRequest request)
+    {
+        var gate = await AuthorizeAsync();
+        return gate.Failure is not null
+            ? GhostLapReply<ChallengePrepared>.Failure(gate.Failure)
+            : await challenges.PrepareAsync(gate.Actor!, Context.ConnectionId, request, Context.ConnectionAborted);
+    }
+
+    /// <summary>Starts the living challenge from the original's exact tick zero. Only from Ready on this connection.</summary>
+    public async Task<GhostLapReply<ChallengeStarted>> StartChallenge(StartChallengeRequest request)
+    {
+        var gate = await AuthorizeAsync();
+        return gate.Failure is not null
+            ? GhostLapReply<ChallengeStarted>.Failure(gate.Failure)
+            : await challenges.StartAsync(gate.Actor!, Context.ConnectionId, request, Context.ConnectionAborted);
+    }
+
+    /// <summary>Discards the guest's own unfinished challenge (never a result). The saved original and earlier children are untouched.</summary>
+    public async Task<GhostLapReply<bool>> CancelChallenge()
+    {
+        var gate = await AuthorizeAsync();
+        return gate.Failure is not null
+            ? GhostLapReply<bool>.Failure(gate.Failure)
+            : GhostLapReply<bool>.Success(challenges.Cancel(gate.Actor!.SubjectId));
+    }
+
+    /// <summary>Idempotent challenge result for the key: <c>Completed</c> with the verified child, <c>Pending</c> (retry) or <c>Failed</c>.</summary>
+    public async Task<GhostLapReply<ChallengeFinishView>> FinishChallenge(string operationKey)
+    {
+        var gate = await AuthorizeAsync();
+        if (gate.Failure is not null)
+        {
+            return GhostLapReply<ChallengeFinishView>.Failure(gate.Failure);
+        }
+
+        if (string.IsNullOrEmpty(operationKey) || operationKey.Length > GhostLap.Solo.SoloOriginals.MaxOperationKeyLength)
+        {
+            return GhostLapReply<ChallengeFinishView>.Failure(SoloFailure.InvalidRequest);
+        }
+
+        using var slot = runs.TryEnterHistoryRead();
+        if (slot is null)
+        {
+            return GhostLapReply<ChallengeFinishView>.Failure(SoloFailure.ServerBusy);
+        }
+
+        return GhostLapReply<ChallengeFinishView>.Success(await challenges.FinishAsync(gate.Actor!, operationKey, Context.ConnectionAborted));
+    }
+
+    /// <summary>Gameplay ingress for the guest's own running challenge. One stream per connection.</summary>
+    public async Task<GhostLapReply<InputStreamSummary>> StreamChallengeInputs(IAsyncEnumerable<SoloInputItem> inputs)
+    {
+        var gate = await AuthorizeAsync();
+        if (gate.Failure is not null)
+        {
+            return GhostLapReply<InputStreamSummary>.Failure(gate.Failure);
+        }
+
+        var subject = gate.Actor!.SubjectId;
+        if (!challenges.Drives(subject, Context.ConnectionId))
+        {
+            return GhostLapReply<InputStreamSummary>.Failure(SoloFailure.NoRun);
+        }
+
+        return await ReadInputsAsync(inputs, subject, item => challenges.Admit(subject, Context.ConnectionId, item), () => challenges.TryTakeNotice(subject));
+    }
+
+    private async Task<GhostLapReply<InputStreamSummary>> ReadInputsAsync(
+        IAsyncEnumerable<SoloInputItem> inputs, string subject, Func<SoloInputItem, string?> admit, Func<bool> takeNotice)
+    {
         if (!Context.Items.TryAdd(StreamOpenKey, true))
         {
             return GhostLapReply<InputStreamSummary>.Failure(SoloFailure.StreamAlreadyOpen);
@@ -130,13 +209,13 @@ public sealed class GhostLapSoloHub(
                 {
                     tokens -= 1;
                     denied = 0;
-                    code = runs.Admit(subject, Context.ConnectionId, item);
+                    code = admit(item);
                 }
 
                 if (code is not null)
                 {
                     rejected++;
-                    if (runs.TryTakeNotice(subject))
+                    if (takeNotice())
                     {
                         await Clients.Caller.InputRejected(new SoloInputRejected(item?.Seq ?? -1, code))
                             .WaitAsync(TimeSpan.FromSeconds(1), Context.ConnectionAborted);

@@ -70,6 +70,12 @@ public interface IGhostLapSoloClient
     Task RunEnded(SoloRunEnded ended);
 
     Task InputRejected(SoloInputRejected rejected);
+
+    /// <summary>The living state and the source ghost at the same tick (challenge, latest wins).</summary>
+    Task ChallengeFrame(ChallengeFrameView frame);
+
+    /// <summary>The challenge stopped: <c>final</c> (call FinishChallenge) or <c>interrupted</c> (no result).</summary>
+    Task ChallengeEnded(SoloRunEnded ended);
 }
 
 internal static class SoloRunPhase
