@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Threading.Channels;
 using GhostLap.Contracts.Multiplayer;
 using GhostLap.Contracts.Solo;
+using GhostLap.Rules;
 using GhostLap.Simulation;
 using GhostLap.Solo;
 using GhostLap.Tests.Simulation;
@@ -83,6 +84,19 @@ public sealed class GhostLapSoloHistoryHostTests(IdentityDatabase db)
 
     private static string Body(HttpResponseMessage response) => response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
 
+    private static void AssertCandles(CandlePlan plan, long tick, string[] activeIds, SoloVisibleCandle[]? visible)
+    {
+        Assert.NotNull(visible);
+        Assert.Equal(activeIds.Order(), visible.Where(c => c.Phase == "active").Select(c => c.Id).Order());
+        Assert.Equal(plan.Candles.Where(c => c.TelegraphTick <= tick && tick < c.ActivateTick).Select(c => c.Id),
+            visible.Where(c => c.Phase == "telegraph").Select(c => c.Id));
+        Assert.All(visible, c =>
+        {
+            var spec = Assert.Single(plan.Candles, site => site.Id == c.Id);
+            Assert.Equal((spec.Site.X / (double)GameRulesV1.FixedOne, spec.Site.Y / (double)GameRulesV1.FixedOne), (c.X, c.Y));
+        });
+    }
+
     [Fact]
     public async Task Owner_routes_resolve_in_the_real_host_and_serve_exact_history_child_catalog_and_same_tick_comparison()
     {
@@ -137,6 +151,9 @@ public sealed class GhostLapSoloHistoryHostTests(IdentityDatabase db)
         }
 
         var t1140 = middle.Frames.Single(f => f.Tick == 1140);
+        var plan = CandlePlan.Create(source.Seed);
+        Assert.Contains(first.Frames, f => f.VisibleCandles!.Any(c => c.Phase == "telegraph"));
+        Assert.All(first.Frames.Concat(middle.Frames), f => AssertCandles(plan, f.Tick, f.ActiveCandleIds, f.VisibleCandles));
         Assert.True(t1140.TotalScore < source.Result.Scores[0].TotalScore && t1140.TotalScore > 0, "historical score, not the final score");
         Assert.True(t1140.ActiveCandleIds.Length > 0 && t1140.CollectedCount > 0 && t1140.DistanceFixed > 0);
         Assert.Contains(first.Frames, f => f.Events.Any(e => e.Kind == "CandleCollected" && e.CandleId.Length > 0));
@@ -200,7 +217,8 @@ public sealed class GhostLapSoloHistoryHostTests(IdentityDatabase db)
         var unknown = Guid.NewGuid().ToString("D");
         foreach (var path in new[]
         {
-            $"{Originals}/{{0}}/trace", $"{Originals}/{{0}}/inspect/0", $"{Children}/{{0}}", $"{Children}/{{0}}/comparison",
+            $"{Originals}/{{0}}", $"{Originals}/{{0}}/trace", $"{Originals}/{{0}}/inspect/0", $"{Children}/{{0}}",
+            $"{Children}/{{0}}/comparison", $"{Children}/{{0}}/trace",
         })
         {
             var foreignSource = await Get(http, otherCookie, string.Format(path, path.Contains("/originals/") ? sourceId : childId));
@@ -219,6 +237,9 @@ public sealed class GhostLapSoloHistoryHostTests(IdentityDatabase db)
             (childTrace.ChildId, childTrace.SourceId, childTrace.Kind, childTrace.ForkTick, childTrace.ChildFinalStateHash, childTrace.SourceFinalStateHash, childTrace.NextTick));
         Assert.Equal(new long[] { 2698, 2699, 2700 }, childTrace.Frames.Select(f => f.Tick));
         Assert.Equal(child.FinalStateHash, childTrace.Frames[^1].StateHash);
+        Assert.All(childTrace.Frames, f => AssertCandles(plan, f.Tick, f.ActiveCandleIds, f.VisibleCandles));
+        var childPrefix = await Json<SoloChildTraceView>(await Get(http, cookie, $"{Children}/{childId}/trace?from=0&count=2"));
+        Assert.Equal(JsonSerializer.Serialize(first.Frames.Take(2)), JsonSerializer.Serialize(childPrefix.Frames));
         var originalTail = await Json<SoloTraceView>(await Get(http, cookie, $"{Originals}/{sourceId}/trace?from=2698&count=2"));
         Assert.Equal(JsonSerializer.Serialize(originalTail.Frames), JsonSerializer.Serialize(childTrace.Frames.Take(2)));
         foreach (var (query, status) in new[] { ("count=0", HttpStatusCode.BadRequest), ("count=301", HttpStatusCode.BadRequest),
@@ -284,12 +305,15 @@ public sealed class GhostLapSoloHistoryHostTests(IdentityDatabase db)
             started.OperationKey, started.OriginalId, started.SourceFinalStateHash, started.Seed));
         Assert.Equal((1140L, 1140L, started.Ghost.TotalScore, started.Ghost.DistanceFixed), (started.Living.Tick, started.Ghost.Tick, started.Living.TotalScore, started.Living.DistanceFixed));
         Assert.Equal(started.Ghost.ActiveCandleIds, started.Living.ActiveCandleIds);
+        var plan = CandlePlan.Create(source.Seed);
+        AssertCandles(plan, started.Living.Tick, started.Living.ActiveCandleIds!, started.Living.VisibleCandles);
         Assert.True(started.Living.TotalScore > 0 && started.Living.TotalScore < source.Result.Scores[0].TotalScore);
 
         // The ghost at T1140 is exactly the owner's inspect of the original at T1140 (full state identity).
         using var http = host.CreateClient();
         var inspect = await Json<SoloInspectView>(await Get(http, cookie, $"{Originals}/{sourceId}/inspect/1140"));
         Assert.Equal(JsonSerializer.Serialize(inspect.Frame), JsonSerializer.Serialize(started.Ghost));
+        Assert.Equal(inspect.Frame.VisibleCandles!, started.Living.VisibleCandles!);
 
         // Input: the first accepted input is for T1141; refusals are classified and a refused Burst edge is always reported.
         var inputs = Channel.CreateUnbounded<SoloInputItem>();
@@ -302,6 +326,7 @@ public sealed class GhostLapSoloHistoryHostTests(IdentityDatabase db)
         Assert.Equal((firstFrame.Living.TotalScore - firstFrame.Ghost.TotalScore, 1L), (firstFrame.Delta, firstFrame.Seq));
         Assert.NotNull(firstFrame.Pacing);
         Assert.Equal(ack + 1, firstFrame.Living.AckedInputSeq);
+        AssertCandles(plan, firstFrame.Tick, firstFrame.Living.ActiveCandleIds!, firstFrame.Living.VisibleCandles);
 
         ChallengeFrameView latest = firstFrame;
         while (latest.Tick < 1143)
@@ -399,6 +424,8 @@ public sealed class GhostLapSoloHistoryHostTests(IdentityDatabase db)
         var challengeStarted = (await hub.InvokeAsync<GhostLapReply<ChallengeStarted>>("StartChallenge", new StartChallengeRequest("route-challenge"), ct)).Value!;
         Assert.Equal(("Challenge", 0L, 1L, "challenge.route-challenge", 0L, 0L), (challengeStarted.Kind, challengeStarted.ForkTick, challengeStarted.FirstInputTick,
             challengeStarted.OperationKey, challengeStarted.Living.Tick, challengeStarted.Ghost.Tick));
+        AssertCandles(plan, 0, challengeStarted.Living.ActiveCandleIds!, challengeStarted.Living.VisibleCandles);
+        Assert.NotEmpty(challengeStarted.Living.VisibleCandles!);
         Assert.True((await hub.InvokeAsync<GhostLapReply<bool>>("CancelChallenge", ct)).Value);
         await summary.WaitAsync(ct);
     }

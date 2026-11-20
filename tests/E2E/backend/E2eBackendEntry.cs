@@ -40,6 +40,7 @@ public static class E2eBackendEntry
         await using var factory = new E2eBackendFactory(database, token);
         factory.UseKestrel(options => options.Listen(Environment.GetEnvironmentVariable("E2E_R8_LISTEN_ANY") == "1" && database.R8Ledger.Length > 0 ? IPAddress.Any : IPAddress.Loopback, port));
         factory.StartServer();
+        using var ghostLap = GhostLapRealtimeProcess.Start(database, factory.MasterSecret);
         using var replay = database.R8Ledger.Length > 0 ? await StartR8Async(database, stop.Token) : null;
         Console.WriteLine($"E2E_BACKEND_READY http://127.0.0.1:{port}");
         try

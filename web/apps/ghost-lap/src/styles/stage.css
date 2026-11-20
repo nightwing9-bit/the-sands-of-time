@@ -1,0 +1,62 @@
+/* Page, 16:9 stage and its layers. Loaded only by the Ghost Lap game shell (the test-host shell keeps greybox.css). */
+*, *::before, *::after { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body {
+  font-family: var(--gl-font-ui);
+  color: var(--gl-ink);
+  background: linear-gradient(180deg, var(--gl-snow-top) 0%, var(--gl-snow-blue) 55%, var(--gl-snow-shadow) 100%) fixed;
+  -webkit-font-smoothing: antialiased;
+  font-synthesis: none;
+}
+button { font: inherit; color: inherit; }
+
+/* Viewport: the arena slot on top, an optional history dock below it. When a dock is present the whole 16:9 stage re-fits into the
+   remaining slot, so the bottom wall is never hidden under the dock. */
+.gl-viewport {
+  height: 100%;
+  container-type: size; /* cq units here size the dock to the stage above it */
+  display: grid;
+  grid-template-rows: minmax(0, 1fr); /* a dock, when present, becomes the implicit second row, so no gap is reserved without one */
+  grid-auto-rows: auto;
+  gap: var(--gl-stage-gap);
+  padding: var(--gl-stage-gap);
+  overflow: hidden;
+}
+.gl-slot { min-height: 0; container-type: size; display: grid; place-items: center; }
+.gl-stage {
+  position: relative;
+  width: min(100cqw, calc(100cqh * 16 / 9));
+  aspect-ratio: 16 / 9;
+  container-type: size;
+  overflow: hidden;
+  border-radius: var(--gl-radius-lg);
+  background: var(--gl-snow-white);
+  box-shadow: 0 18px 50px rgba(24, 49, 66, 0.16), 0 0 0 1px rgba(255, 255, 255, 0.55);
+  isolation: isolate;
+}
+/* Layers, bottom to top: world (the one Pixi mount in 13.2), HUD, overlay. */
+.gl-world, .gl-hud, .gl-overlay { position: absolute; inset: 0; }
+.gl-world { z-index: 0; }
+.gl-hud { z-index: 1; pointer-events: none; }
+.gl-hud > * { pointer-events: auto; }
+.gl-overlay { z-index: 2; pointer-events: none; }
+.gl-overlay > * { pointer-events: auto; }
+.gl-pixi-host { position: absolute; inset: 0; overflow: hidden; background: var(--gl-snow-white); }
+.gl-pixi-host canvas { position: absolute; inset: 0; display: block; }
+.gl-world-failed { margin: 2em; color: var(--gl-ink); }
+
+/* HUD-safe guides (preview toggle). Same custom properties the real HUD will anchor to. */
+.gl-safe-guides { position: absolute; inset: 0; pointer-events: none; z-index: 3; font-size: clamp(11px, 0.8cqw, 13px); color: var(--gl-action-dark); }
+.gl-safe-guides > div { position: absolute; border: 1px dashed rgba(37, 74, 91, 0.7); background: rgba(131, 228, 235, 0.14); }
+.gl-safe-guides .top { left: var(--gl-hud-gutter); right: var(--gl-hud-gutter); top: 0; height: var(--gl-hud-top); }
+.gl-safe-guides .bottom { left: var(--gl-hud-gutter); right: var(--gl-hud-gutter); bottom: 0; height: var(--gl-hud-bottom); }
+.gl-safe-guides .play { left: var(--gl-hud-gutter); right: var(--gl-hud-gutter); top: var(--gl-hud-top); bottom: var(--gl-hud-bottom); background: none; border-style: dotted; }
+.gl-safe-guides span { position: absolute; left: 6px; top: 3px; font-weight: 600; }
+.gl-safe-guides .play span { top: auto; bottom: 3px; }
+
+/* Visible marking for anything that is not real game state. */
+.gl-fixture-tag {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px;
+  font-size: clamp(11px, 0.85cqw, 13px); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--gl-night-ink); background: var(--gl-sand-gold); border: 1px solid rgba(38, 60, 75, 0.25);
+}

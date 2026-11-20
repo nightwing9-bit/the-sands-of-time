@@ -98,7 +98,7 @@ public sealed class GhostLapSoloHub(
         }
 
         return await ReadInputsAsync(inputs, subject, item => runs.Admit(subject, Context.ConnectionId, item), () => runs.TryTakeNotice(subject),
-            (item, code) => ChallengeMapping.Describe(item, code, item?.RequestBurst == true, 0));
+            (item, code) => runs.Describe(subject, item, code));
     }
 
     /// <summary>

@@ -1,0 +1,53 @@
+/* Shared UI primitives: FrostPanel, GameButton, StatusPill, BackLink. Every later screen composes these; no per-screen skins. */
+
+/* FrostPanel: one material, two tones. Blur only behind the panel itself and only where the panel is short-lived or focused. */
+.gl-panel {
+  border-radius: var(--gl-radius-md);
+  padding: 16px 20px;
+  box-shadow: var(--gl-panel-shadow);
+  background: var(--gl-frost-surface);
+  border: 1px solid var(--gl-frost-border);
+  color: var(--gl-ink);
+}
+@supports (backdrop-filter: blur(1px)) {
+  .gl-panel { backdrop-filter: blur(var(--gl-panel-blur)) saturate(1.06); }
+}
+.gl-panel--slate { background: var(--gl-slate-surface); border-color: var(--gl-slate-border); color: var(--gl-white-ink); }
+.gl-panel--flush { padding: 0; }
+
+/* GameButton: primary = slate fill; quiet = text row on snow. Hover is a tint, never a scale. Pressed moves 1px. */
+.gl-button {
+  appearance: none; display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%;
+  min-height: clamp(46px, 3.45cqw, 58px); padding: 0 24px; border: 0; cursor: pointer;
+  font-family: var(--gl-font-ui); font-size: var(--gl-text-label); font-weight: 600; line-height: 1.2;
+  border-radius: var(--gl-radius-sm);
+  transition: background-color var(--gl-t-hover) var(--gl-ease), color var(--gl-t-hover) var(--gl-ease), box-shadow var(--gl-t-hover) var(--gl-ease);
+}
+.gl-button:focus-visible { outline: none; box-shadow: var(--gl-focus-ring); }
+.gl-button:active { transform: translateY(1px); }
+.gl-button--primary { background: var(--gl-action-dark); color: var(--gl-action-light); box-shadow: 0 6px 16px rgba(24, 49, 66, 0.22); }
+.gl-button--primary:hover { background: var(--gl-action-dark-hover); }
+.gl-button--quiet { background: transparent; color: var(--gl-ink); font-weight: 500; border-radius: 0; border-bottom: 1px solid var(--gl-divider); min-height: clamp(44px, 3.1cqw, 52px); }
+.gl-button--quiet:hover { background: rgba(255, 255, 255, 0.5); }
+.gl-button--quiet:last-child { border-bottom-color: transparent; }
+/* Unavailable: still legible, still focusable, announces why. Not a dead-looking grey-out. */
+.gl-button[aria-disabled="true"] { cursor: default; }
+.gl-button--primary[aria-disabled="true"] { background: #3b5f6f; }
+.gl-button--quiet[aria-disabled="true"] { color: var(--gl-muted-ink); }
+.gl-button[aria-disabled="true"]:active { transform: none; }
+
+.gl-status {
+  display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 999px;
+  font-size: clamp(12px, 0.9cqw, 14px); font-weight: 500; color: var(--gl-muted-ink);
+  background: var(--gl-frost-surface); border: 1px solid var(--gl-frost-border);
+}
+.gl-status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--gl-stone); }
+.gl-status[data-tone="ok"]::before { background: #4b9a6a; }
+.gl-status[data-tone="warn"]::before { background: var(--gl-sand-gold-deep); }
+
+.gl-back {
+  appearance: none; border: 0; background: transparent; cursor: pointer; display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 12px 6px 8px; border-radius: var(--gl-radius-sm); font-weight: 600; font-size: clamp(14px, 1.05cqw, 17px); color: var(--gl-ink);
+}
+.gl-back:hover { background: rgba(255, 255, 255, 0.55); }
+.gl-back:focus-visible { outline: none; box-shadow: var(--gl-focus-ring); }

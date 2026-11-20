@@ -14,19 +14,28 @@ namespace GhostLapHost;
 /// <summary>Maps challenge domain values onto the wire contracts. Nothing here invents a status or a history value.</summary>
 public static class ChallengeMapping
 {
-    public static SoloGhostFrame ToWire(SoloTraceFrame f) => new(
+    public static SoloGhostFrame ToWire(SoloTraceFrame f, CandlePlan plan) => new(
         f.Tick, f.XFixed, f.YFixed, f.Charge, f.IsOverlit, f.OverlitDeadlineTick, f.MovementPoints, f.PickupPoints, f.PenaltyPoints,
         f.TotalScore, f.Pickups, f.Bursts, f.HeldMoveX, f.HeldMoveY, f.BurstLatch, f.CollectedCount, [.. f.ActiveCandleIds],
-        Events(f.Events), f.StateHash, f.IsFinal, f.DistanceFixed);
+        Events(f.Events), f.StateHash, f.IsFinal, f.DistanceFixed, VisibleCandles(plan, f.Tick, f.ActiveCandleIds));
 
     /// <summary>The reducer's events of one tick in their stable order; the position in the array is the event's identity within the tick.</summary>
     public static GhostEventView[] Events(System.Collections.Immutable.ImmutableArray<GameEvent> events) =>
         [.. events.Select(e => new GhostEventView(e.Kind.ToString(), e.Slot, e.OtherSlot, e.Value, e.CandleId))];
 
-    public static SoloFrame ToWire(WorldFrame w, bool final) =>
+    public static SoloFrame ToWire(WorldFrame w, bool final, CandlePlan plan) =>
         new(w.Tick, w.XFixed, w.YFixed, w.Charge, w.OverlitDeadlineTick, w.TotalScore, final, w.DistanceFixed, w.IsOverlit, w.MovementPoints,
             w.PickupPoints, w.PenaltyPoints, w.Pickups, w.Bursts, w.BurstHits, w.HeldMoveX, w.HeldMoveY, w.BurstLatch, w.CollectedCount,
-            w.LastSequence, [.. w.ActiveCandleIds], Events(w.Events));
+            w.LastSequence, [.. w.ActiveCandleIds], Events(w.Events), VisibleCandles(plan, w.Tick, w.ActiveCandleIds));
+
+    private static SoloVisibleCandle[] VisibleCandles(CandlePlan plan, long tick, IEnumerable<string> activeIds)
+    {
+        var active = activeIds.ToHashSet(StringComparer.Ordinal);
+        return plan.Candles
+            .Where(c => active.Contains(c.Id) || (c.TelegraphTick <= tick && tick < c.ActivateTick))
+            .Select(c => new SoloVisibleCandle(c.Id, (double)c.Site.X / GameRulesV1.FixedOne, (double)c.Site.Y / GameRulesV1.FixedOne,
+                active.Contains(c.Id) ? "active" : "telegraph")).ToArray();
+    }
 
     public static string KindName(SoloBranchKind kind) => kind == SoloBranchKind.Fork ? ChallengeKinds.Fork : ChallengeKinds.Challenge;
 
@@ -369,11 +378,12 @@ public sealed class SoloChallengeRegistry(
             return GhostLapReply<ChallengeStarted>.Failure(ChallengeFailure.NotReady);
         }
 
+        var plan = session.Challenge.LivingContext!.Plan;
         log.ChallengeStarted(session.RunId);
-        _ = Task.Run(() => RunAsync(session), CancellationToken.None);
+        _ = Task.Run(() => RunAsync(session, plan), CancellationToken.None);
         return GhostLapReply<ChallengeStarted>.Success(new ChallengeStarted(
             run.OperationKey, session.RunId, run.Original.Value.ToString("D"), run.Seed, run.MascotId, run.RulesVersion, run.LayoutVersion,
-            GhostLapSoloWire.TickRateHz, GameRulesV1.RoundTicks, ChallengeMapping.ToWire(run.Living, false), ChallengeMapping.ToWire(run.Ghost),
+            GhostLapSoloWire.TickRateHz, GameRulesV1.RoundTicks, ChallengeMapping.ToWire(run.Living, false, plan), ChallengeMapping.ToWire(run.Ghost, plan),
             ChallengeMapping.KindName(run.Kind), run.ForkTick, run.ForkTick + 1, session.SourceFinalHash,
             ChallengeMapping.Pinned(run.RulesVersion, run.LayoutVersion)));
     }
@@ -504,11 +514,11 @@ public sealed class SoloChallengeRegistry(
         }
     }
 
-    private async Task RunAsync(ChallengeSession s)
+    private async Task RunAsync(ChallengeSession s, CandlePlan plan)
     {
         try
         {
-            await PlayAsync(s).ConfigureAwait(false);
+            await PlayAsync(s, plan).ConfigureAwait(false);
         }
         finally
         {
@@ -516,7 +526,7 @@ public sealed class SoloChallengeRegistry(
         }
     }
 
-    private async Task PlayAsync(ChallengeSession s)
+    private async Task PlayAsync(ChallengeSession s, CandlePlan plan)
     {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(s.Cts.Token, lifetime.ApplicationStopping);
         var token = linked.Token;
@@ -549,12 +559,12 @@ public sealed class SoloChallengeRegistry(
                     {
                         // The last frame carries the round's closing one-shot events, so it is delivered (bounded) rather than coalesced away.
                         await WaitForFreeSlotAsync(s).ConfigureAwait(false);
-                        await PushFrame(s, tick, elapsedMs, lagMs).ConfigureAwait(false);
+                        await PushFrame(s, tick, plan, elapsedMs, lagMs).ConfigureAwait(false);
                         interrupted = false;
                         break;
                     }
 
-                    _ = PushFrame(s, tick, elapsedMs, lagMs);
+                    _ = PushFrame(s, tick, plan, elapsedMs, lagMs);
                     continue;
                 }
 
@@ -638,7 +648,7 @@ public sealed class SoloChallengeRegistry(
     /// Pushes the committed tick unless the previous push is still in flight (latest wins, so a slow client never delays a tick). A skipped
     /// tick's one-shot events are kept and delivered with the next pushed frame, so no authoritative effect is lost.
     /// </summary>
-    private Task PushFrame(ChallengeSession s, SoloChallengeTick tick, double commitElapsedMs, double lagMs)
+    private Task PushFrame(ChallengeSession s, SoloChallengeTick tick, CandlePlan plan, double commitElapsedMs, double lagMs)
     {
         if (Interlocked.CompareExchange(ref s.FrameInFlight, 1, 0) != 0)
         {
@@ -649,7 +659,7 @@ public sealed class SoloChallengeRegistry(
         var (missed, truncated, coalesced) = s.DrainSkipped();
         var sendMs = System.Diagnostics.Stopwatch.GetElapsedTime(s.RunStartTimestamp).TotalMilliseconds;
         var frame = new ChallengeFrameView(
-            tick.Tick, ChallengeMapping.ToWire(tick.Living, tick.IsFinal), ChallengeMapping.ToWire(tick.Ghost), tick.Delta, tick.IsFinal,
+            tick.Tick, ChallengeMapping.ToWire(tick.Living, tick.IsFinal, plan), ChallengeMapping.ToWire(tick.Ghost, plan), tick.Delta, tick.IsFinal,
             ++s.Seq, new FramePacing(Math.Round(commitElapsedMs, 3), Math.Round(lagMs, 3), Math.Round(sendMs, 3), coalesced),
             missed.Length == 0 ? null : missed, truncated);
         return SendAsync(s, frame);

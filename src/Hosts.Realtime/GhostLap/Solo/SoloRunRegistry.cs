@@ -8,12 +8,16 @@ using GhostLap.Solo;
 using Marrow.Infrastructure.Realtime;
 using Marrow.Kernel.Security;
 using Microsoft.AspNetCore.SignalR;
+using InputRejection = GhostLap.Simulation.InputRejection;
 
 namespace GhostLapHost;
 
 /// <summary>Maps the domain's solo save outcome and summaries onto the wire contracts. Nothing here invents a status.</summary>
 public static class SoloMapping
 {
+    public static SoloFrame ToOriginalFrame(GameState state, CandlePlan plan) =>
+        ChallengeMapping.ToWire(WorldFrame.Of(state), state.IsFinal, plan);
+
     public static SoloOriginalView ToView(SoloOriginalSummary s) => new(
         s.Timeline.Value.ToString("D"), s.OperationKey, s.Seed, s.MascotId, s.RulesVersion, s.LayoutVersion,
         s.Versions.DomainId, s.Versions.ReducerVersion, s.Versions.InputSchemaVersion, s.Versions.StateSchemaVersion,
@@ -104,9 +108,45 @@ internal sealed class SoloRunSession(IActorContext actor, SoloRecording recordin
 
     public int Phase;
 
-    public int FrameInFlight;
-
     public long NextNoticeTimestamp;
+}
+
+/// <summary>Single-producer delivery state for one Original tick loop.</summary>
+internal sealed class OriginalFrameDelivery
+{
+    private const int MaxMissedTicks = 64;
+    private readonly Queue<SoloMissedTickEvents> _missed = new();
+    private bool _truncated;
+    private long _sequence;
+
+    public Task InFlight { get; private set; } = Task.CompletedTask;
+
+    public void Push(GameState state, CandlePlan plan, Func<SoloFrame, Task> send)
+    {
+        if (!InFlight.IsCompleted)
+        {
+            if (!state.Events.IsEmpty)
+            {
+                if (_missed.Count == MaxMissedTicks)
+                {
+                    _missed.Dequeue();
+                    _truncated = true;
+                }
+
+                _missed.Enqueue(new SoloMissedTickEvents(state.Tick, ChallengeMapping.Events(state.Events)));
+            }
+
+            return;
+        }
+
+        var frame = SoloMapping.ToOriginalFrame(state, plan) with
+        {
+            Seq = ++_sequence, Missed = _missed.ToArray(), MissedTruncated = _truncated,
+        };
+        _missed.Clear();
+        _truncated = false;
+        InFlight = send(frame);
+    }
 }
 
 /// <summary>
@@ -251,6 +291,15 @@ public sealed class SoloRunRegistry(
         return admitted.IsSuccess ? null : admitted.Error.ToString();
     }
 
+    public SoloInputRejected Describe(string subject, SoloInputItem? item, string code)
+    {
+        var state = _runs.TryGetValue(subject, out var session) ? session.Recording.State : null;
+        var nextTick = state is { IsFinal: false } ? state.Tick + 1 : 0;
+        var retryableTiming = code is nameof(InputRejection.LateTick) or nameof(InputRejection.FutureTick) or nameof(InputRejection.CommitPending);
+        var edgeAtRisk = retryableTiming && item?.RequestBurst == true && state is not null && !state.Players[0].BurstLatch;
+        return ChallengeMapping.Describe(item, code, edgeAtRisk, nextTick);
+    }
+
     /// <summary>Whether this connection currently drives a live run (so a notice or a second stream can be refused cheaply).</summary>
     public bool Drives(string subject, string connectionId) =>
         _runs.TryGetValue(subject, out var s) && s.ConnectionId == connectionId && Volatile.Read(ref s.Phase) == SoloRunPhase.Playing;
@@ -345,6 +394,7 @@ public sealed class SoloRunRegistry(
         var token = s.Cts.Token;
         var interrupted = true;
         string? code = null;
+        var frames = new OriginalFrameDelivery();
         try
         {
             var timer = new SoloTickClock();
@@ -361,13 +411,16 @@ public sealed class SoloRunRegistry(
                 if (committed.TryGetValue(out var receipt))
                 {
                     failures = 0;
-                    PushFrame(s, receipt.State);
                     if (receipt.State.IsFinal)
                     {
+                        Volatile.Write(ref s.Phase, SoloRunPhase.Saving);
+                        await frames.InFlight.ConfigureAwait(false);
+                        frames.Push(receipt.State, s.Recording.Context.Plan, frame => SendAsync(s, frame));
                         interrupted = false;
                         break;
                     }
 
+                    frames.Push(receipt.State, s.Recording.Context.Plan, frame => SendAsync(s, frame));
                     continue;
                 }
 
@@ -395,6 +448,7 @@ public sealed class SoloRunRegistry(
             code = "error";
         }
 
+        await frames.InFlight.ConfigureAwait(false);
         if (interrupted)
         {
             log.RunInterrupted(s.Started.RunId, s.Recording.State.Tick, code ?? "disconnected");
@@ -403,7 +457,6 @@ public sealed class SoloRunRegistry(
             return;
         }
 
-        Volatile.Write(ref s.Phase, SoloRunPhase.Saving);
         await PushEndedAsync(s, new SoloRunEnded("final", null)).ConfigureAwait(false);
         await SaveAfterFinalAsync(s).ConfigureAwait(false);
     }
@@ -441,18 +494,6 @@ public sealed class SoloRunRegistry(
         }
     }
 
-    private void PushFrame(SoloRunSession s, GameState state)
-    {
-        if (Interlocked.CompareExchange(ref s.FrameInFlight, 1, 0) != 0)
-        {
-            return; // latest wins: a client that is not reading never delays a tick
-        }
-
-        var p = state.Players[0];
-        var frame = new SoloFrame(state.Tick, p.XFixed, p.YFixed, p.Charge, p.OverlitDeadlineTick, p.TotalScore, state.IsFinal);
-        _ = SendAsync(s, frame);
-    }
-
     private async Task SendAsync(SoloRunSession s, SoloFrame frame)
     {
         try
@@ -462,10 +503,6 @@ public sealed class SoloRunRegistry(
         catch (Exception)
         {
             // Delivery is best effort: the committed history, not the push, is the truth.
-        }
-        finally
-        {
-            Volatile.Write(ref s.FrameInFlight, 0);
         }
     }
 

@@ -105,7 +105,11 @@ public sealed record SnapshotFrame(
     string MatchStatus,
     RecipientView You,
     EventBatch Events,
-    bool IsResync);
+    bool IsResync,
+    IReadOnlyList<VisibleCandleView>? VisibleCandles = null);
+
+/// <summary>Only currently active or legitimately telegraphed candles, in world units. No future schedule.</summary>
+public sealed record VisibleCandleView(string Id, int X, int Y, string Phase);
 
 /// <summary>Reliable control feedback that is neither a rejection nor state (<see cref="MatchControlCodes"/>).</summary>
 public sealed record MatchControlNotice(string MatchId, string GenerationId, long LifecycleVersion, string Code, string? Detail, long Tick);
@@ -118,3 +122,8 @@ public static class MatchControlCodes
     /// <summary>Rejections for this connection were dropped because its reliable queue was full (<c>Detail</c> = how many). Resync if unsure.</summary>
     public const string ControlOverflow = "control_overflow";
 }
+
+/// <summary>Immutable collision-aligned arena projection. Coordinates are world units.</summary>
+public sealed record ArenaObstacleView(int X0, int Y0, int X1, int Y1);
+public sealed record ArenaPresentationView(string LayoutId, string LayoutFingerprint, int Width, int Height,
+    IReadOnlyList<ArenaObstacleView> Obstacles);

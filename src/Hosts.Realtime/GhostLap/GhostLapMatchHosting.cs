@@ -159,10 +159,12 @@ public sealed class GhostLapGenerationService(
 /// read can only hold its own sender; that sender gives up after <see cref="MultiplayerOptions.SendTimeoutMilliseconds"/> and aborts the connection.
 /// Replaces the single serial delivery pump of task 10.2. Untyped hub context: it is the overload that accepts a cancellation token.
 /// </summary>
-public sealed class GhostLapSignalRTransport(IHubContext<GhostLapHub> hub, GhostLapConnections connections) : IMatchTransport
+public sealed class GhostLapSignalRTransport(IHubContext<GhostLapHub> hub, GhostLapConnections connections, IServiceProvider services) : IMatchTransport
 {
+    // Resolve after construction: MatchRegistry itself owns this transport. Read only its immutable plan here.
     public ValueTask SendSnapshotAsync(string connectionId, SnapshotFrame frame, CancellationToken ct) =>
-        new(hub.Clients.Client(connectionId).SendAsync(GhostLapWire.SnapshotClientMethod, frame, ct));
+        new(hub.Clients.Client(connectionId).SendAsync(GhostLapWire.SnapshotClientMethod, GhostLapPresentation.Project(frame,
+            services.GetRequiredService<MatchRegistry>().Find(Guid.Parse(frame.Snapshot.MatchId))?.Engine.Context.Plan), ct));
 
     public ValueTask SendAckAsync(string connectionId, InputAck ack, CancellationToken ct) =>
         new(hub.Clients.Client(connectionId).SendAsync(GhostLapWire.InputsAppliedClientMethod, ack, ct));

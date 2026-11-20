@@ -19,6 +19,7 @@ public sealed class E2eDatabase : IAsyncDisposable
     public NpgsqlDataSource Owner { get; private set; } = null!;
     /// <summary>Connection string of the API login (runtime roles only). Never printed.</summary>
     public string ApiConnectionString { get; private set; } = "";
+    internal string GhostLapRealtimeConnectionString { get; private set; } = "";
     internal string R8Ledger { get; private set; } = "";
     internal string R8Replay { get; private set; } = "";
     public string MigrationOutput { get; private set; } = "";
@@ -55,6 +56,14 @@ public sealed class E2eDatabase : IAsyncDisposable
             $"GRANT marrow_identity_runtime, marrow_timeline_runtime, ghostlap_runtime TO {ApiLogin};"))
         {
             await command.ExecuteNonQueryAsync(ct);
+        }
+        if (Environment.GetEnvironmentVariable("E2E_GHOSTLAP_REALTIME_PORT") is not null)
+        {
+            var realtimePassword = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
+            await using var roles = Owner.CreateCommand($"CREATE ROLE sands_e2e_realtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD '{realtimePassword}'; GRANT marrow_identity_runtime, ghostlap_mp_runtime TO sands_e2e_realtime;");
+            await roles.ExecuteNonQueryAsync(ct);
+            GhostLapRealtimeConnectionString = new NpgsqlConnectionStringBuilder(ownerBuilder.ConnectionString)
+            { Username = "sands_e2e_realtime", Password = realtimePassword }.ConnectionString;
         }
         if (Environment.GetEnvironmentVariable("E2E_R8") == "1")
         {

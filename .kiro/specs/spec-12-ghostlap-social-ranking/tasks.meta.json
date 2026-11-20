@@ -1,0 +1,41 @@
+{
+  "pbtResults": {},
+  "executionHistory": {
+    "**12.0 Inspect existing multiplayer result, spectator and rematch contracts (short, code-first gate)**": [
+      {
+        "executionId": "484f37af-d0f8-41dc-a0f3-a9b52f83977f",
+        "chatSessionId": "sess_b82dc27b-9c63-4a58-8272-dd3f85911cd0",
+        "timestamp": 1794978759088
+      },
+      {
+        "executionId": "484f37af-d0f8-41dc-a0f3-a9b52f83977f",
+        "chatSessionId": "sess_b82dc27b-9c63-4a58-8272-dd3f85911cd0",
+        "timestamp": 1794978923738
+      }
+    ],
+    "**12.1 Confirm complete multiplayer presentation contracts — NO PRODUCTION CHANGES**": [
+      {
+        "executionId": "ab0ef553-07c3-4fdc-90f8-9806141d8f66",
+        "chatSessionId": "sess_174d26ec-ac17-40f0-97a9-3f23018bf17b",
+        "timestamp": 1794979258498
+      },
+      {
+        "executionId": "ab0ef553-07c3-4fdc-90f8-9806141d8f66",
+        "chatSessionId": "sess_174d26ec-ac17-40f0-97a9-3f23018bf17b",
+        "timestamp": 1794979297943
+      }
+    ],
+    "**12.2 Final multiplayer results/spectator handoff and minimal acceptance — close Spec 12**": [
+      {
+        "executionId": "f9939091-8602-4bb4-8f47-5914f2297806",
+        "chatSessionId": "sess_db551a07-f792-4cf5-9340-499d0fe4b1fb",
+        "timestamp": 1794979698448
+      },
+      {
+        "executionId": "f9939091-8602-4bb4-8f47-5914f2297806",
+        "chatSessionId": "sess_db551a07-f792-4cf5-9340-499d0fe4b1fb",
+        "timestamp": 1794979741484
+      }
+    ]
+  }
+}

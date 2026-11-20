@@ -1,55 +1,121 @@
-# Spec 08 — Revenant V2: ML.NET risk, anomaly, liquidity forecast and explanations
+# Spec 08 requirements — Revenant intelligence, model-aware finance, advisory liquidity and verified replay integration
 
-**Basket:** 3 | **Dependencies:** spec-05 and **passed** spec-07 | **Owner:** Revenant Intelligence, offline model/artifact tooling, Worker risk integration, domain-owned versioned finance extension, and `tests/Revenant` evidence.
+**Basket:** 3  
+**Implementation baseline:** completed R1–R8 delivery checkpoints, current through 14 November 2026  
+**Dependencies:** Specs 05 and 07 finance, ledger, human-review and Marrow Timeline contracts  
+**Primary owner:** Revenant Intelligence, its versioned model evidence and the model-aware financial adapter  
+**Downstream owner:** Spec 09 owns the five-screen Revenant experience and full alternate-policy replay application. The completed R8 integration is recorded here as a dependency/interface checkpoint, not as a second implementation of the shared engine.
 
-## Outcome and scope
+## Outcome and delivered scope
 
-Ship **three real ML.NET modeling workloads** (fraud classification, payment-velocity anomaly detection and SSA liquidity forecasting) plus an honest, evidence-grounded explanation capability. A trained, pinned classifier must materially influence a **new model-aware Revenant live screening run**; anomaly and forecasting are advisory. All model claims and causal counterfactuals must remain synthetic, reproducible and distinguishable from actual bank guarantees. The implementation extends the completed Spec 07 ledger and Marrow Timeline; it does not replace either.
+Revenant combines genuine trained ML.NET evidence with financially authoritative, causally replayable synthetic banking. A pinned FastTree classifier participates in ModelRequired Screening and can create a real hold/case. A separately trained ML.NET SSA–Poisson detector analyzes outgoing-account velocity and publishes advisory evidence. Eight five-minute bank liquidity projections are supplied by the explicitly versioned **statistical persistence baseline**, not by a learned SSA forecaster. Recorded evidence, explanations and financial facts feed the V4 Marrow history and the existing Spec 09 consumer.
 
-**Excluded:** Python services, online/repeated training during demonstrations, a universal model registry, production banking or credit decisions, real customer data, training on future/label information, bank-grade accuracy claims, a new replay engine, Spec 09's full alternate-policy/human-continuation UI, and any Ghost Lap ML dependency.
+**Completed operational objective:** A six-bank synthetic payment run, audited model-required holds, human review/settlement, source/child financial lineage, supported advisory evidence, and a real counterfactual product with the four economic KPI families and five connected screens. The financial and user-experience scope is unchanged by the liquidity-method substitution.
 
-**Existing authority:** Spec 05 V1 finance histories and v7/v8 rules, Spec 07 finance V2 with rules-only v7, ledger transactions/cases/holds/settlement/audit, immutable verified runs, ordered committed facts and Timeline projector. These historical versions and hashes are frozen. New model-aware behavior requires a new compatible **finance-domain version** and a focused compatibility ADR; changing a context alone cannot change a Timeline history's reducer/schema key.
+**Explicit model-scope amendment:** The earlier three-*learned*-workload expectation was resolved as **two genuine trained workloads plus an eight-horizon statistical liquidity projection**. `ForecastBySsa` research remains preserved but is not a supported active producer; learned interval bands and predictive shortfall warnings are not emitted. This document specifies the completed, versioned product baseline rather than changing historical research artifacts.
 
-## EARS-style requirements and acceptance
+**Excluded:** new Marrow engine, new ledger, new generic Timeline UI, unpinned live scoring, online training, inference from hidden evaluation truth, unrestricted Replay ledger writes, unsupported learned forecast claims, unlicensed PaySim metrics, real-world fraud-accuracy claims, new Ghost Lap ML dependencies, and reclassification of legacy evidence.
 
-**R08.01 — Reproducible provenance and lawful data.** WHEN a training or model-loading operation runs, THE SYSTEM SHALL record source and lawful use, raw/fixture hashes, cohort limitations, feature and preprocessing schema, split method/seed, trainer and exact pinned package/runtime versions, artifact checksum, evaluation and policy identities. Official PaySim is used only if lawfully obtained and its distribution conditions are verified; otherwise a project-generated, labeled synthetic fixture must execute the same **real ML.NET pipeline** and be clearly identified as a limited fallback. No invented PaySim metrics, hidden network download, or redistribution of unlicensed/raw source data.
+## EARS-style requirements and verified acceptance contracts
 
-**R08.02 — Model-driven authoritative screening.** WHEN a payment enters a **model-required** synthetic run, THE SYSTEM SHALL build only causally available screening features, use a pinned **trained** ML.NET FastTree binary classifier, normalize and persist its exact score/evidence, and apply the versioned **v7-baseline-OR-learned-risk hold policy** so a learned score can change a genuine hold decision. Existing hard v7 rejects/holds and staff authorization remain effective. A failure to score must not silently authorize, settle, switch policy, or consume the payment's retry identity as if screening succeeded.
+## EARS-style requirements and verified acceptance contracts
 
-**R08.03 — Authentic anomaly signal.** WHEN defined per-origin outgoing-velocity observations materially deviate from a versioned sequential baseline, THE SYSTEM SHALL run an actual supported ML.NET anomaly detector on as-of observations, report detector score/threshold/window and a grounded observed-versus-baseline explanation, or explicitly say `InsufficientHistory`. For Phase 1 anomaly output is advisory, not an independent payment-state/hold authority.
+### R08.01 — Reproducible provenance and lawful data
 
-**R08.04 — Causal liquidity forecasting.** WHEN committed holds, settlement or returns alter available bank liquidity, THE SYSTEM SHALL construct a per-bank simulated-time series from authoritative posted-minus-reserved balances, run a pinned ML.NET SSA forecaster for a defined horizon, and produce computed central forecasts and clearly labeled interval estimates. A shortfall warning requires the actual predicted value or stated conservative band to cross a pinned threshold; a 40-minute warning may only appear when computed evidence warrants it. Never mutate ledger balances from a forecast.
+**WHEN** a model or observation is trained, loaded or produced, **THE SYSTEM SHALL** bind the model/series to a versioned canonical input, producer, model/policy/manifest identity, runtime family and checksum. Supported ML.NET `5.0.1` inference and its native TimeSeries dependencies execute on the proven Linux `amd64` runtime; macOS ARM64 is not represented as an independently qualified SSA runtime. Project-generated labeled synthetic observations and evaluation sidecars are not presented as PaySim or live-bank data.
 
-**R08.05 — Honest explainability.** WHEN a payment/case explanation is requested, THE SYSTEM SHALL return an authorized, evidence-linked model score and threshold, the actual observed as-of feature values, relevant v7/rules and anomaly reasons, and the method used. Per-record model contributions are shown **only if actually supported and correctly computed**; global feature importance cannot be described as the local cause of a specific decision. Synthetic truth labels and reviewer comments must not leak into predictors, outbox reason payloads or unprivileged clients.
+**Evidence:** R1 native train–save/load–predict path; R4 canonical longitudinal finance histories; R5 and R7 pinned artifact ZIPs, manifests, deterministic reloading and Linux CI.
 
-**R08.06 — Compatible causal branches.** WHEN a **model-aware-version** source is replayed or branched, THE SYSTEM SHALL preserve its original bytes and pinned model/feature/policy identities, use the existing Timeline APIs, and produce any changed post-fork screening evidence from the branch's own reconstructed causal features. Branches keep the compatible reducer/schema version and may vary only permitted pinned policy/context inputs. No reuse by intent ID alone, no live-ledger writes and no claim that an old V1 v7/v8 source can be changed into a new model-aware reducer by context substitution. Spec 09 owns complete analyst-action continuation and financial counterfactual presentation.
+### R08.02 — Model-driven authoritative Screening
 
-**R08.07 — Scientific evaluation transparency.** WHEN offline evaluation completes, THE SYSTEM SHALL emit **actual computed** held-out fraud PR-AUC, ROC-AUC where defined, class prevalence, TP/FP/TN/FN, precision/recall/F1 and selected validation threshold, with a chronological/group leakage audit and a baseline comparison. The final test split must not tune the trainer or threshold. Anomaly spike/baseline evidence and chronological SSA backtest error and band coverage shall be reported with sample sizes, horizon, dataset cohort and limitations. No preselected accuracy number is guaranteed.
+**WHEN** a payment enters the V4 ModelRequired Screening path, **THE SYSTEM SHALL** build `risk-features-v2` from the authoritative pre-screening account state, use the pinned trained R5 FastTree model, and record `v4-model-screening-evidence/1` in the ordered financial fact. The `v4-model-review-capacity/1` policy uses the inclusive `852469` ppm learned-risk threshold while preserving its compatible `policy-v7`/`policy-v8` hard controls. A learned hold creates a real reserved balance and case; it never directly settles, rejects or confiscates principal.
 
-**R08.08 — Explicit missing-artifact behavior.** WHEN a required model, schema, version, or inference snapshot is missing, corrupt or incompatible, THE SYSTEM SHALL return a typed visible failure and **not** perform a model-required screening transition. A separately created and pinned rules-only V2 run remains valid, but a running model-aware source cannot silently downgrade. Historical cold replay must run without **invoking the predictor** using pinned canonical evidence and available compatible historical assets; missing assets required by the historical resolver fail as incompatible rather than inventing scores.
+**WHEN** required model inference or artifact validation fails, **THE SYSTEM SHALL** fail closed without silently choosing an unpinned or rules-only replacement. Committed screening evidence is reused in predictor-free historical replay.
 
-**R08.09 — Cross-domain exclusion.** WHEN the solution dependency graph is checked, THE SYSTEM SHALL prove that Ghost Lap imports no Revenant Intelligence/ML.NET packages, ML algorithms or domain code. Marrow remains model-agnostic.
+### R08.03 — Authentic outgoing-velocity anomaly signal
 
-**R08.10 — Same-feature training and serving.** WHEN ETL builds a training example or Worker scores a real run, THE SYSTEM SHALL use the same versioned feature definitions, ordering, missing-value rules, input scale and conversion code. Features must be as-of the screening decision, excluding outcome/post-state balances, future events, labels, proxy flags, raw identifiers and unobservable PaySim fields. A precommit version/snapshot check or appropriate transaction lock SHALL prevent stale precomputed inference from committing after its causal inputs changed.
+**WHEN** an account has eligible completed history, **THE SYSTEM SHALL** apply the real loaded ML.NET `DetectSpikeBySsa` model for learned preceding-bucket expected counts, calculate the six-bucket Poisson upper-tail surprise, and persist versioned `anomaly-evidence/2` under `R7-AnomalyGlobalPolicy/1`. The pinned inclusive score threshold is `3.4120270786372`. An account needs at least `1,152` warmup buckets and eight nonzero warmup observations; otherwise the result is typed `InsufficientHistory` without a fabricated alert.
 
-**R08.11 — Atomic financial evidence and retry safety.** WHEN live model screening commits, THE SYSTEM SHALL transactionally bind the original payment transition, canonical inference evidence/identity, stable ordered fact, relevant hold/case action and outbox effects using the Spec 07 ledger's authorization, RLS and idempotency boundaries. A crash/retry cannot yield two decisions, conflicting evidence, a verified source without its committed evidence or inconsistent ledger/Timeline parity. Do not extend the pure reducer with model I/O or perform live payment mutations in replay.
+**The anomaly is advisory:** it does not independently change money, Screening, case decisions or reviewer authority. An actual alert and its evaluation quality must not be inferred from a short demo run lacking warmup.
 
-**R08.12 — Bounded training and honest unavailability.** WHEN the complete PaySim source is not locally available, lawful or practical, THE SYSTEM SHALL still demonstrate genuine end-to-end trained classifier inference on a documented reproducible synthetic fixture, with **fixture-only quality claims**; it must not present that model as independently validated on PaySim. CI/normal development use a small deterministic artifact/fixture and do not require Kaggle credentials, raw multi-million-row datasets, network access or repeated full training. A missing or insufficient time-series warm-up produces a typed insufficient-data result, not fabricated anomalies or forecast certainty.
+### R08.04 — Causal bank liquidity projection
 
-**R08.13 — Executable ML.NET platform compatibility.** WHEN ML.NET native-dependent SSA anomaly or forecast code is built, trained, loaded or executed, THE SYSTEM SHALL use a **proven supported x64 execution environment** (Phase 1: glibc-based Linux `amd64`) for that work, including the deployed Worker and CI acceptance tests. A real train→save/load→predict smoke for **both** `DetectSpikeBySsa` and `ForecastBySsa`, including native library loading, SHALL pass before implementing the larger SSA workloads. Native macOS ARM64 is allowed for the independently proven FastTree/data/finance work but is **not** claimed to support ML.NET TimeSeries SSA. Unavailable/emulation-incompatible SSA runtime must fail explicitly; required SSA tests must pass on x64 CI and must not be silently skipped and called successful.
+**WHEN** a completed bank seal is projected, **THE SYSTEM SHALL** read the authoritative USD minor-unit bank available balance `Posted − Reserved` and emit eight points at +5, +10, +15, +20, +25, +30, +35 and +40 simulated minutes, each equal to that completed-origin balance. The producer is `LiquidityPersistenceBaseline/1`; evidence is `liquidity-projection-evidence/1`; uncertainty is typed `Uncalibrated`.
 
-## Non-functional and adversarial invariants
+**THE SYSTEM SHALL NOT** publish this as a learned SSA forecast, a model interval, a guaranteed shortfall warning or financial posting. Historical `liquidity-forecast-evidence/1` and `/2` retain their old producer meanings and cannot select the active runtime.
 
-- Existing Marrow/Spec 05/Spec 07 **public contracts, ledger rules, RLS, four-eyes, audit, source closure and historical codecs remain authoritative**. Finance versions are additive; exact domain version spelling is selected against the implemented registry in Task 8.3, not guessed from these planning documents.
-- Use `long` minor units and actual committed financial state as accounting authority. ML.NET `float` is allowed only for model computation. Decision scores are quantized once into pinned fixed-point evidence; pure replay compares integers and canonical bytes, not approximate floating values.
-- Model identity includes immutable artifact hash, feature schema, normalization, policy/threshold and runtime/package versions. Model-load failure cannot silently change the scenario policy. Do not store passwords, customer data or unlicensed PaySim raw rows in git.
-- Validate real authenticated actors and domain policy for any new API/case reason path; feature extraction must use run-scoped/tenant-scoped authoritative data, not browser state or the truth label. No unrelated infrastructure or large new background platform.
-- Train/evaluate offline and load pinned models for runtime. Rebuildable advisory forecasts and anomaly state may be computed as-of, but may not mutate ledger or become necessary for historical financial replay.
-- Keep the macOS ARM64 SDK selection and `global.json` unchanged. Reserve Linux `amd64`/glibc and its proven TimeSeries native dependency chain for SSA execution; architecture-specific tests use actual x64 CI as acceptance evidence, not an unverified native Mac pass. Never silently replace SSA with a different algorithm to make ARM64 execution green.
-- A functional, reproducible result is more important than inflated metrics; if only a fixture is available, label the demonstration explicitly rather than claiming external generalization.
+### R08.05 — Grounded explanations and authorized reasons
 
-## Blocking Spec 08 exit gate
+**WHEN** a staff-authorized explanation is requested, **THE SYSTEM SHALL** present the recorded R5 score and threshold, actual causal feature observations, applicable v7/v8 rules, final financial decision, evidence/policy references and any eligible R7 advisory context. **THE SYSTEM SHALL NOT** show retrospective synthetic truth as a live decision input, present unsupported per-payment feature contributions or leak private review text.
 
-All **three ML.NET workloads and the separate explanation capability** must execute on genuine versioned input/manifest/evaluation artifacts. Before SSA acceptance, the actual x64 native-library smoke and Worker/container runtime architecture must be verified, and SSA-dependent tests must pass on a real Linux x64 CI runner. Required observed evidence: real trained-and-loaded fraud model changes a screening decision in a new model-aware run; persisted exact inference evidence survives crash/cold replay without predictor invocation; at least one causal branch derives independent feature/evidence values; real anomaly detection and grounded case reason; bank SSA forecasts and intervals from causal histories, including a hold/settlement what-if and chronological backtest; historical V1/V2 compatibility and no Ghost Lap dependency. An optional full PaySim evaluation is reported only if actually run; a documented small-fixture evaluation is acceptable with explicit limitations. All existing Spec 07 financial/authorization protections remain intact.
+### R08.06 — Compatible causal branches and verified source
 
-Record real commands, dataset/fixture identifiers and hashes, generated metric/artifact paths, train/evaluate durations if measured, targeted Postgres/inference/Timeline tests, any observed demo/worker result, Git commit/HEAD and Kiro credit observations (if available) in `docs/kiro-log.md`. **Do not infer test results or model quality from this document.** If a blocking path cannot execute or evidence is missing, leave the spec gate BLOCKED.
+**WHEN** a compatible alternative is selected, **THE SYSTEM SHALL** vary versioned `policy-v7` versus `policy-v8` base rules within the same V4 family while preserving R5 evidence, sanctions and human-review authority. The alternative does not gain the ability to rewrite source facts. Source decisions are not copied as alternative outcomes; the child recomputes lawful post-fork consequences from common upstream instructions and permitted recorded actions.
+
+**WHEN** a source history is forked, **THE SYSTEM SHALL** keep the registered V4 reducer/input/state/context family and immutable prefix; `ObservedFinanceReducer`/`V4ObservationProjector` reconstruct branch-causal state, and historical V1/V2/V3 meanings remain frozen. Inapplicable source-review actions are not silently copied as valid child actions.
+
+### R08.07 — Measured scientific evaluation and limitations
+
+**WHEN** a model or product claim is published, **THE SYSTEM SHALL** distinguish held-out synthetic fraud metrics, anomaly development measurements, actual financial outcomes and production-independent performance. The R5 held-out synthetic classifier achieved ROC-AUC approximately `0.838` and average precision approximately `0.635`. R7 G4 account-anomaly development measured `14/23` events, `7` false alerts over `71.26` normal account-days, and a `10`-minute median delay; independent quality qualification remains a separate status. The unsupported bank SSA research cannot be represented as a currently serving model.
+
+### R08.08 — Explicit missing-artifact and replay behavior
+
+**WHEN** a pinned model or required series is missing, corrupt, ineligible or incompatible, **THE SYSTEM SHALL** return the applicable typed failure without successful evidence bytes. R5 ModelRequired failure prevents a new Screening decision; R7 advisory unavailability does not turn into a Screening authority or invented bank forecast. **WHEN** existing recorded financial evidence is replayed cold, **THE SYSTEM SHALL** reproduce its legal decisions without calling the scorer.
+
+### R08.09 — Cross-domain exclusion and shared Marrow integrity
+
+**WHEN** dependency and compatibility tests execute, **THE SYSTEM SHALL** preserve the canonical Marrow engine, hash/codec/history behavior and the compiled shared Timeline UI. Ghost Lap SHALL remain free of Revenant Intelligence/ML.NET dependencies. A Replay-specific database permission migration may restrict the dedicated Replay credential without changing ordinary Marrow/Ghost Lap semantics.
+
+### R08.10 — Identical causal training/serving features and observation boundaries
+
+**WHEN** a completed five-minute boundary exists, **THE SYSTEM SHALL** construct account outgoing-count and bank available-balance observations from committed, causally visible finance facts. A no-event bucket is not silently equated to an unobserved interval. The observation identity records tenant, physical execution, root lineage, source/child branch, completed boundary, fact sequence/prefix digest and series hash as applicable. A child inherits the verified prefix and uses only its own suffix after the fork.
+
+**WHEN** the trained FastTree model scores a payment, **THE SYSTEM SHALL** use the pinned `risk-features-v2` pre-screening builder and the exact versioned feature normalization and as-of fact inputs used for its published artifact. Unknown/future truth, later settlement, untrusted customer IDs or post-state balance SHALL NOT enter inference; the financial transaction SHALL validate that its inputs have not changed before committing evidence.
+
+### R08.11 — Atomic screening/evidence, ordering and retry safety
+
+**WHEN** Screening commits, **THE SYSTEM SHALL** bind the intent, causal pre-state, score, base/learned decision, hold/case, ordered finance fact, outbox and idempotency within the existing authorized PostgreSQL transaction. **WHEN** a V4 history is replayed or forked, **THE SYSTEM SHALL** use the compatible finance reducer/input/state/context family, not reinterpret old V1/V2/V3 records as V4.
+
+**Registered active V4 family:** `revenant-finance-reducer/4`, `revenant-finance-fact/4`, `revenant-finance-state/4`, `revenant-finance-context/4`.
+
+**WHEN** a held case is reviewed, **THE SYSTEM SHALL** retain the existing authorized staff/MFA, expected-version, case state and four-eyes protections. **WHEN** a ledger commit or Replay append is retried, **THE SYSTEM SHALL** enforce same-operation idempotency and refuse conflicting evidence.
+
+### R08.12 — Bounded training, short-history and truthful unavailability
+
+**WHEN** external research corpora are absent, **THE SYSTEM SHALL** use the already versioned project-generated synthetic corpus and independently recorded synthetic metrics; it SHALL NOT invent PaySim results, retrain full models on each request, or require network access to run normal CI. **WHEN** the source/account history is too short, **THE SYSTEM SHALL** produce typed `InsufficientHistory` for advisory inference rather than supplying synthetic score or warning. A short Friday Ring display remains functional with real balances and R5 decisions.
+
+### R08.13 — Executable ML.NET Linux AMD64 platform compatibility
+
+**WHEN** native ML.NET SSA anomaly code is built, loaded, scored or validated, **THE SYSTEM SHALL** use the proven native Linux `amd64`/glibc runtime and executed `DetectSpikeBySsa` fit/save/load/predict checks. The existing Worker publish and CI actually load the pinned artifact; tests are not recorded as passing merely because an unsupported environment skipped them. Native macOS ARM64 or a successful container startup is not a substitute for the Linux SSA proof. Historical `ForecastBySsa` probe/research can remain archived; current runtime qualification does not require promoting that failed forecaster.
+
+## Completed downstream Spec 09 integration contract (R8 checkpoint)
+
+**Authenticated app and API.** The existing `/revenant/r8` endpoints provide scenario runs, cases/review, Timeline preview, liquidity, counterfactual job submission/status/cancel and audit with exact decimal-string money and Timeline coordinates. The five connected screens are Control Tower, Held Queue, Liquidity Fan, Rewind Mode and Audit; Rewind uses the same compiled `@sands/timeline-ui` package used by Ghost Lap.
+
+**Replay and human continuation.** Compatible `policy-v7`/`policy-v8` choices are both within V4 and retain the published model and hard controls. Authorized staff review preserves role/MFA/four-eyes/version semantics. `analyst-continuation-v1` reapplies valid recorded actions, distinguishes stale/inapplicable actions, and attributes new authorized sandbox interventions separately. The original source remains immutable while the child has its own lawful financial suffix.
+
+**Economic impact.** The four visible KPI families are fraud intercepted/prevented, legitimate payments delayed, false-positive cost and signed net financial effect, with actual paired-intent lineage. Separate deferred exposure, return/recovery and indirect insufficient-funds outcomes remain accessible. `counterfactual-cost-v1` charges 250 cents per additional legitimate intervention plus 10 cents per incremental whole minute of delay capped at 120 minutes per intent. Source/alternative evidence and an immutable result digest must reconcile before successful display.
+
+**Replay storage security.** The Replay login cannot mutate live ledger or source Timeline facts and cannot read unrelated `marrow_timeline.context_artifacts` or the V4 scheduler's copied contexts by creating/redirecting jobs or changing tenant/role settings. The job-bound PostgreSQL grants/RLS and forward migrations `0016`–`0019` retain ordinary Marrow/Ghost Lap behavior. See `docs/adr/ADR-P1-21-replay-context-isolation.md`.
+
+**Liquidity display.** The eight active persistence horizons are shown as an uncalibrated statistical baseline; the separate `R8-SyntheticBufferReference/1` marker is illustrative (10% of valid verified opening bank available balance), not a financial policy or trained warning.
+
+**Release validation.** The final R8 branch CI reported eight passing jobs, 109 API/service tests, 61 Marrow PostgreSQL tests, 96 Revenant PostgreSQL tests and a separate R7→R8 upgrade test; browser phone/tablet and exact shared Timeline integration were included in targeted acceptance.
+
+## Required fixed identity references
+
+| Capability | Versioned identity | Role |
+|---|---|---|
+| R5 trained fraud | `revenant-behavioral-risk-v2/d1801a3f72f9d4525cd39b8b7873e2fc43288dea0f7c1f5ee8646612833a28e4`; ZIP `56bca32c36dd1911d163a6f92369da43382e1937d875228339f15f8608519c7c` | Financially authoritative ModelRequired Screening |
+| R5 policy/evidence | `v4-model-review-capacity/1`; `v4-model-screening-evidence/1`; inclusive `852469` ppm | Recorded canonical screening fact |
+| R7 trained anomaly | `revenant-ssa-anomaly/672a05a26995653585e5ba9505807df7a2f707914886634c39b133c7dbc72980`; ZIP `03e895da4fa4348b69b1251c6ef9c1c9e6c2deee893e83bf2a983c698281b35e` | Advisory-only native SSA–Poisson |
+| R7 anomaly policy/evidence | `R7-AnomalyGlobalPolicy/1`; `anomaly-evidence/2` | Causal account velocity |
+| Liquidity | `LiquidityPersistenceBaseline/1`; `liquidity-projection-evidence/1` | Statistical, eight horizons, `Uncalibrated` |
+| R8 replay/economics | `analyst-continuation-v1`; `counterfactual-cost-v1` | Lawful branch action continuation and comparison |
+| R8 presentation marker | `R8-SyntheticBufferReference/1` | Illustrative opening-balance reference only |
+
+## Exit status and downstream boundary
+
+The completed R1–R8 implementation satisfies the above **amended** operating scope, including model-required fraud, trained anomaly, eight-step statistical liquidity, verified branch economics and connected Spec 09 consumption. It **does not** assert the original third learned SSA bank forecaster or validated interval/40-minute warning. The full Spec 09 implementation remains the owner of its UI, replay job semantics and human-action experience; this specification records the consumed contracts and their completed integration.
+
+**Release references:** `docs/recovery/r7-option-a-supported-scope.md`; `docs/recovery/r7-r8-advisory-handoff.md`; `docs/recovery/r8-implementation-handoff.md`; `docs/adr/ADR-P1-21-replay-context-isolation.md`; R7 commit `fe83c52ca7629d8ce7cb100b59cd8143c2d1ba64`; R8 commit `a1c7c2473ac05f15005c1f0cba477c90a2c96656`.

@@ -1,0 +1,33 @@
+.gl-showcase { height: 100%; background: var(--gl-snow-white); }
+.gl-showcase .gl-viewport { --gl-stage-gap: 0px; }
+.gl-showcase .gl-stage { border-radius: 0; box-shadow: none; }
+.gl-showcase-label {
+  position: absolute;
+  bottom: 1.5cqh;
+  left: var(--gl-hud-gutter);
+  padding: 3px 8px;
+  border-radius: var(--gl-radius-sm);
+  background: var(--gl-frost-surface);
+  color: var(--gl-muted-ink);
+  font-size: clamp(9px, 0.7cqw, 12px);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+.gl-overlay > .gl-showcase-cover {
+  position: absolute;
+  inset: 0;
+  background: var(--gl-snow-white);
+  opacity: 0;
+  pointer-events: none;
+}
+.gl-showcase-start {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+@media (max-width: 650px) {
+  .gl-showcase .gl-mp-rail li { padding: 3px 4px; gap: 3px; }
+  .gl-showcase .gl-mp-rail { gap: 3px; }
+  .gl-showcase .gl-mp-rail img { width: 16px; height: 16px; }
+}

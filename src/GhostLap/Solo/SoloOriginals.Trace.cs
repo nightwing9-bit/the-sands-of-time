@@ -64,7 +64,8 @@ public sealed record SoloTraceChunk(
     string SourceFinalStateHash,
     long FromTick,
     long? NextTick,
-    ImmutableArray<SoloTraceFrame> Frames);
+    ImmutableArray<SoloTraceFrame> Frames,
+    long Seed);
 
 public sealed partial class SoloOriginals
 {
@@ -138,7 +139,7 @@ public sealed partial class SoloOriginals
 
             return SoloResult.Ok(new SoloTraceChunk(
                 timeline, GhostLapTimelineVersions.V1, row.RulesVersion, row.LayoutVersion, finalTick, row.FinalStateHash!,
-                fromTick, last < finalTick ? last + 1 : null, frames.MoveToImmutable()));
+                fromTick, last < finalTick ? last + 1 : null, frames.MoveToImmutable(), row.Seed));
         }, ct);
     }
 

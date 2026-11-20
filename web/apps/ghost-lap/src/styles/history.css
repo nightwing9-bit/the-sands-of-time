@@ -1,0 +1,107 @@
+/* Replay and compare (task 13.10): the Sands of Time dock and the replay HUD. Same tokens and rhythm as the rest of the game; HUD sizes are
+   container units of the stage. The dock lives below the stage, so its sizes use the viewport's own units (see .gl-dock in screens.css). */
+
+/* The dock host is a pass-through: the portalled dock becomes a direct grid item of the viewport (the stage re-fits above it). */
+.gl-dock-host { display: contents; }
+/* Development-only fixture strip: keep it clear of the stamp and of the arena walls. */
+.gl-preview-strip[data-screen="replay"] { top: auto; bottom: calc(var(--gl-hud-bottom) * 0.3); left: auto; max-width: 62%; flex-wrap: wrap; justify-content: flex-end; }
+
+/* ---- HUD over the arena ---------------------------------------------------------------------------------------------------------- */
+.gl-hd { position: absolute; inset: 0; pointer-events: none; font-family: var(--gl-font-ui); color: var(--gl-ink); }
+.gl-hd > * { pointer-events: auto; }
+.gl-hd .gl-study-top { pointer-events: auto; }
+.gl-hd-stamp {
+  display: inline-flex; align-items: center; gap: 8px; padding: 3px 12px 3px 9px; border-radius: 999px; font-size: clamp(11px, 0.85cqw, 13px); font-weight: 600;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--gl-ink); background: var(--gl-frost-surface); border: 1px solid var(--gl-frost-border);
+}
+.gl-hd-stamp::before { content: ""; width: 9px; height: 9px; transform: rotate(45deg); border-radius: 2px; background: var(--gl-sand-gold); border: 1px solid var(--gl-sand-gold-deep); }
+
+.gl-hd-col { position: absolute; left: var(--gl-hud-gutter); top: calc(var(--gl-hud-top) * 2.5); width: clamp(150px, 15.4cqw, 300px); display: flex; flex-direction: column; gap: 8px; pointer-events: none; } /* ends left of the west wall (x 300 of 1600 = 18.75%) */
+.gl-hd-col > * { pointer-events: auto; }
+.gl-hd-card { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 10px 14px; }
+.gl-hd-card .gl-eyebrow { margin: 0; font-size: clamp(10.5px, 0.8cqw, 12.5px); letter-spacing: 0.2em; }
+.gl-hd-score { display: flex; flex-direction: column; gap: 0; }
+.gl-hd-score-n { font-family: var(--gl-font-display); font-weight: 500; font-size: clamp(32px, 3.4cqw, 54px); line-height: 1.02; font-variant-numeric: tabular-nums; }
+.gl-hd-score-cap { font-size: clamp(11.5px, 0.9cqw, 14px); font-weight: 600; color: var(--gl-muted-ink); font-variant-numeric: tabular-nums; }
+.gl-hd-parts { margin: 0; font-size: clamp(11px, 0.85cqw, 13px); line-height: 1.35; color: var(--gl-muted-ink); font-variant-numeric: tabular-nums; }
+.gl-hd-events { margin: 2px 0 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 4px; }
+.gl-hd-events li { padding: 2px 9px; border-radius: 999px; background: rgba(255, 255, 255, 0.7); border: 1px solid var(--gl-divider); font-size: clamp(11px, 0.85cqw, 13px); font-weight: 600; }
+.gl-hd-rows { margin: 2px 0 0; display: grid; gap: 1px; width: 100%; }
+.gl-hd-rows > div { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.gl-hd-rows dt { font-size: clamp(12px, 0.95cqw, 15px); font-weight: 600; color: var(--gl-muted-ink); }
+.gl-hd-rows dd { margin: 0; font-family: var(--gl-font-display); font-size: clamp(20px, 1.9cqw, 30px); font-variant-numeric: tabular-nums; }
+.gl-hd-rows > div:last-child { border-top: 1px solid var(--gl-divider); padding-top: 2px; }
+.gl-hd-rows dd[data-sign="1"] { text-decoration: underline; text-decoration-color: var(--gl-sand-gold-deep); text-decoration-thickness: 3px; text-underline-offset: 0.12em; }
+.gl-hd-rows dd[data-sign="-1"] { color: #8a4a2a; }
+.gl-hd-compare .gl-button, .gl-hd-links .gl-button { width: auto; min-height: 0; padding: 5px 14px; font-size: clamp(12px, 0.95cqw, 14.5px); border-radius: 999px; background: var(--gl-frost-surface); border: 1px solid var(--gl-frost-border); font-weight: 600; }
+.gl-hd-compare .gl-button[aria-pressed="true"] { background: var(--gl-action-dark); color: var(--gl-action-light); border-color: var(--gl-action-dark); }
+.gl-hd-links { display: flex; flex-wrap: wrap; gap: 4px 6px; }
+.gl-hd-links .gl-hd-parts { flex-basis: 100%; }
+.gl-hd-note { margin: 0; max-width: 100%; font-size: clamp(10.5px, 0.8cqw, 12px); line-height: 1.35; color: var(--gl-muted-ink); }
+.gl-hd-state { position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%); width: clamp(260px, 28cqw, 440px); display: flex; flex-direction: column; gap: 10px; align-items: flex-start; font-size: var(--gl-text-subtitle); }
+.gl-hd-state p { margin: 0; }
+.gl-hd-state .gl-button { width: auto; }
+.gl-hd-banner { position: absolute; left: 50%; top: 20%; transform: translateX(-50%); width: clamp(280px, 34cqw, 520px); display: flex; flex-direction: column; gap: 8px; font-size: clamp(13px, 1.05cqw, 16px); }
+.gl-hd-banner p { margin: 0; }
+.gl-hd-banner > div { display: flex; gap: 8px; flex-wrap: wrap; }
+.gl-hd-banner .gl-button { width: auto; min-height: 0; padding: 6px 16px; font-size: inherit; }
+.gl-hd-pending { position: absolute; left: 50%; bottom: calc(var(--gl-hud-bottom) * 1.4); transform: translateX(-50%); margin: 0; padding: 4px 14px; border-radius: 999px; background: var(--gl-frost-surface); border: 1px solid var(--gl-frost-border); font-size: clamp(12px, 0.95cqw, 14px); font-weight: 600; pointer-events: none; }
+
+/* ---- The dock ---------------------------------------------------------------------------------------------------------------------- */
+/* Two classes: this must beat .gl-dock (screens.css) whichever stylesheet the browser applies last. */
+.gl-dock.gl-dock--history { grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 20px; padding: 8px 20px 8px 16px; }
+.gl-dock--history .gl-dock-hourglass { padding-right: 2px; }
+.gl-dock--history .gl-dock-main { grid-template-rows: 1fr auto auto; row-gap: 2px; }
+.gl-dock--history .gl-dock-top { align-self: end; gap: 14px; }
+.gl-dock--history .gl-chip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.gl-dock--history .gl-chip[data-kind="child"] i { background: var(--gl-sand-gold); box-shadow: 0 0 0 3px rgba(223, 184, 125, 0.32); }
+.gl-dock--history .gl-dock-time { display: flex; align-items: baseline; gap: 10px; white-space: nowrap; }
+.gl-dock--history .gl-dock-time b { font-weight: 600; }
+.gl-dock--history .gl-dock-time span { margin-left: 0; }
+.gl-dock-sel { color: var(--gl-sand-gold-deep) !important; font-weight: 700 !important; }
+.gl-hd-loading { flex: 1; min-width: 0; text-align: center; font-size: 12.5px; font-weight: 600; color: var(--gl-muted-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.gl-hd-rail { position: relative; height: 44px; margin: 0 -10px; padding: 0 10px; cursor: pointer; touch-action: none; border-radius: var(--gl-radius-sm); user-select: none; -webkit-user-select: none; }
+.gl-hd-rail:focus-visible { outline: none; box-shadow: var(--gl-focus-ring); }
+.gl-hd-track { position: absolute; left: 10px; right: 10px; top: 0; bottom: 0; }
+/* The run-in from the glass (as in the 13.1 study): sand becomes the line. */
+.gl-hd-track::before { content: ""; position: absolute; left: -22px; width: 22px; top: 50%; height: 3px; transform: translateY(-50%); border-radius: 2px; background: linear-gradient(90deg, rgba(223, 184, 125, 0), var(--gl-sand-gold)); pointer-events: none; }
+.gl-hd-line { position: absolute; left: 0; right: 0; top: 50%; height: 3px; transform: translateY(-50%); border-radius: 2px; background: repeating-linear-gradient(90deg, rgba(73, 110, 134, 0.34) 0 5px, transparent 5px 9px); }
+.gl-hd-ready { position: absolute; top: 50%; height: 3px; transform: translateY(-50%); background: var(--gl-ice); border-radius: 2px; }
+/* One history before the split: a slightly heavier line, so "shared" reads as one thing and not as two overlapping ones. */
+.gl-hd-shared { position: absolute; top: 50%; height: 5px; transform: translateY(-50%); background: var(--gl-ice-deep); border-radius: 3px; opacity: 0.85; pointer-events: none; }
+.gl-hd-ribbon { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.gl-hd-ribbon path { fill: none; stroke: var(--gl-ghost-cyan-ink); stroke-width: 2.2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+
+.gl-hd-pip { position: absolute; top: 50%; width: 14px; height: 18px; margin: 0; padding: 0; transform: translate(-50%, -150%); border: 0; background: none; cursor: pointer; }
+.gl-hd-pip::before { content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+.gl-hd-pip[data-kind="candle"]::before { width: 6px; height: 6px; border-radius: 50%; background: var(--gl-candle); box-shadow: 0 0 0 2px var(--gl-candle-glow); }
+.gl-hd-pip[data-kind="burst"]::before { width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--gl-action-dark); background: var(--gl-sand-gold); }
+.gl-hd-pip:hover::before { transform: translate(-50%, -50%) scale(1.35); }
+.gl-hd-pip:focus-visible { outline: none; }
+.gl-hd-split { position: absolute; top: 50%; width: 12px; height: 12px; transform: translate(-50%, -50%) rotate(45deg); border-radius: 2px; background: var(--gl-snow-white); border: 2px solid var(--gl-sand-gold-deep); pointer-events: none; }
+.gl-hd-cursor { position: absolute; top: 5px; bottom: 5px; width: 2px; transform: translateX(-50%); border-radius: 1px; background: var(--gl-ice-deep); pointer-events: none; }
+.gl-hd-cursor::before { content: ""; position: absolute; left: 50%; top: -4px; width: 8px; height: 8px; transform: translateX(-50%) rotate(45deg); border-radius: 2px; background: var(--gl-ice-deep); }
+.gl-hd-selected { position: absolute; top: 50%; width: 20px; height: 20px; transform: translate(-50%, -50%) rotate(45deg); border-radius: 4px; background: linear-gradient(135deg, #f1d3a2, var(--gl-sand-gold)); border: 1.5px solid var(--gl-sand-gold-deep); box-shadow: 0 3px 8px rgba(196, 151, 90, 0.45); pointer-events: none; }
+.gl-hd-rail:focus-visible .gl-hd-selected { box-shadow: 0 0 0 3px var(--gl-snow-white), 0 0 0 5px var(--gl-action-dark); }
+
+.gl-hd-actions { display: flex; flex-direction: column; justify-content: center; gap: 6px; width: clamp(164px, 15vw, 214px); min-width: 0; }
+.gl-hd-transport { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.gl-hd-icon {
+  appearance: none; display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border-radius: var(--gl-radius-sm); border: 1px solid var(--gl-divider);
+  background: rgba(255, 255, 255, 0.6); color: var(--gl-ink); cursor: pointer; transition: background-color var(--gl-t-hover) var(--gl-ease);
+}
+.gl-hd-icon:hover { background: rgba(255, 255, 255, 0.92); }
+.gl-hd-icon:focus-visible { outline: none; box-shadow: var(--gl-focus-ring); }
+.gl-hd-icon--play { flex: 1; height: 34px; background: var(--gl-action-dark); color: var(--gl-action-light); border-color: var(--gl-action-dark); }
+.gl-hd-icon--play:hover { background: var(--gl-action-dark-hover); }
+.gl-hd-actions .gl-button { min-height: 36px; padding: 0 12px; font-size: 15.5px; gap: 8px; white-space: nowrap; }
+.gl-hd-actions .gl-button small { font-size: 12.5px; font-weight: 600; opacity: 0.85; font-variant-numeric: tabular-nums; }
+.gl-hd-fork-mark { width: 9px; height: 9px; transform: rotate(45deg); border-radius: 2px; background: var(--gl-sand-gold); border: 1px solid var(--gl-sand-gold-deep); flex: none; }
+.gl-hd-actions .gl-button[data-allowed="0"] { background: #51606c; }
+.gl-hd-why { margin: 0; min-height: 2.5em; font-size: 11.5px; line-height: 1.25; color: var(--gl-muted-ink); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+@media (prefers-reduced-motion: reduce) {
+  .gl-hourglass-stream { animation: none; }
+}
+.gl-hourglass[data-flowing="0"] .gl-hourglass-stream { animation: none; }

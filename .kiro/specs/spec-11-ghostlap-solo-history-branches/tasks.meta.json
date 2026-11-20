@@ -1,0 +1,82 @@
+{
+  "pbtResults": {},
+  "executionHistory": {
+    "**11.0 Inspect actual frozen ports and choose the minimum integration (short gate)**": [
+      {
+        "executionId": "1d1a852a-28f6-48e0-9312-0476bcad4c83",
+        "chatSessionId": "sess_53b7eb0b-9644-4572-b480-d56d12248b6c",
+        "timestamp": 1794937252739
+      },
+      {
+        "executionId": "1d1a852a-28f6-48e0-9312-0476bcad4c83",
+        "chatSessionId": "sess_53b7eb0b-9644-4572-b480-d56d12248b6c",
+        "timestamp": 1794937651581
+      }
+    ],
+    "**11.1 Record and durably save ONE genuine solo original end-to-end**": [
+      {
+        "executionId": "6b56f914-a2f8-4f82-b401-44b7a39e1c43",
+        "chatSessionId": "sess_1162f5e9-805e-4e55-8a2e-ac6ecb7292d8",
+        "timestamp": 1794938084465
+      },
+      {
+        "executionId": "6b56f914-a2f8-4f82-b401-44b7a39e1c43",
+        "chatSessionId": "sess_1162f5e9-805e-4e55-8a2e-ac6ecb7292d8",
+        "timestamp": 1794939076690
+      }
+    ],
+    "**11.2 Exact historical seek and ghost trace**": [
+      {
+        "executionId": "8e9671d0-72ba-4b12-8ae4-bc5952c9e028",
+        "chatSessionId": "sess_b36ec6e8-f691-45e5-ac16-d64dfb28d1d8",
+        "timestamp": 1794940996874
+      },
+      {
+        "executionId": "6280e3af-6730-4d04-88d8-0b1d77b88641",
+        "chatSessionId": "sess_1396efe1-4733-4177-8cdd-5509dd43fb13",
+        "timestamp": 1794941111989
+      },
+      {
+        "executionId": "6280e3af-6730-4d04-88d8-0b1d77b88641",
+        "chatSessionId": "sess_1396efe1-4733-4177-8cdd-5509dd43fb13",
+        "timestamp": 1794941336114
+      }
+    ],
+    "**11.3 Race the original ghost in a fresh full challenge**": [
+      {
+        "executionId": "d822fe14-93d5-4faa-8a10-963df99c3d10",
+        "chatSessionId": "sess_2549885b-96d8-4e5f-a02a-bc9e209a0164",
+        "timestamp": 1794963336200
+      },
+      {
+        "executionId": "d822fe14-93d5-4faa-8a10-963df99c3d10",
+        "chatSessionId": "sess_2549885b-96d8-4e5f-a02a-bc9e209a0164",
+        "timestamp": 1794964299557
+      }
+    ],
+    "**11.4 Fork at T and save genuinely independent futures — Marrow's central proof**": [
+      {
+        "executionId": "1a3b70cf-8a1e-4c8e-9604-d577cb6b36f9",
+        "chatSessionId": "sess_ad8d872b-9c05-4f64-9e6a-caa6d4779f5b",
+        "timestamp": 1794971894631
+      },
+      {
+        "executionId": "1a3b70cf-8a1e-4c8e-9604-d577cb6b36f9",
+        "chatSessionId": "sess_ad8d872b-9c05-4f64-9e6a-caa6d4779f5b",
+        "timestamp": 1794972510809
+      }
+    ],
+    "**11.5 Complete the authenticated solo timeline journey, same-tick comparison and renderer-ready host contracts**": [
+      {
+        "executionId": "f0dc1389-7140-486a-82a8-3393efe49633",
+        "chatSessionId": "sess_d0f8aa5d-9b51-421b-b81a-408eb29c24a6",
+        "timestamp": 1794974799499
+      },
+      {
+        "executionId": "f0dc1389-7140-486a-82a8-3393efe49633",
+        "chatSessionId": "sess_d0f8aa5d-9b51-421b-b81a-408eb29c24a6",
+        "timestamp": 1794975868309
+      }
+    ]
+  }
+}

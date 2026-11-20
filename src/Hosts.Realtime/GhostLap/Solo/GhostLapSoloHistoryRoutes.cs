@@ -53,7 +53,8 @@ internal static class GhostLapSoloHistoryRoutes
 
         var chunk = await runs.Originals.TraceAsync(ClaimsActorContext.From(http.User), new TimelineId(guid), at, 1, ct);
         return chunk.TryGetValue(out var value)
-            ? Results.Ok(new SoloInspectView(GhostLapSoloWire.HistoryContractVersion, Identity(value), ChallengeMapping.ToWire(value.Frames[0])))
+            ? Results.Ok(new SoloInspectView(GhostLapSoloWire.HistoryContractVersion, Identity(value),
+                ChallengeMapping.ToWire(value.Frames[0], CandlePlan.Create(value.Seed))))
             : Failure(chunk.Error);
     }
 
@@ -92,7 +93,7 @@ internal static class GhostLapSoloHistoryRoutes
         return chunk.TryGetValue(out var value)
             ? Results.Ok(new SoloTraceView(
                 GhostLapSoloWire.HistoryContractVersion, Identity(value), value.FromTick, value.Frames.Length, value.NextTick,
-                [.. value.Frames.Select(ChallengeMapping.ToWire)]))
+                TraceFrames(value)))
             : Failure(chunk.Error);
     }
 
@@ -196,7 +197,13 @@ internal static class GhostLapSoloHistoryRoutes
         return Results.Ok(new SoloChildTraceView(GhostLapSoloWire.HistoryContractVersion, id, child.Source.Value.ToString("D"),
             ChallengeMapping.KindName(child.Kind), child.ForkTick, child.SourceFinalStateHash, c.SourceFinalStateHash,
             ChallengeMapping.Pinned(c.Versions, c.RulesVersion, c.LayoutVersion), c.SourceFinalTick, c.FromTick, c.Frames.Length,
-            c.NextTick, [.. c.Frames.Select(ChallengeMapping.ToWire)]));
+            c.NextTick, TraceFrames(c)));
+    }
+
+    private static SoloGhostFrame[] TraceFrames(SoloTraceChunk chunk)
+    {
+        var plan = CandlePlan.Create(chunk.Seed);
+        return [.. chunk.Frames.Select(frame => ChallengeMapping.ToWire(frame, plan))];
     }
 
     private static SoloSourceIdentity Identity(SoloTraceChunk c) => new(

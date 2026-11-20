@@ -1,0 +1,112 @@
+/* Multiplayer journey (task 13.8): setup, lobby, live HUD additions and results. Built from the same tokens and primitives as every other
+   screen; sizes are container units, so the composition follows the 16:9 stage. */
+
+.gl-mp { position: absolute; inset: 0; pointer-events: none; font-family: var(--gl-font-ui); color: var(--gl-ink); }
+.gl-mp > * { pointer-events: auto; }
+.gl-mp-error { margin: 0; font-size: clamp(13px, 1cqw, 15px); font-weight: 600; color: #8a2f20; }
+.gl-mp-help { margin: 0; font-size: clamp(12.5px, 0.98cqw, 15px); line-height: 1.45; color: var(--gl-muted-ink); }
+.gl-mp-link { appearance: none; border: 0; background: none; padding: 2px 4px; font: inherit; font-weight: 600; font-size: clamp(12.5px, 0.98cqw, 15px); color: var(--gl-action-dark); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; border-radius: 4px; }
+.gl-mp-link:focus-visible, .gl-mp-copy button:focus-visible, .gl-mp-tabs button:focus-visible { outline: none; box-shadow: var(--gl-focus-ring); }
+
+/* ---- setup (Create / Join) and the closed / disconnected panels ---------------------------------------------------------------------- */
+.gl-mp-setup-wrap { position: absolute; inset: 0; display: grid; place-items: center; animation: gl-rise var(--gl-t-menu) var(--gl-ease) both; }
+.gl-mp-setup { width: clamp(300px, 29cqw, 470px); display: flex; flex-direction: column; gap: 1.5cqh; padding: 2.8cqh 1.9cqw; }
+.gl-mp-setup h2 { margin: 0; font-family: var(--gl-font-display); font-weight: 500; font-size: clamp(26px, 2.6cqw, 42px); line-height: 1.1; }
+.gl-mp-tabs { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid var(--gl-divider); }
+.gl-mp-tabs button { appearance: none; background: transparent; border: 0; border-bottom: 3px solid transparent; margin-bottom: -1px; padding: 0.9cqh 0; font-weight: 600; font-size: var(--gl-text-subtitle); color: var(--gl-muted-ink); cursor: pointer; border-radius: 4px 4px 0 0; }
+.gl-mp-tabs button[aria-selected="true"] { color: var(--gl-ink); border-bottom-color: var(--gl-sand-gold-deep); }
+.gl-mp-form { display: flex; flex-direction: column; gap: 1.5cqh; }
+.gl-mp-field { display: flex; flex-direction: column; gap: 6px; font-weight: 600; font-size: clamp(13px, 1cqw, 15px); color: var(--gl-muted-ink); }
+.gl-mp-field input { font: inherit; font-size: var(--gl-text-label); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; padding: 1.1cqh 14px; border-radius: var(--gl-radius-sm); border: 1px solid var(--gl-divider); background: rgba(255, 255, 255, 0.88); color: var(--gl-ink); }
+.gl-mp-field input::placeholder { color: var(--gl-stone); letter-spacing: 0.1em; font-weight: 500; }
+.gl-mp-field input:focus-visible { outline: none; box-shadow: var(--gl-focus-ring); }
+.gl-mp-check { display: flex; align-items: center; gap: 10px; font-size: clamp(13px, 1.02cqw, 15.5px); font-weight: 500; cursor: pointer; }
+.gl-mp-check input { width: 1.15em; height: 1.15em; accent-color: var(--gl-action-dark); }
+.gl-mp-check input:focus-visible { outline: none; box-shadow: var(--gl-focus-ring); }
+
+/* ---- lobby ---------------------------------------------------------------------------------------------------------------------------- */
+.gl-mp-lobby { position: absolute; inset: 0; pointer-events: none; animation: gl-rise var(--gl-t-menu) var(--gl-ease) both; }
+.gl-mp-lobby > * { pointer-events: auto; }
+.gl-mp-lobby .gl-study-top { justify-content: space-between; }
+.gl-mp-room { position: absolute; left: 50%; top: 8%; transform: translateX(-50%); width: 56cqw; display: flex; flex-direction: column; align-items: center; text-align: center; pointer-events: none; }
+.gl-mp-room > * { pointer-events: auto; }
+.gl-mp-room .gl-eyebrow { margin-bottom: 0.3cqh; }
+.gl-mp-code { margin: 0; font-family: var(--gl-font-display); font-weight: 500; font-size: clamp(32px, 4.2cqw, 68px); letter-spacing: 0.1em; padding-left: 0.1em; line-height: 1.08; color: var(--gl-ink); text-shadow: 0 1px 0 rgba(255, 255, 255, 0.85), 0 8px 24px rgba(255, 255, 255, 0.7); user-select: all; }
+.gl-mp-copy { display: inline-flex; align-items: baseline; gap: 10px; margin-top: 0.4cqh; font-size: clamp(12px, 0.95cqw, 14px); color: var(--gl-muted-ink); min-height: 1.6em; }
+.gl-mp-copy button { appearance: none; border: 1px solid var(--gl-frost-border); background: var(--gl-frost-surface); border-radius: 999px; padding: 3px 12px; font-weight: 600; font-size: inherit; color: var(--gl-ink); cursor: pointer; }
+.gl-mp-copy button:hover { background: rgba(255, 255, 255, 0.85); }
+.gl-mp-sub { margin: 0.9cqh 0 0; min-height: 3.4em; display: flex; align-items: center; justify-content: center; gap: 0.35em; font-size: var(--gl-text-subtitle); font-weight: 500; line-height: 1.4; color: var(--gl-subtitle-ink); max-width: 38cqw; }
+.gl-mp-count { font-family: var(--gl-font-display); font-weight: 500; font-size: clamp(30px, 3.5cqw, 56px); line-height: 1; font-variant-numeric: tabular-nums; color: var(--gl-ink); min-width: 0.8em; text-align: center; }
+.gl-mp-lobby[data-counting="1"] .gl-mp-sub { color: var(--gl-ink); font-weight: 600; }
+
+.gl-mp-cards { position: absolute; inset: 0; margin: 0; padding: 0; list-style: none; pointer-events: none; }
+.gl-mp-card { position: absolute; top: 48.5%; transform: translateX(-50%); width: 17cqw; display: flex; flex-direction: column; align-items: center; gap: 0.7cqh; padding: 1.3cqh 0.8cqw 1.5cqh; text-align: center; border-radius: var(--gl-radius-md); background: var(--gl-frost-surface); border: 1px solid var(--gl-frost-border); box-shadow: var(--gl-panel-shadow); pointer-events: auto; }
+.gl-mp-card[data-state="ready"] { border-color: #4b9a6a; }
+.gl-mp-card[data-you="1"] { box-shadow: 0 0 0 2px var(--gl-action-dark), var(--gl-panel-shadow); }
+.gl-mp-card--empty { background: rgba(239, 249, 252, 0.34); box-shadow: none; border-style: dashed; border-color: rgba(73, 110, 134, 0.35); color: var(--gl-muted-ink); }
+.gl-mp-card-title { font-weight: 700; font-size: clamp(13px, 1.1cqw, 17px); line-height: 1.2; }
+.gl-mp-card-sub { font-size: clamp(11.5px, 0.9cqw, 14px); }
+.gl-mp-card-tags { display: flex; gap: 6px; min-height: 1.4em; }
+.gl-mp-card-tags b { font-size: clamp(10px, 0.78cqw, 12px); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 1px 8px; border-radius: 999px; background: rgba(38, 60, 75, 0.08); color: var(--gl-muted-ink); }
+.gl-mp-card-tags b[data-tone="warn"] { background: rgba(196, 151, 90, 0.25); color: #7a4d10; }
+.gl-mp-chip { font-size: clamp(11.5px, 0.9cqw, 14px); font-weight: 600; padding: 3px 14px; border-radius: 999px; background: rgba(38, 60, 75, 0.08); color: var(--gl-muted-ink); }
+.gl-mp-chip[data-ready="1"] { background: rgba(75, 154, 106, 0.2); color: #24603f; }
+/* Stand-in where a head will be drawn once the server seals the slots. Centred on the head position (world y 338 of 900). */
+.gl-mp-ring { position: absolute; left: 50%; top: -11.1cqh; width: 7.4cqw; height: 7.4cqw; transform: translate(-50%, -50%); border-radius: 50%; border: 2px dashed rgba(73, 110, 134, 0.4); display: grid; place-items: center; pointer-events: none; font-family: var(--gl-font-display); font-size: clamp(22px, 2.6cqw, 40px); color: var(--gl-muted-ink); }
+.gl-mp-card--empty .gl-mp-ring { opacity: 0.45; }
+.gl-mp-ring--joined { background: rgba(255, 255, 255, 0.35); }
+
+.gl-mp-actions { position: absolute; left: 50%; top: 76%; transform: translateX(-50%); width: clamp(300px, 34cqw, 540px); display: flex; flex-direction: column; gap: 1cqh; text-align: center; }
+.gl-mp-buttons { display: flex; gap: 12px; }
+.gl-mp-buttons > .gl-button { flex: 1; }
+.gl-mp-buttons .gl-button--quiet { border: 1px solid var(--gl-divider); background: var(--gl-frost-surface); border-radius: var(--gl-radius-sm); }
+
+/* ---- live HUD additions -------------------------------------------------------------------------------------------------------------- */
+.gl-mp-hud .gl-play-top { max-width: 34%; }
+.gl-mp-hud .gl-play-top .gl-button { width: auto; min-height: 0; padding: 4px 14px; font-size: clamp(12px, 0.95cqw, 14px); border-radius: 999px; background: var(--gl-frost-surface); border: 1px solid var(--gl-frost-border); }
+/* The 3-player P1 spawn is top centre and the 4-player spawns are the top corners, so the clock sits left (under Leave) and the rail is one slim row. */
+.gl-mp-hud .gl-play-clock { left: var(--gl-hud-gutter); top: 9cqh; transform: none; }
+.gl-mp-hud .gl-play-me { top: 17cqh; }
+.gl-mp-rail { flex-wrap: nowrap; justify-content: flex-end; align-items: flex-start; }
+.gl-mp-rail .gl-play-soul b { display: none; }
+.gl-mp-rail li { gap: 6px; flex-wrap: wrap; }
+.gl-mp-rail li[data-status="forfeited"] { opacity: 0.62; }
+.gl-mp-rail b { font-size: clamp(14px, 1.2cqw, 19px); font-variant-numeric: tabular-nums; }
+.gl-mp-rail-name { font-size: clamp(11px, 0.85cqw, 13px); font-weight: 700; letter-spacing: 0.04em; color: var(--gl-muted-ink); }
+.gl-mp-rail em { flex-basis: 100%; font-style: normal; font-size: clamp(10px, 0.78cqw, 12px); font-weight: 700; color: #9a5a12; }
+.gl-mp-wait { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-family: var(--gl-font-display); font-size: clamp(20px, 2cqw, 32px); }
+.gl-mp-hud-error { position: absolute; left: 50%; bottom: calc(var(--gl-hud-bottom) * 0.6); transform: translateX(-50%); padding: 4px 14px; border-radius: 999px; background: var(--gl-frost-surface); }
+.gl-mp-arena-bar { position: absolute; left: 50%; bottom: calc(var(--gl-hud-bottom) * 0.7); transform: translateX(-50%); width: clamp(180px, 16cqw, 260px); }
+
+/* The shape marks are the faceless Kenney bodies. P1's mark is the yellow source circle; the approved P1 head is that circle hue-rotated -13 degrees at atlas build time, so the mark gets the same rotation. */
+.gl-mp-rail img[data-slot="0"], .gl-mp-row img[data-slot="0"] { filter: hue-rotate(-13deg) drop-shadow(var(--gl-ground-shadow)); }
+/* Development preview strip stays out of the live HUD's top rail. */
+.gl-preview-strip[data-screen="multiplayer"] { top: auto; bottom: calc(var(--gl-hud-bottom) * 0.3); }
+
+/* ---- results -------------------------------------------------------------------------------------------------------------------------- */
+.gl-mp-results { position: absolute; left: 50%; top: 52%; transform: translate(-50%, -50%); width: clamp(340px, 44cqw, 700px); max-height: 88%; overflow: auto; display: flex; flex-direction: column; gap: 1.3cqh; padding: 2.6cqh 2cqw; animation: gl-mp-fade var(--gl-t-menu) var(--gl-ease) both; }
+.gl-mp-results h2 { margin: 0; font-family: var(--gl-font-display); font-weight: 500; font-size: clamp(28px, 3.2cqw, 52px); line-height: 1.1; }
+.gl-mp-results-sub { margin: 0; font-size: var(--gl-text-subtitle); line-height: 1.4; color: var(--gl-subtitle-ink); }
+.gl-mp-rows { margin: 0.6cqh 0 0; padding: 0; list-style: none; border-top: 1px solid var(--gl-divider); }
+.gl-mp-rows > li { border-bottom: 1px solid var(--gl-divider); border-left: 3px solid transparent; padding-left: 10px; }
+.gl-mp-rows > li[data-winner="1"] { border-left-color: var(--gl-sand-gold-deep); }
+.gl-mp-rows > li[data-you="1"] { background: rgba(255, 255, 255, 0.4); }
+.gl-mp-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 14px; padding: 1.1cqh 0; }
+.gl-mp-row img { filter: drop-shadow(var(--gl-ground-shadow)); }
+.gl-mp-row-who { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; font-size: clamp(14px, 1.2cqw, 19px); }
+.gl-mp-row-who em { font-style: normal; font-size: clamp(10px, 0.8cqw, 12px); font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; padding: 1px 8px; border-radius: 999px; background: rgba(38, 60, 75, 0.08); color: var(--gl-muted-ink); }
+.gl-mp-row-who em[data-tone="warn"] { background: rgba(196, 151, 90, 0.25); color: #7a4d10; }
+.gl-mp-row-place { font-size: clamp(13px, 1.05cqw, 16px); font-weight: 600; color: var(--gl-muted-ink); white-space: nowrap; }
+.gl-mp-row-score { font-family: var(--gl-font-display); font-size: clamp(24px, 2.5cqw, 40px); line-height: 1; min-width: 3ch; text-align: right; font-variant-numeric: tabular-nums; }
+.gl-mp-break { margin: 0 0 1.1cqh; display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: clamp(12px, 0.95cqw, 14.5px); color: var(--gl-muted-ink); font-variant-numeric: tabular-nums; }
+.gl-mp-break b { color: var(--gl-ink); }
+.gl-mp-break > span:last-child { flex-basis: 100%; }
+.gl-mp-results-actions { display: flex; gap: 12px; margin-top: 0.6cqh; }
+.gl-mp-results-actions > .gl-button { flex: 1; }
+.gl-mp-results-actions .gl-button--quiet { border: 1px solid var(--gl-divider); background: var(--gl-frost-surface); border-radius: var(--gl-radius-sm); }
+.gl-mp-results-foot { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; font-size: clamp(12px, 0.92cqw, 14px); color: var(--gl-muted-ink); }
+
+@keyframes gl-mp-fade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .gl-mp-setup-wrap, .gl-mp-lobby, .gl-mp-results { animation: none; }
+}

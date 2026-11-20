@@ -1,77 +1,48 @@
-import { StrictMode, useEffect, useMemo, useState } from "react";
-import { createRoot } from "react-dom/client";
-import { createMarrowTransport, describeFailure, describeHandshake, type ApiResult, type HandshakeVerdict, type TimelinePosition, type TransportFailure } from "@sands/contracts";
-import { TimelineScrubber, type VerifiedPreview } from "@sands/timeline-ui";
-import { createGhostLapAdapter, type GhostLapTimelineDescriptor, type GhostLapPreview } from "./ghostLapTimelineAdapter.ts";
-import { createTestHostHttpWire } from "./ghostLapTimelineWire.ts";
-import { GhostLapGreybox } from "./greybox/GhostLapGreybox.tsx";
-import { createGreyboxHttpWire } from "./greybox/greyboxWire.ts";
-// Same-origin: Vite (dev) or the reverse proxy (deployed) forwards /meta, /auth, /timeline and /hubs to the API and Realtime hosts.
-// Both shells build their typed clients from this one @sands/contracts factory and mount the one @sands/timeline-ui scrubber.
-const transport = createMarrowTransport({ apiBaseUrl: "", realtimeBaseUrl: "" });
-const wire = createTestHostHttpWire();
-const greyboxWire = createGreyboxHttpWire();
-const timelineId = new URLSearchParams(window.location.search).get("timeline");
+// Entry. The Ghost Lap game shell is the default. The test-host shell (generic ?timeline= inspector and the spec 06 greybox) is kept
+// intact for its browser tests and loads only on its own query parameters; the two never share global CSS.
+const params = new URLSearchParams(window.location.search);
+const testHost = ["timeline", "greybox", "original", "branch"].some((key) => params.has(key));
 
-type Loaded = { kind: "loading" } | { kind: "failed"; failure: TransportFailure } | { kind: "ready"; descriptor: GhostLapTimelineDescriptor };
-
-function TimelinePanel({ id }: { id: string }) {
-  const [loaded, setLoaded] = useState<Loaded>({ kind: "loading" });
-  useEffect(() => {
-    const controller = new AbortController();
-    void wire.describe(id, controller.signal).then(
-      (descriptor) => !controller.signal.aborted && setLoaded({ kind: "ready", descriptor }),
-      (error: { failure?: TransportFailure }) => !controller.signal.aborted && setLoaded({ kind: "failed", failure: error.failure ?? { kind: "server", status: 0 } }),
-    );
-    return () => controller.abort();
-  }, [id]);
-  if (loaded.kind === "loading") return <p role="status">Loading timeline…</p>;
-  if (loaded.kind === "failed") return <p role="alert" data-testid="timeline-load-error" data-kind={loaded.failure.kind}>{describeFailure(loaded.failure)}</p>;
-  return <Mounted id={id} descriptor={loaded.descriptor} />;
-}
-
-function Mounted({ id, descriptor }: { id: string; descriptor: GhostLapTimelineDescriptor }) {
-  const adapter = useMemo(() => createGhostLapAdapter({ timelineId: id, descriptor, wire }), [id, descriptor]);
-  // The parent owns only server-verified values: nothing is shown as verified until the server answered.
-  const [position, setPosition] = useState<TimelinePosition>(descriptor.bounds.start);
-  const [preview, setPreview] = useState<VerifiedPreview<GhostLapPreview> | null>(null);
-  const [branchId, setBranchId] = useState<string | null>(null);
-  return (
-    <>
-      <TimelineScrubber
-        adapter={adapter}
-        position={position}
-        onVerified={(p) => { setPosition(p.position); setPreview(p); }}
-        onForked={(result) => setBranchId(result.branchId)}
-      />
-      {preview ? <p data-testid="verified-state">Verified tick: {preview.state.tick}</p> : <p data-testid="verified-state">No position verified by the server yet.</p>}
-      {branchId ? <p data-testid="fork-result" role="status">Server created branch {branchId}.</p> : null}
-    </>
+async function start() {
+  if (testHost) {
+    (await import("./testHostShell.tsx")).mountTestHostShell();
+    return;
+  }
+  // Self-hosted Source Serif 4 and Source Sans 3 (Fontsource, WOFF2, SIL OFL 1.1), latin subset, only the weights the design uses.
+  await Promise.all([
+    import("@fontsource/source-serif-4/latin-400.css"),
+    import("@fontsource/source-serif-4/latin-500.css"),
+    import("@fontsource/source-sans-3/latin-400.css"),
+    import("@fontsource/source-sans-3/latin-500.css"),
+    import("@fontsource/source-sans-3/latin-600.css"),
+    import("@fontsource/source-sans-3/latin-700.css"),
+    import("./styles/ghost-lap-tokens.css"),
+    import("./styles/stage.css"),
+    import("./styles/primitives.css"),
+    import("./styles/screens.css"),
+    import("./styles/multiplayer.css"),
+    import("./styles/solo.css"),
+    import("./styles/history.css"),
+    import("./styles/race.css"),
+  ]);
+  // Measure the first screen with the real faces, but never hold the menu hostage to a slow or failed font request.
+  await Promise.race([
+    Promise.all([document.fonts.load('500 1em "Source Serif 4"'), document.fonts.load('600 1em "Source Sans 3"'), document.fonts.load('400 1em "Source Sans 3"')]),
+    new Promise((resolve) => setTimeout(resolve, 1500)),
+  ]).catch(() => undefined);
+  if (import.meta.env.DEV && params.get("screen") === "multiplayerShowcase") {
+    const [{ createRoot }, { MultiplayerShowcase }] = await Promise.all([
+      import("react-dom/client"), import("./showcase/MultiplayerShowcase.tsx"),
+    ]);
+    createRoot(document.getElementById("root")!).render(<MultiplayerShowcase />);
+    return;
+  }
+  const [{ StrictMode }, { createRoot }, { GhostLapApp }] = await Promise.all([import("react"), import("react-dom/client"), import("./app/GhostLapApp.tsx")]);
+  createRoot(document.getElementById("root")!).render(
+    <StrictMode>
+      <GhostLapApp />
+    </StrictMode>,
   );
 }
 
-function Shell() {
-  const [handshake, setHandshake] = useState<ApiResult<HandshakeVerdict> | null>(null);
-  useEffect(() => {
-    const controller = new AbortController();
-    void transport.negotiate(controller.signal).then((result) => {
-      if (!controller.signal.aborted) setHandshake(result);
-    });
-    return () => controller.abort();
-  }, []);
-  const compatible = handshake?.ok === true && handshake.value.compatible;
-  return (
-    <main data-testid="app-shell">
-      <h1>Ghost Lap</h1>
-      <p data-testid="contract-status" role="status">{describeHandshake(handshake)}</p>
-      {/* ?timeline=<id> keeps the generic history inspector (spec 04). Without it, the Ghost Lap V1 greybox (spec 06, task 6.5). */}
-      {!compatible ? null : timelineId ? <TimelinePanel id={timelineId} /> : <GhostLapGreybox transport={transport} wire={greyboxWire} />}
-    </main>
-  );
-}
-
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <Shell />
-  </StrictMode>,
-);
+void start();

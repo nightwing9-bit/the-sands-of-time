@@ -1,94 +1,89 @@
-# Spec 12 design — Bounded social features and PostgreSQL-truthful competitive ranking
+# Spec 12 design — Reuse real Spec 10 results; do not build a social backend
 
-## 0. Preconditions, authority boundaries and critical corrections
+**Status:** planned narrow handoff, not a new engine. The historical directory keeps “social-ranking” in its name for replacement compatibility; its original feature set is intentionally deferred. Spec 11's verified private solo histories do not depend on this module.
 
-This is **new planned work** depending on real, tested Spec 03 identity, Spec 10 immutable result/placement/ranking-policy descriptor and Spec 11 owner-verified solo catalog. Inspect actual code, schema, host topology, Redis version/config, outbox/inbox contracts, DB role grants and `docs/architecture/{01-master,02-spec-map,03-contracts}.md` before editing. **Do not alter Marrow public contracts, canonical solo history, or certified Revenant.** Spec 13 presentation is excluded. No AI, full multiplayer replay, matchmaking, social graph or permanent global chat archive.
+## 0. Decision and source of truth
 
-**Correctness-critical decisions over original Spec 12:**
+The multiplayer backend is already certified for the hackathon scope:
 
-1. A **match-level unique rating application** is the business idempotency unit, **never** `(matchId, playerId, algorithmVersion)`.
-2. Pairwise actual `S_ij` comes from immutable **Spec 10 competitive placement**, not raw score independent of forfeiture.
-3. The rules/result carry an immutable `ratingAlgorithmId` selected **when the match starts**; delayed events after deployment updates cannot select whichever version happens to be current. Initial `elo-pair-v1`; Spec 10 owns serialization of this opaque ranking-policy identity, Spec 12 owns its meaning and application. The application receipt pins the same ID and result digest.
-4. First-time rating rows require race-safe **creation before sorted locks**; same-match effects and cache events commit together.
-5. Redeemed replay sessions remain bound to the originating grant and must honor **future** revoke/expiry checks.
-6. Redis state is expendable; rebuild and stream retention are not assumed reliable merely from consumer pending metadata.
+- `ghost-mp-v2` on existing `arena-v1` powers new matches; `ghost-mp-v1` and solo `ghost-v1` histories and goldens remain pinned.
+- 2/3/4 real-client full 2700-tick rounds have evidence; four-player match and rematch have real persisted results.
+- Spec 10 has canonical match receipt, immutable `MatchResult`, one unique `MatchFinalizedV1` outbox event and honest `Pending/Unverified/Aborted` handling.
+- Live spectators have a bounded, denied-to-control snapshot/event path and resync.
 
-If the Spec 10 finalized event/result lacks required identity/placement/eligibility/digest/policy fields, **fix the Spec 10-owned contract before rolling out the rating worker**, not by guessing placement in Spec 12. `MatchFinalizedV1` may remain the external event name if no existing consumers require a breaking change, but its **actual typed payload** must be coordinated with Spec 10 before implementation. Treat requirements as contracts to implement, not claims of existing runtime capability.
+**Nothing in this spec should recompute authoritative rank, implement another rating system, duplicate result persistence or update gameplay rules.** A “rank” on the results screen is simply the existing match-local competitive placement; it does not indicate a global Elo rating. Retain `ratingAlgorithmId` and `ratedEligible` in the stored result for compatibility/provenance without consuming the outbox or telling the player a rating was awarded.
 
-## 1. Room chat, presence and spectator access
+Existing `MatchFinalizedV1` delivery to Redis/Worker has not been established; the registered relay is not proof of delivery. This phase neither configures nor requires a rating consumer. Do not start a queue to consume events and discard them as though applied. An existing outbox event may simply remain durable for future work.
 
-A server-derived room participant/spectator principal may send authorized lobby/result chat and limited emotes as configured; no social input is processed in the tick reducer. Initial caps: 280 Unicode-normalized plain-text characters, five chat messages per 10s per user, a versioned list of eight emote IDs, bounded emote rate, last 50 messages per room in ephemeral storage. Normalize text/whitespace, filter control characters, escape on output, cap wire size, no raw HTML or script. Each room uses an ordered message sequence from its social lane and server timestamp; no claim of global ordering or durable full archive. Messages received during illegal room lifecycle stages are typed rejects. Host/admin mute or bounded room-level abuse controls may be used without a new moderation platform.
+## 1. Product-facing flow
 
-Presence and room authorization derive from actual Spec 10 membership, role and lifecycle, not Redis ephemeral counts or user-posted slot IDs. Only a verified competitor with the current **controller epoch** may send gameplay commands; spectators may subscribe to authorized snapshots/results and social channels only. Enforce at hub and application layer, even if UI is bypassed. Invite codes grant room discoverability/permissioned join by policy, never private historical replay access.
-
-Use Spec 10's **bounded, coalesced, asynchronous** snapshot fan-out for spectators, with configurable per-room cap (initial target 8 concurrent spectators/room) and time/bandwidth limits measured under multi-room tests. Spectator join starts from a full current snapshot and later generation/tick sequence updates; slow watchers cannot accumulate unbounded snapshots or stall the authoritative loop. Distinguish snapshots (replaceable) from membership/terminal decisions (refetchable/reliable). No watched player or spectator becomes a physics entity merely from presence.
-
-## 2. Owner-scoped, read-only solo replay sharing
-
-`ghostlap.replay_share_grant`: random token digest (never plaintext), grant ID, owner principal, **one** verified eligible completed solo original/attempt timeline reference, creation/expiry/revoke state, read-only scope, active link count. Use cryptographically secure random token with >=128-bit entropy (prefer 256-bit), hash for lookup, constant-time check where applicable, bounded issue/redeem rate and maximum five active links per history initially. Token is a bearer capability **only** for the intended historical replay reads. No owner-wide original listing; no `BranchFrom`, `CreateHistory`, control, source mutation, raw auth tokens or competing live match access. Unrecognized, expired and revoked bearer links get uniformly nonrevealing errors.
-
-**Recommended low-leak redemption:** put the bearer token in a URL fragment on a first-party, no-third-party bootstrap page, submit it in a protected POST body to redeem, immediately remove fragment from browser URL, obtain a short-lived HttpOnly/Secure/SameSite scoped read-only session and navigate to clean replay URL. A URL fragment is not in normal HTTP request target/Referer; the bootstrap must not run third-party analytics/error telemetry or leak the token in client logs. If using a path/query token route instead, fronting reverse proxy/CDN **must explicitly scrub or disable access logging/tracing for the raw path before any request log**, and same first-party resource/no-referrer/no-store rules apply. This is a transport choice, **not** a reason to develop unrelated frontend visual design.
-
-Every token bootstrap/redemption and protected replay response uses `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, no-index and strict third-party resource/cross-origin controls (CSP where configured), with actual proxy, application, analytics and exception redaction. Do not echo token in page HTML, redirect `Location`, events or error messages. Test the deployed route with actual browser/headers/proxy logs, not just a mocked React handler.
-
-**Revocation-after-redemption semantics:** a short replay session stores its originating `grantId` and limited history/scope/expiry. Every subsequent **protected data fetch** or authorized stream initiation checks the current grant not revoked/expired (or an equivalently strong immediately invalidated binding). Revocation prevents all future data retrieval and new seek requests; already delivered bytes are not retractable. A history owner retains private access. Explicit share permissions do not modify the underlying Timeline ownership or original verification state.
-
-## 3. Immutable result input, ranking eligibility and algorithm identity
-
-Consume only the **PostgreSQL committed** `MatchResult` and its transactionally created `MatchFinalizedV1` outbox event. Before rating, verify that the message's match ID, immutable result digest, typed version, sealed roster/eligibility, placement and `ratingAlgorithmId` agree with canonical result. Do not compute or trust scoring from a hub/client payload. Duplicate event delivery is expected, conflicting duplicate digest for one match is a corruption/security alert. **Aborted** receipts have no finalized result/outbox. A finalized but `ratedEligible=false` result is a valid **unrated** result; record consumption/reason idempotently without effects. History originals/branches/challenges can never create rating application receipts.
-
-Spec 10 competition order is **authoritative**: nonforfeiting finishers first, then forfeits; higher score within each status class ranks above lower; equal scores within the same class share competitive placement (slot only for stable display). For `n=2,3,4` distinct started eligible principals:
-
-```
-E_ij = 1 / (1 + 10^((R_j - R_i)/400))
-S_ij = 1 if rank_i outranks rank_j; 0 if worse; 0.5 if tied
-Delta_i = K/(n-1) * SUM_{j != i}(S_ij - E_ij), K = 24
-newRating_i = oldRating_i + Delta_i
+```text
+Authorized guest opens room/result
+         |
+         +-- live room -> Spec10 snapshots/events/ack/resync
+         |     - four simultaneous players, full rules and actual event IDs
+         |     - spectator read-only current state, bounded fan-out
+         |
+         +-- terminal -> actual receipt/result lifecycle
+         |     - Finalized: placement + score components + ties/forfeits
+         |     - Pending/Unverified/Aborted: truthful distinct UI states
+         |
+         +-- authorized rematch -> existing fresh Spec10 room/match
+               - tick0/seed/new ID; no prior-match state or duplicated result
 ```
 
-Initial rating = 1000. Compute **all** pair expectations from the **same transaction's locked pre-match ratings**. Use deterministic calculation/rounding with fixed persisted `numeric` precision (initial policy: six decimal places, document C# math/rounding conversion and audit both unrounded and applied deltas). Algebraically raw pair contributions are zero-sum; bounded fixed precision may cause tiny residual, record it honestly rather than silently inventing points or pretending integer conservation. Tie/forfeit examples (including a forfeited high-score player ranked below lower-score finisher) must match canonical placement. No per-player hidden bonus, score-per-distance rerating or artificial slot tiebreak. A future K factor, algorithm or season change is a new policy identity; never rerun old live effects by virtue of changing defaults.
+This is a **read-contract integration**, not a new application service. Before coding, inventory actual existing API/hub endpoints and typed DTOs. If they suffice for the future frontend, record their names and field mapping and do not touch production source.
 
-**Eligibility:** match receipt committed, `MatchResult` truly finalized, at least two distinct *server-verified guest principals*, immutable `ratedEligible` under sealed match policy and supported `ratingAlgorithmId`. Matches where every participant forfeits are **unrated**; one nonforfeiting finisher plus eligible forfeits can be rated. A lost authority/service interruption is **not** manufactured as player forfeit. Guest accounts can be created by the same human; label standings **casual competitive** and apply modest rate/invite protections, not false anti-smurf guarantees.
+## 2. Minimal presentation contract
 
-## 4. One atomic PostgreSQL rating application
+Read directly from actual Spec 10 response types; avoid inventing implementation method names. The eventual UI needs, at most:
 
-**Suggested GhostLap-owned tables/constraints** (adjust private names to real migrations):
+| Existing source fact | Needed presentation meaning |
+|---|---|
+| `matchId`, sealed rules/layout version, lifecycle/generation | prevent old-match frames/results being treated as the rematch |
+| authenticated member slot/character ID and competitor/spectator role | four-player scene identity and read-only spectator restrictions |
+| final authoritative player score and score components | valid results presentation and breakdown (not invented UI score) |
+| competitive placement, tie and forfeit state | winner/placement order independent of display-slot ordering |
+| finalization status and result digest | real Finalized vs Pending/Unverified/Aborted outcome |
+| snapshots/events with event IDs, ticks and recipient sequence | gameplay effects, 0–4 charge, Overlit/Burst, contacts and candle pickups |
+| rematch command and resulting fresh match identity | new session without old state leakage |
 
-- `rating_account(playerId PK, rating numeric(18,6), revision bigint, eligibleMatchCount, updatedUtc, ...)`.
-- `rating_match_application(matchId PK, resultDigest, algorithmId, eligibilityDecision, appliedAt, ... )` **unique by matchId alone**. Stores algorithm/version and effect count; an unrated finalized result can have one no-effects receipt to pin outcome.
-- `rating_effect(matchId,playerId,preRating,delta,postRating,preRevision,postRevision,competitivePlacement,applicationIdentity, ... UNIQUE(matchId,playerId))`.
-- existing transactional inbox and cache outbox **in the same DB transaction** through the owning messaging port; outbox record identity unique per effect/revision. No shared Marrow schema rewrite.
+If necessary, add **one thin owner/roster-authorized read projection** that maps existing persisted result fields; it must not copy/rerank results or persist a second projection. If the required fields are already exposed, the appropriate change is **no code**.
 
-Apply with the following transaction protocol:
+A future frontend may show winner badges, full podium, scores, candles, movement and Burst information using these contracts. Do not specify layout, typography, animations, effects, assets or game audio here: the user is preparing those separately for the visual spec.
 
-1. Read immutable final result/evidence and validate eligible and supported sealed algorithm. Begin transaction. Attempt insert/find **match-level unique receipt**; duplicate matching receipt returns the recorded decision/effects, never invokes formula again. A conflicting digest/version results in a visible corruption error and no effects.
-2. For eligible match, **insert missing rating_account rows** for all distinct participant IDs (`INSERT ... ON CONFLICT DO NOTHING`) in a deterministic order, then acquire each participant row lock individually in sorted stable player-ID order (`SELECT ... FOR UPDATE`); do not rely on `ORDER BY` alone or an absent-row lock. Other rating writers use identical lock order. Bounded DB deadlock/serialization retries restart the **whole** transaction; do not double-apply partially committed effects.
-3. Read all locked pre-ratings/revisions from the same transaction; compute all expected/actual pair scores and deltas from that one snapshot; write each new absolute rating and `revision+1`, per-player effects, match receipt/pinned algorithm/eligibility, inbox and per-player outbox **atomically**. Audit actual revisions/transaction application relationships, not a fictitious global chronological order. If any participant effect fails, rollback **all**.
-4. Commit before acknowledging rating applied. On SQL-commit ACK loss, look up the authoritative match receipt; don't recalculate. Delivery to Redis is at-least-once; end-user profile may indicate `RatingPending` until receipt exists. A repeated `MatchFinalizedV1` after upgrading default algorithm must see the same receipt and unchanged player revisions.
+### Result truth and access
 
-If the result has no nonforfeiting player or otherwise unrated, commit one idempotent `Unrated` receipt/reason with **no** participant effects or rating outbox and never reinterpret it after policy upgrades. Never use `UNIQUE(matchId,playerId,algorithmVersion)` as live business dedup. Retroactive re-rating, if ever built, belongs to a distinct versioned projection/season and not this live ledger.
+- A finalized unrated match is a real completed game with valid standings. Do not show “Rating +X” just because `ratedEligible=true`; that bit records future rating eligibility only.
+- If transaction/authority failed, UI should show the existing honest status. An aborted match has no rankable winner or `MatchFinalizedV1` result.
+- Spectator authority is determined at the service/hub layer. An observer may watch the actual live room and its permitted terminal state, but that does not imply a permanent public result URL or a right to view every past match by guessed ID.
+- Keep the committed result's stable ID/digest and typed versions. Rematches are **separate matches**, not a new application of an old result.
+- Existing shared guest principal and resource-kind authorizers are the only allowed security truth. Do not create public history routes, guest social profiles, share tokens or new identity infrastructure.
 
-**Concurrency example:** M1 and M2 overlap on player P and one result message arrives before the other; the first transaction to obtain P's row lock applies against its snapshot, the second then sees P's revised rating. Record the actual pre-state and applied revisions, and accept that different legitimate serialization orders may give different Elo within bounded formula behavior. No global Kafka-like ordering is required. Players with disjoint match rosters can be processed concurrently.
+## 3. Execution boundaries and cost control
 
-## 5. Redis as a safe disposable projection
+A single short port-inspection pass establishes where the result and spectator contracts already exist, followed by **only a small gap patch if necessary**. Then a focused smoke check reuses the already-passed Spec 10 evidence for:
 
-Redis sorted-set(s) for standings and accompanying per-player revision/value/hash are **derived**, never the primary rating source. Each outbox payload contains player ID, absolute rating, new per-player revision, eligibility and projection identity. A **single atomic Redis operation** (Lua or supported transaction) compares stored revision and then updates both rating metadata and sorted-set score. A lower revision cannot overwrite newer. Equal revision plus matching value is idempotent; if index entry is missing, repair it. Equal revision with a different value is a **consistency alarm** to reconcile from PostgreSQL, not silent success. Initial zero/missing revision may be populated from authoritative snapshot; ensure partial key loss does not permanently leave a player absent from rankings.
+- authentic four-player final result, tie and forfeit ordering;
+- roster-visible result status and foreign-user denial;
+- spectator cannot submit gameplay or control a player;
+- fresh rematch and no mixed-match snapshots/events;
+- preserved outbox/result immutability and no solo rating effects.
 
-When Redis is cleared or rebuilt: keep the API honest (`rebuilding` status and bounded PostgreSQL fallback for realistic hackathon scale); bulk-read authoritative Postgres accounts/revisions and **merge** through the same atomic nonregressing operation while live events flow. Do not drop/replace a live newer score using a slower older scan. Treat rebuild ready only after a complete scan and outbox catch-up/reconciliation. Avoid a naive `DEL` of a live sorted set mid-rebuild without a generation-safe cutover. Current project scale does not justify a globally ordered coordinator; choose the simplest existing-port rebuild proven to converge. Test missing ZSET with surviving revision hash, surviving ZSET with missing hash, duplicate and reverse deliveries, racing 2 results and a replayed old update.
+Do **not** implement a new Worker, migration, Redis projection, chat hub, time-ordered social history, revocable share link or public leaderboard. Do **not** rerun multiroom load/fairness matrices or crash recovery to “complete” Spec 12. A failed narrow result/authorization smoke test is worth fixing because it affects the actual game; theoretical global rating-order corner cases are not.
 
-**Stream recovery:** inspect deployed Redis version and actual Marrow stream topology. Generic `XTRIM MAXLEN` can discard pending/unread payload even if PEL references remain. Redis 8.2 supports `ACKED` retention when appropriate for all relevant groups; otherwise use consumer-safe watermark trimming or durable PostgreSQL outbox replay/reconciliation consistent with existing messaging contracts. Prove pending claim/retry, poison/dead-letter replay via business receipts, bounded retention, Redis volume-loss recovery and measured persistence (`appendfsync always` if actually configured). Do **not** modify Revenant streams blindly or assume Redis is an authoritative rating ledger. Realtime/Worker grants must be tested using actual runtime logins.
+**Verification handoff:** Kiro Sonnet Medium (or Codex if no code needed) inspects and documents result contracts and quick focused tests. Codex Medium handles any repetitive integration/regression and a Git checkpoint. If no genuine gap exists, end Spec 12 with the documented evidence—not implementation for its own sake.
 
-## 6. Profiles and security/runtime tests
+### Recorded browser/deployment handoff (NOT work in Spec 12)
 
-Profiles and leaderboard show actual match breakdowns and ranking status (`Rated`, `RatingPending`, `Unrated`, `TemporarilyUnavailable`) with post-rating and effect audit. No fake “rating +20” on event receipt before SQL commit. Public view includes only intended participant/standing fields; never accidental owner-private solo source, link token or foreign history list. Rematch uses a **fresh Spec 10 match ID**, not a second rating effect for the old one. Rank queries can fall back to PostgreSQL for small-scale correctness during Redis loss; explicitly degrade if too costly, never quietly return zero ratings.
+The completed Spec 10 backend certificate has several **mandatory later client checks**, not reasons to expand this spec: production browser SignalR keepalive must respect the documented Ghost Lap server heartbeat (client ping at most 5 seconds and client timeout consistent with the server's 15-second timeout); initial client tick estimation must avoid systematic `future_tick` refusals and re-anchor on acknowledgements/refusals; input action IDs, including a same-tick Burst press/release, must survive retry without double firing; resync must apply snapshot `(match,generation,lifecycle,sequence)` and event-cursor rules without stale/duplicate effects. The eventual PixiJS renderer must use local prediction/reconciliation, remote interpolation and true authoritative candle/contact/Burst events rather than fabricate visual outcomes. Public HTTPS/WSS reverse proxy, cookie/origin topology, browser tab suspension and WAN behavior **remain unverified** until real target deployment/client tests. Record these as explicit handoff items, not as completed Spec 12 tests.
 
-**Mandatory adversarial tests:**
+## 4. Deferred product backlog: not 12.x work
 
-- 2/3/4 player pairwise analytical cases, shared scores, all forfeits unrated, high-score forfeiter below normal finisher, starting 1000, documented numeric precision; no solo/branch rating.
-- Replay exact same `matchId` under different outbox IDs, after worker restart, after `elo-pair-v2` default switch and after SQL ACK loss: receipt/effects/revisions stay singular; same match with altered payload digest fails audit.
-- M1/M2 with shared player including no existing rating row, both lock serialization orders and duplicate events, rolled-back participant error; one consistent pre-state per transaction and no deadlocks left unresolved.
-- Redis two revisions reversed, equal-revision index repair, mismatched-value alert, partial/full volume loss during live rebuild, pending consumer trim/claim and poison replay; verified Postgres values and revisions win.
-- Forged spectator gameplay call, room flood/injection, unauthorized private history reads, token enumeration, raw token leaks in real proxy/tracing/browser/caches, revoked link **after** clean-URL redemption and subsequent replay seek/read denied.
-- Combined target-host test with active 4P rooms, solo replay/recording/seek, spectator/chat pressure and rating Redis/Worker backlog; verify Spec 10 tick/queue/overload boundaries and no direct DB/stream waits in critical simulation. Actual Ghost Lap/Marrow/Revenant runtime permission and DI coexistence, plus match receipt/access security; production contains no test-only bridge/`/__e2e` endpoint.
+The earlier social/rating design is parked: bounded room chat/emotes; presence messaging beyond existing connection/ready status; public history shares and revoke tokens; Elo and guest rating ledger; Redis ZSET rankings, Worker outbox/inbox and stream recovery; replay sharing URLs; social anti-abuse and multiroom load of those systems. It may be revisited **only after** the core rewind/branch demo and full visual game are excellent and the user requests it.
 
-**External technology assumptions to verify against deployment:** PostgreSQL session/row locking semantics; Redis `XTRIM` default `KEEPREF` versus Redis 8.2 `ACKED`; SignalR invocation-scoped hubs and independent background send path. These are design constraints, not proof of installed versions or passing tests.
+No planned Spec 12 work may modify Spec 11 source ownership or create a read-only sharing exception. Solo originals and child histories remain private to their owner. No change to Marrow, Revenant or the complete Spec 10 gameplay engine.
+
+## 5. Exit and handoff
+
+Produce a concise mapping from actual result/spectator/rematch fields to future browser consumption, links to previously executed Spec 10 evidence, any real short tests required for missing fields/permissions and an explicit list of visual/browser limitations. A valid exit may be **zero production files changed**. Browser scene quality, real browser input feel, event/FX/audio synchronization and public TLS/WSS target environment remain later presentation/deployment gates and must not be falsely certified by this document.

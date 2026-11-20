@@ -98,7 +98,17 @@ public sealed record SoloFrame(
     int CollectedCount = 0,
     int AckedInputSeq = -1,
     string[]? ActiveCandleIds = null,
-    GhostEventView[]? Events = null);
+    GhostEventView[]? Events = null,
+    SoloVisibleCandle[]? VisibleCandles = null,
+    long Seq = 0,
+    SoloMissedTickEvents[]? Missed = null,
+    bool MissedTruncated = false);
+
+/// <summary>A Solo candle visible at this authoritative tick, in arena world units. Phase is active or telegraph.</summary>
+public sealed record SoloVisibleCandle(string Id, double X, double Y, string Phase);
+
+/// <summary>Ordered reducer events from one coalesced Original tick. The array index identifies the event within its tick.</summary>
+public sealed record SoloMissedTickEvents(long Tick, GhostEventView[] Events);
 
 /// <summary>A refused input (stale sequence, bad vector, late/early tick, commit in progress, rate limit). Movement notices are bounded; Burst refusals are always reported.</summary>
 /// <remarks>
@@ -288,7 +298,8 @@ public sealed record SoloGhostFrame(
     GhostEventView[] Events,
     string StateHash,
     bool Final,
-    long DistanceFixed = 0);
+    long DistanceFixed = 0,
+    SoloVisibleCandle[]? VisibleCandles = null);
 
 /// <remarks>
 /// <c>Living</c> and <c>Ghost</c> are the states after <c>ForkTick</c> transitions (0 for a Challenge); the first input the server accepts is for

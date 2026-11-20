@@ -76,6 +76,8 @@ public sealed class GhostLapHub(
         return Task.CompletedTask;
     }
 
+    public Task<GhostLapReply<ArenaPresentationView>> GetArena() => RunAsync(_ => OwnerResult<ArenaPresentationView>.Success(GhostLapPresentation.Arena()));
+
     public Task<GhostLapReply<JoinedRoom>> CreateRoom(CreateRoomRequest request) => RunAsync(c => owner.CreateRoom(c, request));
 
     public Task<GhostLapReply<JoinedRoom>> JoinRoom(JoinRoomRequest request) => RunAsync(c => owner.JoinRoom(c, request));
@@ -153,7 +155,7 @@ public sealed class GhostLapHub(
             return OwnerResult<SnapshotFrame>.Fail(room.Code!);
         }
         return resync.Resync(room.Value, c.ConnectionId) is { } frame
-            ? OwnerResult<SnapshotFrame>.Success(frame)
+            ? OwnerResult<SnapshotFrame>.Success(GhostLapPresentation.Project(frame, matches.Find(Guid.Parse(frame.Snapshot.MatchId))?.Engine.Context.Plan))
             : OwnerResult<SnapshotFrame>.Fail(GhostLapFailure.NoRunningMatch);
     });
 

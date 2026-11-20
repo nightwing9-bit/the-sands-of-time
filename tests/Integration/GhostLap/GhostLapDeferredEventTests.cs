@@ -59,7 +59,8 @@ public sealed partial class GhostLapSoloCheckpointTests
         type.GetField("RunStartTimestamp")!.SetValue(session, System.Diagnostics.Stopwatch.GetTimestamp());
         var push = typeof(SoloChallengeRegistry).GetMethod("PushFrame", BindingFlags.NonPublic|BindingFlags.Instance)!;
         var wait = typeof(SoloChallengeRegistry).GetMethod("WaitForFreeSlotAsync", BindingFlags.NonPublic|BindingFlags.Static)!;
-        Task Push(GameState s) => (Task)push.Invoke(registry, [session, Tick(s), (double)s.Tick, 0d])!;
+        Task PushTick(SoloChallengeTick tick) => (Task)push.Invoke(registry, [session, tick, context.Plan, (double)tick.Tick, 0d])!;
+        Task Push(GameState s) => PushTick(Tick(s));
         var first = Push(states[0]);
         Assert.False(first.IsCompleted);
         foreach (var cue in cues.Where(s => s.Tick < 2700)) await Push(cue);
@@ -81,6 +82,20 @@ public sealed partial class GhostLapSoloCheckpointTests
         Assert.Equal(last.Living.Events, last.Ghost.Events);
         // A subsequent frame drains no duplicate events.
         await Push(states[^1]); Assert.Null(sender.Delivered[^1].Missed);
+
+        // The same plan and tick can have different visible sets after the histories diverge.
+        var pickup = states.First(s => s.Events.Any(e => e.Kind == GameEventKind.CandleCollected));
+        var id = pickup.Events.First(e => e.Kind == GameEventKind.CandleCollected).CandleId;
+        var idle = GameState.Initial(context);
+        while (idle.Tick < pickup.Tick)
+            idle = GhostLapTransition.Instance.Apply(idle, idle.Tick + 1, [], context);
+        Assert.Contains(id, idle.ActiveCandleIds);
+        await PushTick(Tick(idle) with { Ghost = Tick(pickup).Ghost });
+        Assert.Contains(sender.Delivered[^1].Living.VisibleCandles!, c => c.Id == id && c.Phase == "active");
+        Assert.DoesNotContain(sender.Delivered[^1].Ghost.VisibleCandles!, c => c.Id == id);
+        await PushTick(Tick(pickup) with { Ghost = Tick(idle).Ghost });
+        Assert.DoesNotContain(sender.Delivered[^1].Living.VisibleCandles!, c => c.Id == id);
+        Assert.Contains(sender.Delivered[^1].Ghost.VisibleCandles!, c => c.Id == id && c.Phase == "active");
         // Buffer is bounded at 64 event-bearing ticks and explicitly flags overflow.
         for (var i=0; i<70; i++) type.GetMethod("RecordSkipped")!.Invoke(session, [Tick(cues[0])]);
         var drained = ((MissedTickEvents[] Missed, bool Truncated, int Coalesced))type.GetMethod("DrainSkipped")!.Invoke(session, null)!;

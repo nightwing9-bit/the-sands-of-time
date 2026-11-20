@@ -292,7 +292,7 @@ public sealed partial class SoloChallenges
             }
             return SoloResult.Ok(new SoloChildTraceChunk(row.Source, SoloBranchKinds.Of(row), row.ForkTick, original.SourceFinalStateHash,
                 new SoloTraceChunk(child, GhostLapTimelineVersions.V1, row.RulesVersion, row.LayoutVersion, GameRulesV1.RoundTicks,
-                    row.FinalStateHash, fromTick, last < GameRulesV1.RoundTicks ? last+1 : null, frames.MoveToImmutable())));
+                    row.FinalStateHash, fromTick, last < GameRulesV1.RoundTicks ? last+1 : null, frames.MoveToImmutable(), original.Seed)));
         }, ct);
     }
 

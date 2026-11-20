@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Threading.Channels;
 using GhostLap.Contracts.Multiplayer;
 using GhostLap.Contracts.Solo;
+using GhostLap.Rules;
 using GhostLap.Simulation;
 using GhostLap.Solo;
 using GhostLap.Timeline;
@@ -82,7 +83,8 @@ public sealed partial class GhostLapSoloCheckpointTests
             Assert.Equal(("Fork", 1140L, 1141L, 42L, source.Original.FinalStateHash),
                 (started.Kind, started.ForkTick, started.FirstInputTick, started.Seed, started.SourceFinalStateHash));
             AssertGhost(started.Ghost, source.States[1140]);
-            Assert.Equal(JsonSerializer.Serialize(ChallengeMapping.ToWire(WorldFrame.Of(source.States[1140]), false)), JsonSerializer.Serialize(started.Living));
+            var plan = CandlePlan.Create(source.Original.Seed);
+            Assert.Equal(JsonSerializer.Serialize(ChallengeMapping.ToWire(WorldFrame.Of(source.States[1140]), false, plan)), JsonSerializer.Serialize(started.Living));
             // Full canonical bytes (including fields not exported to the renderer) at the actual persisted child fork point.
             var restored = (await engine.RestoreAsync(new TimelineId(Guid.Parse(started.ChallengeId)), 1140, ct)).Value;
             Assert.Equal(GameStateCodec.Instance.EncodeCanonical(source.States[1140]), GameStateCodec.Instance.EncodeCanonical(restored.State));
