@@ -34,7 +34,7 @@ public sealed class LoadInstrumentationTests
     }
 
     [Fact]
-    public void The_driver_records_one_sample_of_every_series_per_executed_tick_and_nothing_else_changes()
+    public async Task The_driver_records_one_sample_of_every_series_per_executed_tick_and_nothing_else_changes()
     {
         const int ticks = 90;
         var time = new ManualTime();
@@ -49,11 +49,11 @@ public sealed class LoadInstrumentationTests
                 cts.Cancel();
             }
         }, telemetry);
-        var reason = driver.RunAsync((delay, _) =>
+        var reason = await driver.RunAsync((delay, _) =>
         {
             time.Advance(delay);
             return Task.CompletedTask;
-        }, cts.Token).GetAwaiter().GetResult();
+        }, cts.Token);
 
         Assert.Equal(MatchStopReason.Cancelled, reason);
         Assert.Equal(ticks, engine.State.Tick);
@@ -70,7 +70,7 @@ public sealed class LoadInstrumentationTests
         var plainTime = new ManualTime();
         var plain = Engine(2, options, plainTime);
         using var plainCts = new CancellationTokenSource();
-        new MatchDriver(plain, new SwitchableAuthority(Generation), plainTime, options, o =>
+        await new MatchDriver(plain, new SwitchableAuthority(Generation), plainTime, options, o =>
         {
             if (o.Tick == ticks)
             {
@@ -80,12 +80,12 @@ public sealed class LoadInstrumentationTests
         {
             plainTime.Advance(delay);
             return Task.CompletedTask;
-        }, plainCts.Token).GetAwaiter().GetResult();
+        }, plainCts.Token);
         Assert.Equal(MpStateCodec.Hash(plain.State), MpStateCodec.Hash(engine.State));
     }
 
     [Fact]
-    public void A_catch_up_backlog_is_visible_in_the_backlog_and_lateness_series()
+    public async Task A_catch_up_backlog_is_visible_in_the_backlog_and_lateness_series()
     {
         var time = new ManualTime();
         var options = new MultiplayerOptions { InputsPerSecond = 1000, InputBurst = 1000 };
@@ -105,11 +105,11 @@ public sealed class LoadInstrumentationTests
                 cts.Cancel();
             }
         }, telemetry);
-        driver.RunAsync((delay, _) =>
+        await driver.RunAsync((delay, _) =>
         {
             time.Advance(delay);
             return Task.CompletedTask;
-        }, cts.Token).GetAwaiter().GetResult();
+        }, cts.Token);
 
         Assert.True(telemetry.BacklogTicks.Summarize().Max >= 10, "a 400 ms stall leaves a visible backlog");
         Assert.True(telemetry.StartLatenessMicros.Summarize().Max >= 100_000);

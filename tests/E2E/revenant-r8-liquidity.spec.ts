@@ -53,18 +53,18 @@ test("the selected bank uses its own opening buffer without changing the chart s
   await expect(line).toHaveAttribute("data-scale-bp", "3750");
   await expect(page.getByText("LiquidityPersistenceBaseline/1 · statistical baseline, Uncalibrated", { exact: false })).toBeVisible();
   await page.getByText("Liquidity data table").click();
-  await expect(page.getByText("Operating buffer reference: $100.00")).toBeVisible();
+  await expect(page.getByText("Operating buffer reference · $100.00")).toBeVisible();
   const projection = page.getByRole("table").filter({ hasText: "Available baseline" });
   await expect(projection.getByRole("cell", { name: "$70.00", exact: true })).toHaveCount(8);
 
   await bank.selectOption("BANK-B");
   await expect(note).toContainText("$300.00 · below visible chart range");
   await expect(line).toHaveCount(0);
-  await expect(page.getByText("Operating buffer reference: $300.00")).toBeVisible();
+  await expect(page.getByText("Operating buffer reference · $300.00")).toBeVisible();
   for (const unavailable of ["BANK-C", "BANK-D", "BANK-E", "BANK-F"]) {
     await bank.selectOption(unavailable);
     await expect(note).toHaveAttribute("data-reference-status", "ReferenceUnavailable");
-    await expect(page.getByText("Operating buffer reference: Unavailable")).toBeVisible();
+    await expect(page.getByText("Operating buffer reference · Unavailable")).toBeVisible();
     await expect(line).toHaveCount(0);
   }
   await bank.selectOption("BANK-A");
