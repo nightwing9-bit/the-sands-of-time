@@ -3,8 +3,7 @@ import { ErrorText, Hourglass, Icon } from "./shared.tsx";
 
 const tabs = [["tower", "Control Tower"], ["held", "Held Queue"], ["liquidity", "Liquidity"], ["rewind", "Rewind"], ["audit", "Audit"]] as const;
 
-/** Real staff sign-in: username, password and optional TOTP against /auth/staff/login. No SSO exists, so none is offered. */
-export function SignIn(p: { login: string; password: string; totp: string; setLogin: (v: string) => void; setPassword: (v: string) => void;
+export function SignIn(p: { demo: boolean; login: string; password: string; totp: string; setLogin: (v: string) => void; setPassword: (v: string) => void;
   setTotp: (v: string) => void; onSubmit: (e: FormEvent) => void; busy: boolean; error: string }) {
   return <div className="r8-gate">
     {/* Faded, inert chrome: no links or financial actions exist before authentication. */}
@@ -32,14 +31,14 @@ export function SignIn(p: { login: string; password: string; totp: string; setLo
           <p className="r8-signin-lede">Access the synthetic settlement workspace. Sign in with your staff credentials to operate a six-bank scenario,
             review held payments and compare verified financial histories.</p>
           <form onSubmit={p.onSubmit}>
-            <label>Username<input autoComplete="username" required value={p.login} onChange={e => p.setLogin(e.target.value)} /></label>
-            <label>Password<input autoComplete="current-password" type="password" required value={p.password} onChange={e => p.setPassword(e.target.value)} /></label>
-            <label>MFA code<input inputMode="numeric" autoComplete="one-time-code" value={p.totp} onChange={e => p.setTotp(e.target.value)} aria-describedby="r8-mfa-help" /></label>
-            <small id="r8-mfa-help">Optional at sign-in. Approvals, rejections and sandbox interventions need a fresh MFA code.</small>
+            <label>Username<input autoComplete={p.demo ? "off" : "username"} readOnly={p.demo} required={!p.demo} value={p.login} onChange={e => p.setLogin(e.target.value)} /></label>
+            <label>Password<input autoComplete={p.demo ? "off" : "current-password"} readOnly={p.demo} type="password" required={!p.demo} value={p.password} onChange={e => p.setPassword(e.target.value)} /></label>
+            <label>MFA code<input inputMode="numeric" autoComplete={p.demo ? "off" : "one-time-code"} readOnly={p.demo} value={p.totp} onChange={e => p.setTotp(e.target.value)} aria-describedby="r8-mfa-help" /></label>
+            <small id="r8-mfa-help">{p.demo ? "No MFA code is needed for the prepared demo." : "Optional at sign-in. Approvals, rejections and sandbox interventions need a fresh MFA code."}</small>
             <button className="r8-btn is-primary is-block" disabled={p.busy}>{p.busy ? "Signing in…" : "Sign in"}<Icon name="arrow" /></button>
           </form>
           <ErrorText error={p.error} />
-          <div className="r8-signin-foot"><span>Staff accounts only · synthetic environment</span><span className="r8-chip is-synthetic"><i />Synthetic data</span></div>
+          <div className="r8-signin-foot"><span>Staff accounts only · synthetic environment</span><span className="r8-chip is-synthetic"><i />{p.demo ? "Demo · Prepared Scenario" : "Synthetic data"}</span></div>
         </div>
       </section>
     </div>

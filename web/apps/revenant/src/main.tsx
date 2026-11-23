@@ -13,7 +13,7 @@ const transport = createMarrowTransport({ apiBaseUrl: "", realtimeBaseUrl: "" })
 const wire = createTestHostHttpWire();
 const sliceWire = createSliceHttpWire();
 const R8 = lazy(() => import("./r8/RevenantR8.tsx").then(m => ({ default: m.RevenantR8 })));
-const useR8 = new URLSearchParams(window.location.search).get("view") === "r8";
+const useR8 = import.meta.env.REVENANT_DEMO === true || new URLSearchParams(window.location.search).get("view") === "r8";
 const timelineId = new URLSearchParams(window.location.search).get("timeline");
 
 type Loaded = { kind: "loading" } | { kind: "failed"; failure: TransportFailure } | { kind: "ready"; descriptor: RevenantTimelineDescriptor };

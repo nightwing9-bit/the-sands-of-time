@@ -1,8 +1,9 @@
 // Soulfire Burst world distortion (skill ref 06 B): ONE pure ShockwaveFilter (pixi-filters 6, Pixi v8) centred on the authoritative Burst
 // position and applied to the game view only (the world container; the DOM HUD is never touched).
 //
-// PURE means: displacement only. No tint (brightness stays 1), no drawn ring, no sparks, no RGB split, no blur, no camera movement. The
-// emitting head's halo pulse (CharacterView.pulseHalo) is the only companion and lives on the head, not here.
+// The distortion is the hero and is unchanged. The only addition is a faint cyan accent on the wave's leading rim, computed INSIDE the same
+// shader pass (see shockwaveTint.ts; values in SHOCKWAVE.tint), so there is still one filter, no drawn ring, no sparks, no RGB split, no blur,
+// no camera movement. The emitting head's halo pulse (CharacterView.pulseHalo) is the only companion and lives on the head, not here.
 //
 // Lifecycle: the filter is added to the world's FilterStack when a Burst starts and removed when it ends, so an idle arena has no filter and
 // no offscreen pass. One filter is reused for every Burst. If another Burst arrives while one is running, the new one replaces it (a single
@@ -10,11 +11,12 @@
 //
 // Units: pixi-filters measures centre, radius, wavelength, amplitude and speed in CSS pixels of the filter's input rectangle. The filter area
 // is the world rectangle, so world units * world scale = filter pixels, with no other offset.
-import { Ticker } from "pixi.js";
+import { GlProgram, Ticker } from "pixi.js";
 import { ShockwaveFilter } from "pixi-filters/shockwave";
 import type { ArenaWorld } from "../stage/ArenaWorld.ts";
 import { SHOCKWAVE, type ShockwavePreset } from "./effectPresets.ts";
 import { prefersReducedMotion } from "./motion.ts";
+import { tintShockwaveFragment } from "./shockwaveTint.ts";
 import { shockwaveAt, shockwaveEndRadius } from "./timeline.ts";
 
 /** Nominal speed given to the filter; the radius is driven through `time` (time = radius / speed) so the ease is ours, not constant speed. */
@@ -36,7 +38,17 @@ export class ShockwaveFx {
 
   constructor(private readonly world: ArenaWorld, private readonly preset: ShockwavePreset = SHOCKWAVE) {
     this.filter = new ShockwaveFilter({ amplitude: 0, wavelength: preset.wavelength, brightness: preset.brightness, speed: SPEED_PX, radius: -1, time: 0, center: { x: 0, y: 0 } });
+    this.addRimTint();
     world.ticker.add(this.onTick);
+  }
+
+  /** Swaps the stock fragment for the same one plus the rim accent. Same uniforms, same vertex shader. Keeps the stock shader if it ever differs. */
+  private addRimTint(): void {
+    const stock = this.filter.glProgram;
+    const vertex = stock?.vertex;
+    const fragment = stock?.fragment ? tintShockwaveFragment(stock.fragment, this.preset.tint) : null;
+    if (!vertex || !fragment) { console.warn("ShockwaveFx: stock shockwave shader changed; rim tint skipped."); return; }
+    this.filter.glProgram = GlProgram.from({ vertex, fragment, name: "shockwave-rim-tint-filter" });
   }
 
   get active(): boolean { return this.running; }

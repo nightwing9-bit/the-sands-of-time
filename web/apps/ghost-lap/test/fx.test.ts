@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { HALO_ALPHA, HALO_SCALE } from "../src/characters/characterSpec.ts";
+import { BRIGHTNESS_LINE, tintShockwaveFragment } from "../src/fx/shockwaveTint.ts";
 import { BURST_REACH_UNITS, CRT, HALO_PULSE, SHOCKWAVE, SMOKE } from "../src/fx/effectPresets.ts";
 import { crtEnvelope, haloPulseAt, haloPulseLength, reducedCoverAlpha, shockwaveAt, shockwaveEndRadius, smokeFrameAt, smokeSchedule, type SmokeMeta } from "../src/fx/timeline.ts";
 import { PlaySession } from "../src/play/PlaySession.ts";
@@ -26,7 +27,22 @@ test("the Burst visual never reaches past the server's 160-unit reach, and start
   assert.equal(shockwaveEndRadius(), BURST_REACH_UNITS - SHOCKWAVE.wavelength / 2);
   let last = -1;
   for (let t = 0; t < SHOCKWAVE.durationMs; t += 10) { const r = shockwaveAt(t).radius; assert.ok(r >= last); last = r; }
-  assert.equal(SHOCKWAVE.brightness, 1, "the ring stays colourless");
+  assert.equal(SHOCKWAVE.brightness, 1, "the filter's own brightness stays neutral");
+});
+test("the shockwave's cyan rim accent stays faint, bluish, and exactly zero at the band edge", () => {
+  const t = SHOCKWAVE.tint;
+  assert.ok(t.strength > 0 && t.strength <= 1.0, "a tint, never a paint layer");
+  assert.ok(t.lift >= 0 && t.lift <= 0.08);
+  assert.ok(t.color[2] >= t.color[1] && t.color[1] > t.color[0], "blue >= green > red");
+  assert.ok(t.rimAt + t.halfWidth <= 1 && t.rimAt - t.halfWidth >= -1, "no seam at the ring's edges");
+  assert.ok(t.fadePower >= 1, "never fades slower than the distortion");
+});
+test("the tint patch changes only the final colour line of the stock shockwave shader", () => {
+  const stock = `a\n    ${BRIGHTNESS_LINE}\n    finalColor = color;`;
+  const out = tintShockwaveFragment(stock, SHOCKWAVE.tint);
+  assert.ok(out && out.startsWith("a\n    " + BRIGHTNESS_LINE) && out.endsWith("\n    finalColor = color;"));
+  assert.match(out!, /mix\(vec3\(1\.0\), tintC, 1\.0000 \* tintK\)/);
+  assert.equal(tintShockwaveFragment("no such line", SHOCKWAVE.tint), null);
 });
 
 test("halo pulse rises fast, falls to exactly zero, and never exceeds the full halo alpha", () => {

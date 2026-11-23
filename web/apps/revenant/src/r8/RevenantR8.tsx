@@ -10,12 +10,14 @@ import { Held } from "./Held.tsx";
 import { Liquidity } from "./Liquidity.tsx";
 import { Rewind } from "./Rewind.tsx";
 import { Audit } from "./Audit.tsx";
+import { runId as demoRunId, staffProfile } from "./demo/fixtures.ts";
+import { createDemoFetch } from "./demo/transport.ts";
 
 export { money } from "./format.ts";
 
 // Visible tab text follows the approved design; accessible names keep the established screen titles.
-const routes = [["tower", "Control Tower", "Control Tower", "tower"], ["held", "Held Queue", "Held Queue", "held"],
-  ["liquidity", "Liquidity Fan", "Liquidity Fan", "liquidity"], ["rewind", "Rewind Mode", "Rewind", "rewind"], ["audit", "Audit", "Audit", "audit"]] as const;
+const routes = [["tower", "Control Tower", "Control Tower", "tower"], ["rewind", "Rewind Mode", "Rewind", "rewind"],
+  ["held", "Held Queue", "Held Queue", "held"], ["liquidity", "Liquidity Fan", "Liquidity Fan", "liquidity"], ["audit", "Audit", "Audit", "audit"]] as const;
 type Route = typeof routes[number][0];
 const title = (route: Route) => routes.find(([key]) => key === route)![1];
 const currentRoute = (): Route => routes.find(([key]) => location.hash === "#" + key)?.[0] ?? "tower";
@@ -26,6 +28,9 @@ function selectInUrl(run: string | null, job: string | null, fork: string | null
   history.replaceState(null, "", url);
 }
 const runPath = "/revenant/r8/runs/{id}" as const;
+const demo = import.meta.env.REVENANT_DEMO === true;
+const demoLogin = "demo.supervisor";
+const demoPassword = "demo-placeholder";
 
 export function RevenantR8() {
   const [token, setToken] = useState<string | null>(() => import.meta.env.DEV
@@ -36,17 +41,21 @@ export function RevenantR8() {
   const [forkPosition, setForkPosition] = useState<string | null>(() => initialSelection.get("fork"));
   const [login, setLogin] = useState(""), [password, setPassword] = useState(""), [totp, setTotp] = useState("");
   const create = useOperation(), signIn = useOperation();
-  const api = useMemo(() => createApiClient({ baseUrl: "", getAccessToken: () => token, getCsrfToken: () => readCsrfToken(document.cookie, [STAFF_CSRF_COOKIE]), timeoutMs: 45_000 }), [token]);
+  const [demoFetch] = useState(() => demo ? createDemoFetch({ ...staffProfile, subject: demoLogin }, true) : undefined);
+  const api = useMemo(() => createApiClient({
+    baseUrl: "", fetch: demoFetch, getAccessToken: () => token,
+    getCsrfToken: demo ? undefined : () => readCsrfToken(document.cookie, [STAFF_CSRF_COOKIE]), timeoutMs: 45_000,
+  }), [demoFetch, token]);
   const refreshing = useRef(false);
   useEffect(() => {
-    if (refreshing.current || token || !readCsrfToken(document.cookie, [STAFF_CSRF_COOKIE])) return;
+    if (demo || refreshing.current || token || !readCsrfToken(document.cookie, [STAFF_CSRF_COOKIE])) return;
     refreshing.current = true;
     void api.post("/auth/staff/refresh").then(r => { if (r.ok && r.value?.accessToken) setToken(r.value.accessToken); });
   }, [api, token]);
   const list = useLoad(useMemo(() => token ? () => unwrap(api.get("/revenant/r8/runs")) : null, [api, token]));
   const me = useLoad(useMemo(() => token ? () => unwrap(api.get("/auth/staff/me")) : null, [api, token]));
   const snap = useLoad(useMemo(() => id && token ? () => unwrap(api.get(runPath, { path: { id } })) : null, [api, id, token]));
-  const live = Boolean(token && id && snap.value?.status !== "Verified");
+  const live = !demo && Boolean(token && id && snap.value?.status !== "Verified");
   useFinanceRefresh(live && (route === "tower" || route === "held" || route === "liquidity"), snap.reload);
   const job = useLoad(useMemo(() => token && id && jobId ? () => unwrap(api.get("/revenant/r8/runs/{id}/counterfactual/{job}", { path: { id, job: jobId } })) : null, [api, id, jobId, token]));
   useEffect(() => { const onHash = () => setRoute(currentRoute()); addEventListener("hashchange", onHash); return () => removeEventListener("hashchange", onHash); }, []);
@@ -63,9 +72,17 @@ export function RevenantR8() {
   }
   function doLogin(e: FormEvent) {
     e.preventDefault();
-    void signIn.run(login, async () => {
-      const result = await unwrap(api.post("/auth/staff/login", { body: { userName: login, password, totpCode: totp || null } }));
+    const userName = demo ? demoLogin : login;
+    void signIn.run(userName, async () => {
+      const result = await unwrap(api.post("/auth/staff/login", {
+        body: { userName, password: demo ? demoPassword : password, totpCode: totp || null },
+      }));
       if (!result?.accessToken) throw new Error("The session did not supply an access token.");
+      if (demo) {
+        select(demoRunId);
+        setRoute("tower");
+        location.hash = "tower";
+      }
       setToken(result.accessToken); setPassword(""); setTotp("");
     });
   }
@@ -77,11 +94,12 @@ export function RevenantR8() {
   const verifiedJob = job.value?.jobId === jobId ? job.value : null;
 
   if (!token) return <main className="r8" data-testid="revenant-r8">
-    <SignIn login={login} password={password} totp={totp} setLogin={setLogin} setPassword={setPassword} setTotp={setTotp}
+    <SignIn demo={demo} login={demo ? demoLogin : login} password={demo ? demoPassword : password} totp={totp}
+      setLogin={setLogin} setPassword={setPassword} setTotp={setTotp}
       onSubmit={doLogin} busy={signIn.busy} error={signIn.error} />
   </main>;
 
-  return <main className="r8" data-testid="revenant-r8">
+  return <main className={"r8" + (demo ? " is-demo" : "")} data-testid="revenant-r8">
     <header className="r8-mast">
       <div className="r8-brand"><Hourglass className="r8-brand-mark" /><span>Revenant</span></div>
       <nav className="r8-nav" aria-label="Revenant screens">{routes.map(([r, name, visible, icon]) =>
@@ -90,17 +108,17 @@ export function RevenantR8() {
           {r === "held" && <b className="r8-badge" title={`${heldCount} open review cases in this run`}>{heldCount}</b>}
         </a>)}</nav>
       <div className="r8-mast-right">
-        <span className="r8-chip is-synthetic"><i />Synthetic data</span>
+        <span className="r8-chip is-synthetic"><i />{demo ? "Demo · Prepared Scenario" : "Synthetic data"}</span>
         <time className="r8-clock" title="Scenario clock: last sealed boundary of the selected run, not wall time">{state ? clock(state.boundaryMs) : "--:--:--"} <span>UTC</span></time>
         {role && <span className="r8-role" title={me.value?.subject}>{role[0]!.toUpperCase() + role.slice(1)}</span>}
         <button className="r8-btn is-quiet" onClick={() => { void api.post("/auth/staff/logout").finally(() => { setToken(null); select(null); }); }}>Sign out</button>
       </div>
     </header>
-    <div className="r8-statusline">
+    {!demo && <div className="r8-statusline">
       <span>Synthetic data — no real funds</span><i />
-      <span><b className={"r8-dot" + (live ? " is-live" : "")} />{state ? (live ? "Refresh · polling every 2.5 s" : "Static · source closed and verified") : "No run selected"}</span><i />
+      <span><b className={"r8-dot" + (live ? " is-live" : "")} />{state ? (demo ? "Prepared scenario · local demo" : live ? "Refresh · polling every 2.5 s" : "Static · source closed and verified") : "No run selected"}</span><i />
       <span>Screening policy <strong>{screeningPolicy ?? "—"}</strong></span><i />
-      <span>{state ? <>Boundary {clock(state.boundaryMs)} UTC · {state.status}</> : "Scenario clock idle"}</span>
+      <span>{state ? <>Boundary {clock(state.boundaryMs)} UTC · {demo ? "Prepared" : state.status}</> : "Scenario clock idle"}</span>
       <div className="r8-runbar">
         <label><span className="r8-sr">Scenario</span><select aria-label="Scenario" value={id ?? ""} onChange={e => select(e.target.value || null)}><option value="">Select a run</option>
           {id && !list.value?.some(r => r.runId === id) && <option value={id}>{id.slice(0, 8)}</option>}
@@ -115,7 +133,7 @@ export function RevenantR8() {
           <button className="r8-btn is-primary is-small" disabled={create.busy}>{create.busy ? "Opening scenario…" : "Launch fresh scenario"}</button>
         </form>
       </div>
-    </div>
+    </div>}
     <div className="r8-work">
       {(create.error || list.error || snap.error || create.note) && <div className="r8-toast">
         <ErrorText error={create.error || list.error || snap.error} />{create.note && <p role="status">{create.note}</p>}</div>}

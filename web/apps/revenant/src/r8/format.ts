@@ -14,6 +14,14 @@ export function money(value: string, signed = false) {
   return (n < 0n ? "−" : signed && n > 0n ? "+" : "") + "$" + group.format(x / 100n) + "." + String(x % 100n).padStart(2, "0");
 }
 
+export function demoMoney(value: string, signed = false) {
+  return money(value, signed).replace(/\.00$/, "");
+}
+
+export function demoMillions(value: bigint | string) {
+  return "$" + (Number(value) / 100_000_000).toFixed(2) + "M";
+}
+
 /** Short label for dense visuals (basins, axes). Exact values are always available beside or behind it. */
 export function compactMoney(value: bigint | string) {
   const n = typeof value === "bigint" ? value : BigInt(value);

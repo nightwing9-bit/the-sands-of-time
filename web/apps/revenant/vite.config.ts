@@ -4,6 +4,15 @@ import react from "@vitejs/plugin-react";
 // Dev server forwards the host endpoints so the browser stays same-origin (the auth cookies are Secure and __Host- scoped).
 // Override with VITE_API_ORIGIN / VITE_REALTIME_ORIGIN; the defaults are the Compose host ports.
 export default defineConfig(({ mode }) => {
+  if (mode === "revenant-demo") {
+    return {
+      plugins: [react()],
+      define: { "import.meta.env.REVENANT_DEMO": "true" },
+      base: "./",
+      build: { outDir: "dist-demo" },
+      server: { host: "127.0.0.1", port: 5173, strictPort: true, cors: false },
+    };
+  }
   const env = loadEnv(mode, ".", "VITE_");
   const api = env.VITE_API_ORIGIN ?? "http://localhost:8081";
   const realtime = env.VITE_REALTIME_ORIGIN ?? "http://localhost:8082";

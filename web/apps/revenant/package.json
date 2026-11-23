@@ -5,8 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:demo": "vite --mode revenant-demo",
     "dev:preview": "vite --config vite.r8-preview.config.ts",
     "build": "tsc -p tsconfig.json && vite build",
+    "build:demo": "tsc -p tsconfig.json && vite build --mode revenant-demo",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {

@@ -1,8 +1,13 @@
 import { useMemo, useState } from "react";
 import { bufferReference } from "./bufferReference.ts";
 import { TimeChart } from "./charts.tsx";
-import { BANKS, bankAlias, bankCode, clock, compactMoney, money, sumMinor, time } from "./format.ts";
+import { preparedForecast, preparedTower } from "./demo/fixtures.ts";
+import { demoMillions, demoMoney, BANKS, bankAlias, bankCode, clock, compactMoney, money, sumMinor, time } from "./format.ts";
+import { CityMap } from "./CityMap.tsx";
 import { Icon, isOpenCase, unwrap, useFinanceRefresh, useLoad, type Api, type Balance, type Payment, type Snapshot } from "./shared.tsx";
+
+const demo = import.meta.env.REVENANT_DEMO === true;
+const amount = demo ? demoMoney : money;
 
 // Basin centres from the approved reservoir artwork (viewBox 1010 × 407), keyed by the real bank id.
 const basin: Record<string, [number, number]> = {
@@ -34,34 +39,53 @@ export function Tower({ api, state, live, openCase }: { api: Api; state: Snapsho
     ?? "BANK-A";
   const [bank, setBank] = useState(defaultBank);
   const awaiting = openCases.filter(c => c.status === "AwaitingSecondApproval").length;
-  const heading = openCases.length === 0
+  const heading = demo ? preparedTower.heading : openCases.length === 0
     ? "Money is moving across six banks; nothing is held for review."
     : `Money is moving across six banks; ${openCases.length === 1 ? "one held payment asks" : `${openCases.length} held payments ask`} for review.`;
 
+  const primaryOpen = demo && openCases.some(c => c.intentId === preparedTower.alerts[2]!.intent);
+  const useCompactTrend = demo && bank === "BANK-A";
+
+  const callout = focusPayment && focusCase ? <>
+    <div className="r8-callout-title">Held payment awaiting review<span>· {focusPayment.intentId} · {amount(focusPayment.amountMinor)}</span></div>
+    {demo ? <div className="r8-callout-path">MRD <b>→</b> OST <b>→</b> CRV <b>→</b> MRD <small>circular pattern</small></div>
+      : <div className="r8-callout-path">{bankCode(focusPayment.sourceBank)} <b>→</b> {bankCode(focusPayment.destinationBank)} <small>{focusPayment.sourceBank} → {focusPayment.destinationBank}</small></div>}
+    <p>{focusCase.status === "AwaitingSecondApproval" ? "Awaiting second approval" : demo ? "Held" : "Open"} · {focusCase.approvalCount} of {focusCase.requiredApprovals} approvals</p>
+    <button className="r8-icon-btn" aria-label={`Open case ${focusCase.intentId}`} onClick={() => openCase(focusCase.intentId)}><Icon name="arrow" /></button>
+  </> : <><div className="r8-callout-title">No held payment needs review<span>· {settled.length} settled flows drawn from committed payments</span></div></>;
   return <div className="r8-tower">
     <div className="r8-heading">
-      <div><div className="r8-eyebrow">FLOW MONITOR / {state.status === "Verified" ? "VERIFIED SOURCE SESSION" : "ACTIVE SESSION"}</div><h1>{heading}</h1></div>
+      <div>
+        {!demo && <div className="r8-eyebrow">FLOW MONITOR / {state.status === "Verified" ? "VERIFIED SOURCE SESSION" : "ACTIVE SESSION"}</div>}
+        <h1>{heading}</h1>
+      </div>
       <p className="r8-heading-note">As of {clock(state.boundaryMs)} UTC <span>·</span> scenario clock <span>·</span> Synthetic</p>
     </div>
     <section className="r8-kpis-strip" aria-label="Run totals">
+      {demo ? <>
+        <Kpi label="Volume today" value={amount(preparedTower.volumeMinor)} status="On pace" desc={`· Across ${preparedTower.transferCount} routed transfers`} />
+        <Kpi label="Held amount" value={amount(sumMinor(openCases.map(c => c.amountMinor)))} status="Under review" desc={`· ${openCases.length} payments currently held`} />
+        <Kpi label="Open alerts" value={String(openCases.length)} status="Needs review" desc={`· ${primaryOpen ? 3 : 2} high priority`} />
+        <Kpi label="Release rate" value={preparedTower.releaseRate} status="Healthy" desc={`· Versus ${preparedTower.priorReleaseRate} yesterday`} />
+      </> : <>
       <Kpi label="Settled principal" value={money(sumMinor(settled.map(p => p.amountMinor)))} status={`${settled.length} settled`} desc={`of ${state.payments.length} accepted payments in this run`} />
       <Kpi label="Reserved funds" value={money(reserved)} status={`● ${held.length} held`} desc="held instructions · reserve ledger" />
       <Kpi label="Open review cases" value={String(openCases.length)} status={openCases.length ? "▼ Needs review" : "Clear"} desc={`${awaiting} awaiting second approval · ${state.cases.length} cases total`} />
       <Kpi label="Accepted payments" value={String(state.payments.length)} status={`${state.payments.filter(p => p.status === "Returned").length} returned`}
         desc={`${state.payments.filter(p => !["Settled", "Held", "Returned"].includes(p.status)).length} in other states`} />
+      </>}
     </section>
-    <div className="r8-tower-middle">
-      <section className="r8-hero-map" aria-label="Six-bank reservoir map">
-        <div className="r8-map-stage"><div className="r8-map-frame">
+    <div className={"r8-tower-middle" + (demo ? " is-city" : "")}>
+      <section className={"r8-hero-map" + (demo ? " is-city" : "")} aria-label={demo ? "Six-bank city map" : "Six-bank reservoir map"}>
+        {demo ? <CityMap state={state} focus={focusPayment}>{({ w, h, mid }) => {
+          const cw = 250, left = Math.max(12, Math.min(mid[0] + 62, w - cw - 150)), top = Math.max(12, Math.min(h * 0.56, h - 150));
+          return <>
+            {focusPayment && focusCase && <svg className="r8-city-lead" width={w} height={h} aria-hidden="true"><path d={`M${mid[0]} ${mid[1]}L${left} ${top + 30}`} /></svg>}
+            <div className={"r8-map-callout" + (focusPayment ? "" : " is-calm")} style={{ left, top, width: cw }}>{callout}</div>
+          </>;
+        }}</CityMap> : <div className="r8-map-stage"><div className="r8-map-frame">
         <Reservoirs state={state} focus={focusPayment} />
-        <div className={"r8-map-callout" + (focusPayment ? "" : " is-calm")}>
-          {focusPayment && focusCase ? <>
-            <div className="r8-callout-title">Held payment awaiting review<span>· {focusPayment.intentId} · {money(focusPayment.amountMinor)}</span></div>
-            <div className="r8-callout-path">{bankCode(focusPayment.sourceBank)} <b>→</b> {bankCode(focusPayment.destinationBank)} <small>{focusPayment.sourceBank} → {focusPayment.destinationBank}</small></div>
-            <p>{focusCase.status === "AwaitingSecondApproval" ? "Awaiting second approval" : "Open"} · {focusCase.approvalCount} of {focusCase.requiredApprovals} approvals</p>
-            <button className="r8-icon-btn" aria-label={`Open case ${focusCase.intentId}`} onClick={() => openCase(focusCase.intentId)}><Icon name="arrow" /></button>
-          </> : <><div className="r8-callout-title">No held payment needs review<span>· {settled.length} settled flows drawn from committed payments</span></div></>}
-        </div></div></div>
+        <div className={"r8-map-callout" + (focusPayment ? "" : " is-calm")}>{callout}</div></div></div>}
         <div className="r8-map-pill">Scenario boundary <strong>{clock(state.boundaryMs)} UTC</strong></div>
         <a className="r8-link r8-map-link" href="#audit">Review earlier decisions <Icon name="arrow" /></a>
       </section>
@@ -69,20 +93,20 @@ export function Tower({ api, state, live, openCase }: { api: Api; state: Snapsho
     </div>
     <div className="r8-rail">
       <section className="r8-rail-cell" aria-label="Current balances">
-        <div className="r8-rail-title"><h2>Current balances · posted</h2><span>USD · COMMITTED</span></div>
+        <div className="r8-rail-title"><h2>{demo ? "Net Bank Positions" : "Current balances · posted"}</h2><span>{demo ? "USD · PREPARED" : "USD · COMMITTED"}</span></div>
         <div className="r8-positions">{BANKS.map(b => {
           const bal = state.balances.find(x => x.bankId === b.id), open = state.opening.find(x => x.bankId === b.id);
           const below = bal && open && BigInt(bal.availableMinor) < BigInt(open.availableMinor);
           return <button key={b.id} className="r8-position" aria-pressed={bank === b.id} onClick={() => setBank(b.id)} title={`${b.id} · posted ${bal ? money(bal.postedMinor) : "—"} · reserved ${bal ? money(bal.reservedMinor) : "—"} · available ${bal ? money(bal.availableMinor) : "—"}`}>
-            <span><b>{b.code}</b><i>·</i>{b.name}</span>{below && <em>▼ Below opening</em>}<strong>{bal ? money(bal.postedMinor) : "—"}</strong></button>;
+            <span><b>{b.code}</b><i>·</i>{b.name}</span>{(demo ? b.id === preparedForecast.bank : below) && <em>{demo ? "▼ Declining liquidity" : "▼ Below opening"}</em>}<strong>{bal ? (demo ? demoMillions(bal.availableMinor) : money(bal.postedMinor)) : "—"}</strong></button>;
         })}</div>
       </section>
       <section className="r8-rail-cell r8-rail-chart" aria-label="Selected bank trend">
-        <BankTrend bank={bank} opening={state.opening} points={liquidity.value?.actual ?? []} error={liquidity.error} />
+        <BankTrend bank={bank} opening={useCompactTrend ? preparedTower.trendOpening : state.opening} points={useCompactTrend ? preparedTower.trends : liquidity.value?.actual ?? []} error={liquidity.error} />
       </section>
       <section className="r8-rail-cell" aria-label="Recent activity">
         <div className="r8-rail-title"><h2>Recent activity</h2><span>LATEST FIRST · {live ? "POLLED" : "STATIC"}</span></div>
-        <Activity payments={state.payments} cases={state.cases.map(c => c.intentId)} openCase={openCase} />
+        <Activity payments={demo ? preparedTower.activity : state.payments} cases={state.cases.map(c => c.intentId)} openCase={openCase} />
       </section>
     </div>
   </div>;
@@ -90,7 +114,7 @@ export function Tower({ api, state, live, openCase }: { api: Api; state: Snapsho
 
 function Kpi({ label, value, status, desc }: { label: string; value: string; status: string; desc: string }) {
   return <div className="r8-kpi-tile"><div className="r8-kpi-label">{label}</div><div className="r8-kpi-value">{value}</div>
-    <div className="r8-kpi-meta"><b>{status}</b><span>{desc}</span></div></div>;
+    <div className="r8-kpi-meta"><b>{status}</b><span title={demo ? desc : undefined}>{desc}</span></div></div>;
 }
 
 function Reservoirs({ state, focus }: { state: Snapshot; focus: Payment | null }) {
@@ -111,10 +135,10 @@ function Reservoirs({ state, focus }: { state: Snapshot; focus: Payment | null }
       const dx = bx - cx, dy = by - cy, len = Math.hypot(dx, dy) || 1, ex = bx - (dx / len) * 54, ey = by - (dy / len) * 54;
       const sx = ax + ((cx - ax) / (Math.hypot(cx - ax, cy - ay) || 1)) * 52, sy = ay + ((cy - ay) / (Math.hypot(cx - ax, cy - ay) || 1)) * 52;
       const d = `M${sx.toFixed(1)} ${sy.toFixed(1)}Q${cx.toFixed(1)} ${cy.toFixed(1)} ${ex.toFixed(1)} ${ey.toFixed(1)}`;
-      const kind = p.status === "Held" ? "held" : p.status === "Settled" ? "settled" : "other";
+      const kind = p.status === "Held" ? "held" : (p.status === "Settled" || (demo && p.status === "Released")) ? "settled" : "other";
       return <g key={p.intentId} className={`r8-flow is-${kind}${focus?.intentId === p.intentId ? " is-focus" : ""}`}>
         {kind === "held" && <path className="r8-flow-halo" d={d} />}
-        <path className="r8-flow-line" d={d} markerEnd="url(#r8-arrow)"><title>{p.intentId} · {p.sourceBank} → {p.destinationBank} · {p.status} · {money(p.amountMinor)}</title></path>
+        <path className="r8-flow-line" d={d} markerEnd="url(#r8-arrow)"><title>{p.intentId} · {p.sourceBank} → {p.destinationBank} · {p.status} · {amount(p.amountMinor)}</title></path>
       </g>;
     })}
     {BANKS.map(b => {
@@ -130,7 +154,7 @@ function Reservoirs({ state, focus }: { state: Snapshot; focus: Payment | null }
           <circle className="r8-basin-rim" r="47" /><circle className="r8-basin-inner" r="41" />
           <path className={"r8-basin-notch" + (focus && (focus.sourceBank === b.id || focus.destinationBank === b.id) ? " is-focus" : "")} d="M-52 20H-40" />
           <text className="r8-basin-code" textAnchor="middle" y="7">{b.code}</text>
-          <text className="r8-basin-small" textAnchor="middle" y="23">{bal ? compactMoney(bal.availableMinor) : "—"}</text>
+          <text className="r8-basin-small" textAnchor="middle" y="23">{bal ? (demo ? demoMillions : compactMoney)(bal.availableMinor) : "—"}</text>
         </g>
         <text className="r8-basin-caption" textAnchor="middle" x={x} y={y + (y > 200 ? 64 : y < 100 ? 70 : 72)}>{b.name}</text>
       </g>;
@@ -141,7 +165,12 @@ function Reservoirs({ state, focus }: { state: Snapshot; focus: Payment | null }
 
 function Alerts({ state, openCase }: { state: Snapshot; openCase: (intent: string) => void }) {
   const open = state.cases.filter(isOpenCase);
-  const rows = [
+  const rows = demo ? preparedTower.alerts.flatMap<{ key: string; tone: string; title: string; sub: string; at: number; action: (() => void) | null }>(({ intent, ...alert }) => {
+    if (!intent) return [{ ...alert, action: null }];
+    const review = open.find(c => c.intentId === intent);
+    return review ? [{ ...alert, title: review.status === "AwaitingSecondApproval" ? "Held payment awaits second approval" : alert.title,
+      action: () => openCase(intent) }] : [];
+  }) : [
     ...open.map(c => { const p = state.payments.find(x => x.intentId === c.intentId);
       return { key: c.intentId, tone: "high", title: c.status === "AwaitingSecondApproval" ? "Held payment awaits second approval" : "Held payment requires approval",
         sub: `${c.intentId} · ${p ? `${bankCode(p.sourceBank)} → ${bankCode(p.destinationBank)} · ` : ""}${money(c.amountMinor)}`, at: p?.acceptedAtMs ?? null, action: () => openCase(c.intentId) }; }),
@@ -155,7 +184,7 @@ function Alerts({ state, openCase }: { state: Snapshot; openCase: (intent: strin
         const body = <><i className="r8-alert-marker" /><span><strong>{r.title}</strong><small>{r.sub}</small></span><time>{r.at === null ? "—" : time(r.at)}</time></>;
         return r.action ? <button key={r.key} className={"r8-alert is-" + r.tone} onClick={r.action}>{body}</button> : <div key={r.key} className={"r8-alert is-" + r.tone}>{body}</div>;
       })}
-      {state.anomalies.length === 0 && <div className="r8-alert is-muted"><i className="r8-alert-marker" /><span><strong>Velocity anomalies · advisory</strong>
+      {!demo && state.anomalies.length === 0 && <div className="r8-alert is-muted"><i className="r8-alert-marker" /><span><strong>Velocity anomalies · advisory</strong>
         <small>{state.anomalyStatus === "InsufficientHistory" ? "Insufficient history: the advisory detector needs more completed five-minute buckets." : `Detector status: ${state.anomalyStatus}`}</small></span><time>—</time></div>}
       {rows.length === 0 && <p className="r8-muted r8-alert-empty">No held payment or advisory anomaly is open in this run.</p>}
     </div>
@@ -197,7 +226,7 @@ function Activity({ payments, cases, openCase }: { payments: Payment[]; cases: s
       <td className="r8-mono">{time(p.acceptedAtMs).replace(" UTC", "")}</td>
       <td>{cases.includes(p.intentId) ? <button className="r8-text" onClick={() => openCase(p.intentId)}>{p.intentId}</button> : p.intentId}</td>
       <td title={`${p.sourceBank} → ${p.destinationBank}`}>{bankCode(p.sourceBank)} → {bankCode(p.destinationBank)}</td>
-      <td className="r8-num">{money(p.amountMinor)}</td>
+      <td className="r8-num">{amount(p.amountMinor)}</td>
       <td className={"r8-state is-" + p.status.toLowerCase()}>{p.status}</td>
     </tr>)}</tbody></table></div>;
 }

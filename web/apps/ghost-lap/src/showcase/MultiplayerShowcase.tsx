@@ -70,7 +70,6 @@ function prepare(world: ArenaWorld, heads: CharacterTextures, candles: CandleTex
   const feed = new ShowcaseFeed();
   const session = new ShowcaseSession(feed);
   const audio = getAudio();
-  // The approved one-shots repeat with the action. This standalone capture has no backing track.
   const audioClaim = audio.claim("transition");
   const offAudio = session.onEvent((event, frame) => {
     const kind = eventSound(event);
@@ -128,6 +127,7 @@ function prepare(world: ArenaWorld, heads: CharacterTextures, candles: CandleTex
     play() {
       if (started) return;
       started = true;
+      audioClaim.set("day");
       void audio.unlock().catch((error: unknown) => console.warn("Showcase audio unavailable", error));
     },
     dispose() {
