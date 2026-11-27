@@ -1,78 +1,285 @@
-# The Sands Of Time — Phase 1 architecture package
+# The Sands of Time
 
-**Status:** implementation-ready planning package, **not an implemented application**, test report, Kiro usage log, or deployed software. Prepared 2026-11-09.
+### One past. Two futures. Nothing erased.
 
-**Brand:** **The Sands Of Time** is the product/hackathon umbrella (formerly called Marrow); **Marrow** is the reusable technical foundation in this plan. **Revenant** is the synthetic finance app; **Ghost Lap** is the solo-history and multiplayer arena app. Changing the public brand does not require renaming all internal namespaces.
+**What if you could return to the moment a decision was made, choose differently, and see what changed—without rewriting what really happened?**
 
-## Start here
+**The Sands of Time** makes that idea tangible through **Marrow**, a reusable deterministic history engine built in C#/.NET, and two complete applications that use it for entirely different purposes:
 
-1. Read `docs/architecture/01-master.md`, `02-spec-map.md`, `03-contracts.md`, and `docs/workflow/01-execution.md` once. Verify the actual repo state before applying this package.
-2. Copy the root `.kiro/` folder into the repository root, preserving `.kiro/specs/spec-NN-<slug>/{requirements,design,tasks}.md`, steering, and MCP/hook config. Treat `docs/` as the engineering decision reference, not as always-loaded steering.
-3. Start **spec-01-foundation-bootstrap** in Kiro; execute its tasks in listed order. There is deliberately **no application implementation code in this archive**.
-4. Run checks on real code once implemented, record **actual** test/credit/CI evidence in `docs/kiro-log.md`. Never mark planned work complete from these documents alone.
+| | **Ghost Lap** | **Revenant** |
+|---|---|---|
+| **The question** | *What if I had played that moment differently?* | *What if the bank had made a different decision?* |
+| **The experience** | A haunted arcade game where you rewind your run and race your own past. | A six-bank financial operations interface where you examine payments and compare policy outcomes. |
+| **The alternate future** | Your new run plays beside a non-interacting ghost of the original. | An alternative policy produces a separate financial history and side-by-side results. |
+| **Explore the source** | [Ghost Lap](web/apps/ghost-lap/) | [Revenant](web/apps/revenant/) |
 
-## Local setup (from a fresh clone)
+**One shared foundation. Two independent applications.** Built for **Kiroween 2026 — Skeleton Crew**.
 
-Prerequisites: .NET SDK 10.0.402 or newer 10.0 feature band (`global.json` requires at least 10.0.402, whose ASP.NET Core 10.0.13+ runtime is patched for CVE-2026-70159; older SDKs are refused), Node.js 22.18+ or 24 with npm (`web/package.json` `engines`, enforced by `web/.npmrc`), Docker with Compose v2, `openssl`, and Git. License: MIT (`LICENSE`).
+---
 
+## The idea in 30 seconds
+
+Every system has a history. Most systems can show you what happened; very few let you **return to a precise past state, try something different, and keep both outcomes**.
+
+Marrow provides a common sequence:
+
+```text
+                     ONE ORIGINAL HISTORY
+                              │
+                     Record and verify
+                              │
+                      Choose a moment
+                              │
+                    Restore exact state
+                              │
+                      ┌───────┴───────┐
+                      │               │
+                ORIGINAL          NEW BRANCH
+                unchanged         new decisions
+                      │               │
+                      └───────┬───────┘
+                              │
+                       Compare futures
 ```
-git clone https://github.com/nightwing9-bit/the-sands-of-time && cd the-sands-of-time
 
-# 1. Secrets: there are no defaults. .env is gitignored; .env.example holds placeholders only.
-#    Generates the Postgres superuser (migrate job only), Redis, the three per-host DB logins and the identity master secret.
+In **Ghost Lap**, that moment is a game tick. In **Revenant**, it is a point in an ordered financial event history. Each application owns its rules; **Marrow owns the shared history mechanics**.
+
+## Experience the applications
+
+### 01 / Ghost Lap — every run leaves a ghost behind
+
+**A real game about competing with the person you used to be.**
+
+Ghost Lap is a 90-second, top-down arena game with four expressive geometric characters, glowing candles, Soulfire charge, Bursts, reactive effects, music, and a world that shifts from soft, snowy daylight to supernatural midnight blue.
+
+Its defining feature is not a conventional replay. **You can go back into your own recorded run and play a different continuation.**
+
+**The player journey**
+
+1. **Play an original.** Choose a character, collect candles, manage Soulfire and finish a server-scored solo run.
+2. **Keep the history.** The completed original is verified and saved to *My Histories*.
+3. **Return to the moment.** Scrub the hourglass Timeline to any valid tick; inspect the original state, score and movement.
+4. **Fork the run.** Begin again from that exact historical position, with the original's state restored. Your cyan ghost continues along its old path without affecting your new world.
+5. **See the difference.** Compare scores at the same tick, finish the new future and keep both versions. The original is never overwritten.
+
+**There's more than solo play:** real, server-authoritative **2–4-player multiplayer** includes private room creation/joining, live competition, spectators, results and rematches. The game server—not the browser—owns the authoritative rules and scores.
+
+> **The signature moment:** You choose *Fork here* at a mistake, the arena turns dark, and you encounter the exact version of yourself who made the original choice.
+
+**Implementation:** [React + PixiJS game](web/apps/ghost-lap/) · [C# game domain](src/GhostLap/) · [Contracts](src/GhostLap.Contracts/)
+
+### 02 / Revenant — see the cost of a different decision
+
+**A financial control room for exploring the consequences of fraud policy.**
+
+Imagine a payment passing through a network of six banks. A stricter fraud policy may stop suspicious activity—but it may also hold legitimate payments and change liquidity. The difficult question is not simply *which policy catches more fraud?* It is **what happens to the entire network when the decision changes?**
+
+Revenant lets you follow that question through five connected screens:
+
+| Screen | What it reveals |
+|---|---|
+| **Control Tower** | Six connected banks, routed payments, positions, suspicious flows and priority alerts, on a live-looking city network map. |
+| **Rewind** | The original financial history, a chosen fork moment, an alternate policy test and a visual comparison of the two outcomes. |
+| **Held Queue** | Flagged payments, risk evidence, transaction paths and human review/approval decisions. |
+| **Liquidity Fan** | Bank availability, a clearly bounded forecast baseline and liquidity-floor pressure. |
+| **Audit** | Event records, original-versus-scenario provenance and integrity information. |
+
+**The signature moment:** Select a moment in Rewind, press **Test New Policy**, watch the model stages, then see one history separate into **the original and an alternate future**. The comparison surfaces net financial effect, fraud prevented, false-positive cost and legitimate payments delayed.
+
+The polished **browser demo** is a deterministic *prepared scenario*. Its amounts, animations and policy-test sequence are illustrative—not live bank transactions or a live call to the trained models. This allows anyone to explore the complete visual story without provisioning infrastructure.
+
+**The implemented backend is separate and real:** PostgreSQL double-entry accounting, holds and multi-person approval controls, pinned **ML.NET FastTree** fraud scoring, advisory **SSA** anomaly detection, audit/provenance, and an isolated replay process for v7-to-v8 policy counterfactuals. Backend comparison logic calculates outcomes from synthetic inputs without modifying the original ledger. The liquidity projection uses a limited persistence baseline, **not** a trained forecasting model.
+
+All banks, accounts, payments, and financial outcomes are **synthetic**. No real money or customer banking data is used.
+
+**Implementation:** [React interface](web/apps/revenant/) · [C# finance domain](src/Revenant/) · [Contracts](src/Revenant.Contracts/)
+
+---
+
+## Try Revenant now — no backend required
+
+This is the fastest way to understand the product. You only need **Node.js 22.18+ or 24.x**, npm and Git.
+
+```bash
+git clone https://github.com/nightwing9-bit/the-sands-of-time.git
+cd the-sands-of-time/web
+npm ci
+npm run dev:demo -w @sands/revenant
+```
+
+Open **http://127.0.0.1:5173/?view=r8&demo=1**. The demo sign-in identity is prefilled; click **Sign in**. No external authentication, PostgreSQL, Docker or .NET service is needed in this mode.
+
+**A suggested two-minute walkthrough:**
+
+1. Start at **Control Tower**. Follow the suspicious payment route and inspect the six-bank overview.
+2. Open **Held Queue** to see the decision and supporting indicators behind a large held payment.
+3. Go to **Rewind**, select a time in the hourglass Timeline and choose **Fork here**.
+4. Run **Test New Policy** and watch the original and alternate histories separate.
+5. Read the four outcome metrics, then inspect **Liquidity Fan** and **Audit**.
+
+To play Ghost Lap's real solo and multiplayer modes, use the full-stack instructions below.
+
+## One engine, two different kinds of history
+
+Marrow is not a shared theme, a duplicated library or just a Timeline component. **Both C# application domains depend on the same Marrow foundation** for recording, restoring and branching deterministic histories.
+
+| Shared capability | Ghost Lap | Revenant |
+|---|---|---|
+| **Ordered history** | Fixed simulation ticks, including game inputs and state transitions | Ordered financial events and external payment facts |
+| **Restore** | Reconstruct player position, charge, score and simulation state at a tick | Reconstruct policy-relevant financial state at a chosen boundary |
+| **Fork** | Continue with new player inputs while the original ghost keeps its path | Re-evaluate synthetic inputs with a different screening policy |
+| **Compare** | Original-versus-fork score at the same tick | Original-versus-alternate financial and operational outcomes |
+| **Preserve** | Original verified run stays intact | Original Timeline and authoritative ledger are never rewritten by replay |
+
+Marrow's core concerns include canonical event/state encoding, versioned transition context, checkpoints, integrity verification, deterministic reconstruction and immutable parent/child history relationships. The domains provide their own reducers, rules and projections; neither application imports the other's business logic.
+
+The visible controls are intentionally different: Ghost Lap uses a game-focused hourglass history dock, while Revenant uses a financial analysis Timeline. **The reusable contract lives underneath them.**
+
+### Architecture at a glance
+
+```text
+                      THE SANDS OF TIME
+                              │
+                ┌─────────────┴─────────────┐
+                │                           │
+         GHOST LAP                     REVENANT
+      Game rules, scoring           Ledger, fraud, policy
+      Solo + multiplayer            Holds, replay, liquidity
+                │                           │
+                └─────────────┬─────────────┘
+                              │
+                       SHARED MARROW
+                    Kernel · Timeline
+                     Infrastructure
+                              │
+                  PostgreSQL · Redis
+                   API · Realtime · Worker
+```
+
+**Technology:** C# / .NET 10, PostgreSQL, Redis, SignalR, React, TypeScript, PixiJS, Vite and ML.NET. The solution is organized as a modular monorepo with separate application domains and shared infrastructure—not two unrelated repositories or a fleet of unnecessary microservices.
+
+### Repository layout
+
+```text
+.kiro/                         13 specs, steering, settings, hooks
+src/
+  Marrow.Kernel/               Shared contracts and primitives
+  Marrow.Timeline/             Deterministic record / restore / fork / compare
+  Marrow.Infrastructure/       Shared persistence, identity and messaging
+  GhostLap/                    Game rules, solo history and multiplayer domain
+  GhostLap.Contracts/
+  Revenant/                    Finance, ledger, screening and counterfactuals
+  Revenant.Contracts/
+  Hosts.Api/                   HTTP API and authentication
+  Hosts.Realtime/              Realtime game authority and transport
+  Hosts.Worker/                Background operations and replay modes
+web/
+  apps/
+    ghost-lap/                 Application 1 — independent React/PixiJS frontend
+    revenant/                  Application 2 — independent React frontend
+  packages/
+    contracts/                 Shared typed browser contracts
+    timeline-ui/               Reusable Timeline UI package
+scripts/                       Database and verification scripts
+tests/                         .NET, package, integration and browser tests
+deploy/                        Compose and deployment configuration
+docs/
+  adr/                         Architecture decision records
+  architecture/                Design and contract references
+```
+
+**Skeleton Crew structure:** `web/apps/ghost-lap/` and `web/apps/revenant/` are two separate application folders, each with its own package, entry point, components and experience. Marrow is shared rather than copied into either one.
+
+---
+
+## Run the full stack — Ghost Lap and backend services
+
+For **Ghost Lap's server-backed solo recording, history library, forks and multiplayer**, and for Revenant's service-backed implementation, run the local infrastructure.
+
+**Prerequisites:** Docker with Compose v2, Node.js **22.18+ or 24.x**, npm, Git and OpenSSL. The .NET SDK version is specified by [`global.json`](global.json) if you also build or debug the backend outside Docker.
+
+**1. Configure local secrets**
+
+From the repository root:
+
+```bash
 cp .env.example .env
-for k in POSTGRES REDIS API_DB REALTIME_DB WORKER_DB; do sed -i.bak "s/=REPLACE_ME_${k}\$/=$(openssl rand -hex 24)/" .env; done
-sed -i.bak "s/=REPLACE_ME_IDENTITY\$/=$(openssl rand -hex 32)/" .env && rm .env.bak
-grep -v '^#' .env | grep -c REPLACE_ME   # must print 0
+```
 
-# 2. .NET: build and run the architecture gate (real-service tests need Docker; see the integration job in ci.yml)
-#    global.json needs SDK 10.0.402+. If `dotnet` says "The command could not be loaded" the system SDK is older:
-#    install 10.0.403 into ~/.dotnet-10.0.403 and run `source scripts/checks/dotnet-env.sh` first (sets DOTNET_ROOT and PATH).
+Replace every `REPLACE_ME_*` entry in `.env` with a locally generated secret as described in [`.env.example`](.env.example). For Ghost Lap's persisted solo histories, also set `REALTIME_SOLO_DB_PASSWORD` to a strong generated password; an empty value disables that feature. Keep `.env` private—it is ignored by Git.
+
+**2. Start the services**
+
+```bash
+docker compose --env-file .env -f deploy/compose/docker-compose.yml up --build -d
+curl -fsS http://127.0.0.1:8081/health/ready
+```
+
+This starts PostgreSQL, Redis, the one-shot database migration job, and the API, Realtime and Worker hosts. The readiness endpoint confirms dependency availability; it is not itself a gameplay or financial acceptance test.
+
+**3. Start the browser applications**
+
+After `npm ci` in `web/`, run each command in its own terminal **from `web/`**:
+
+| Experience | Command | Address |
+|---|---|---|
+| **Ghost Lap (real backend)** | `npm run dev -w @sands/ghost-lap` | http://localhost:5174/ |
+| **Revenant (service-backed R8)** | `npm run dev -w @sands/revenant` | http://localhost:5175/?view=r8 |
+| **Revenant (prepared demo)** | `npm run dev:demo -w @sands/revenant` | http://127.0.0.1:5173/?view=r8&demo=1 |
+
+**Revenant backend note:** Full authenticated finance and counterfactual operation additionally requires provisioned staff/tenant context and the correctly configured isolated Replay worker. Starting Compose alone is not a substitute for those advanced workflow prerequisites. The prepared demo above is the recommended first-look experience.
+
+See [Compose setup](deploy/compose/README.md) for hosts, ports and lifecycle. To stop services **without deleting stored volumes**:
+
+```bash
+docker compose --env-file .env -f deploy/compose/docker-compose.yml down
+```
+
+## Built with Kiro
+
+The development process is retained in **[13 Kiro specifications](.kiro/specs/)** spanning the shared platform, early cross-domain integration, Revenant's financial capabilities, and Ghost Lap's full game and browser experience. Each spec organizes its requirements, design and implementation tasks.
+
+The root `.kiro/` directory includes:
+
+- **[Specifications](.kiro/specs/):** the 13-stage architecture and application work.
+- **[Steering](.kiro/steering/):** project structure, technologies, product boundaries, game authority, financial integrity and Timeline correctness.
+- **[Hooks](.kiro/hooks/) and [settings](.kiro/settings/):** committed development configuration and tool integration definitions.
+
+The central engineering rule remained the same throughout: **recorded originals must stay intact; alternate outcomes must be separate, deterministic and verifiable**.
+
+## Verification
+
+The source is backed by executable tests, not only demonstration screens. At the verified integrated source checkpoint, the [Linux GitHub Actions run](https://github.com/nightwing9-bit/the-sands-of-time/actions/runs/45215858378) passed all **seven standard jobs**, including:
+
+- **576 passing .NET solution tests** (with five configured skips), including Ghost Lap, Revenant and Marrow tests.
+- **203 passing PostgreSQL integration tests** in the principal integration run (with two configured skips).
+- **53 passing Playwright browser end-to-end tests** across stubbed and real-backend scenarios.
+- Linux AMD64 ML.NET model/worker checks, shared Timeline and typed-contract tests, frontend builds and architecture checks.
+
+The counts describe their respective CI runs; they are not meant to be added into one unduplicated total. The linked run documents the tested commit and environment.
+
+To check the source locally:
+
+```bash
+# Repository root
 dotnet build TheSandsOfTime.slnx
 dotnet test tests/Architecture/Architecture.Tests.csproj
-dotnet test tests/Integration/Integration.Tests.csproj   # optional: Testcontainers PostgreSQL/Redis
 
-# 3. Web: install, typecheck, build both shells
-(cd web && npm ci && npm run typecheck && npm run build)
-
-# 4. Postgres, Redis, one-shot migrate, then API / Realtime / Worker
-docker compose --env-file .env -f deploy/compose/docker-compose.yml up --build -d
-curl -fsS http://127.0.0.1:8081/health/ready   # API; Realtime is 8082, Worker 8083
-
-# 5. Browser shells (separate terminals)
-(cd web/apps/ghost-lap && npm run dev)   # http://localhost:5174
-(cd web/apps/revenant && npm run dev)    # http://localhost:5175
-
-# Stop and wipe local data
-docker compose --env-file .env -f deploy/compose/docker-compose.yml down -v
+# web/ directory
+npm run typecheck
+npm run build
+npm run build:demo -w @sands/revenant
+npm run check:bundles
 ```
 
-More detail: `deploy/compose/README.md` (ports, health, migrations) and `scripts/checks/README.md` (gate scripts). `.kiro/` is committed on purpose; never ignore it. Real test, Kiro and CI results are recorded only in `docs/kiro-log.md`.
+Some native ML.NET tests require Linux x64. See [GitHub Actions](.github/workflows/) for the full integration environment.
 
-## Contents
+## What this project demonstrates
 
-- `docs/architecture/`: master architecture, 13-spec DAG, versioned interface contracts, acceptance/coverage matrix, decision register.
-- `docs/workflow/`: steering/inclusion plan, Kiro/MCP/hook/CI procedures, risk-and-budget allocation, execution playbook.
-- `.kiro/specs/`: 13 complete **native** spec directories; each has requirements, design and bounded executable tasks.
-- `.kiro/steering/`: three small foundation files and three focused conditional/manual files.
-- `.kiro/settings/mcp.json`: selected Context7 and Chrome DevTools MCP configurations. Chrome disabled until browser apps exist; no credentials included.
-- `.kiro/hooks/`: three valid Kiro hook configs, initially disabled until their referenced check scripts and apps exist (see workflow).
-- `docs/kiro-log.md`: evidence ledger with instructions; only performed work is recorded.
+**Marrow is the product foundation. Ghost Lap and Revenant are the proof.** One is about a personal decision in a game; the other is about an operational decision in a financial network. They have different data, rules, risks and user interfaces—but both can return to an exact moment, preserve the original and investigate another future.
 
-## Non-negotiable boundaries
+That is the idea behind **The Sands of Time**: **change what happens next, without changing what happened before.**
 
-Shared engine is instantiated by two application adapters. A bank history is event-ordered; a game history is tick-ordered. Immutable originals cannot be rewritten. The original financial ledger is never a branch write target. A game ghost is a historical rendering, not a rival collision actor. Server, not browser, owns multiplayer scoring.
+---
 
-## External material still required
-
-The original design inputs are **included**, unmodified, at `design-inputs/skills1 (1).md` (Revenant) and `design-inputs/skills2 (1).md` (Ghost Lap). They are on-demand presentation references for Specs 09/13, not automatically loaded Kiro steering and not authoritative over game/financial rules. See `docs/workflow/02-steering-and-assets.md` for the compatibility decisions and loading rules.
-
-## Architecture corrections and manifest scope
-
-The original `MANIFEST.json` reflects the pre-correction archive and is **not** a trustworthy post-patch whole-repository hash ledger. The selective correction packages each carry their own before/after hash manifests and backups; do not use the old manifest to overwrite corrected documents or mark software verification complete. Rebuild a comprehensive repository manifest only when the entire working project tree (including Spec 01–03, hidden Kiro configs and original context) is available and stable. This housekeeping is not a Kiro start gate.
-
-## Verification scope
-
-Package consistency (files/dependency DAG/internal references) is validated during archive generation. Compiling .NET, running integration/E2E tests, connecting Kiro MCPs, measuring credit consumption, and confirming public deployment **require actual implementation and cannot be claimed here**.
-
-**Official rule check:** `docs/architecture/06-official-rules-check.md` records verified 2026 event dates, Skeleton Crew two-app-folder requirement, and credit-request deadline; this does not replace official rules or prove entrant eligibility.
+**License:** [MIT](LICENSE). All financial scenarios use synthetic data. This repository contains runnable source and local setup instructions; it does not claim to be a publicly hosted banking service.
