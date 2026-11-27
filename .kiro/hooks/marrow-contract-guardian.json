@@ -11,7 +11,7 @@
         "command": "bash scripts/checks/contract-guardian.sh"
       },
       "timeout": 50,
-      "enabled": false
+      "enabled": true
     }
   ]
 }

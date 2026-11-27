@@ -20,6 +20,8 @@ export default defineConfig(({ mode }) => {
         "/timeline": { target: api, changeOrigin: false },
         // Spec 06 task 6.5: the Ghost Lap greybox routes (served by the test-only host until the production Ghost Lap API exists).
         "/ghost-lap": { target: api, changeOrigin: false },
+        // Spec 13 task 13.9: the owner-scoped Solo library (originals, children, trace) is served by Hosts.Realtime, not Hosts.Api.
+        "/api/ghostlap": { target: realtime, changeOrigin: false },
         "/hubs": { target: realtime, ws: true, changeOrigin: false },
       },
     },

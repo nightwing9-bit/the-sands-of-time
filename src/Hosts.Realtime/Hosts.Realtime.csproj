@@ -6,6 +6,9 @@
     <ProjectReference Include="..\Marrow.Infrastructure\Marrow.Infrastructure.csproj" />
     <!-- Spec 07 task 7.4: the Revenant run stream and its tenant/membership policy on the hub (composition only). -->
     <ProjectReference Include="..\Revenant\Revenant.csproj" />
+    <!-- Spec 10 task 10.1: Ghost Lap lobby owner, hub ingress and host composition (the domain never references this host). -->
+    <ProjectReference Include="..\GhostLap\GhostLap.csproj" />
+    <ProjectReference Include="..\GhostLap.Contracts\GhostLap.Contracts.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

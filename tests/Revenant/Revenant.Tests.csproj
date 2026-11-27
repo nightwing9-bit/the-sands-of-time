@@ -34,6 +34,7 @@
     <ProjectReference Include="..\..\src\Revenant\Revenant.csproj" />
     <ProjectReference Include="..\..\src\Revenant.Contracts\Revenant.Contracts.csproj" />
     <!-- Test-only host composition of the shared Timeline over PostgreSQL; the Revenant domain itself never references Infrastructure. -->
+    <ProjectReference Include="..\..\src\GhostLap\GhostLap.csproj" />
     <ProjectReference Include="..\..\src\Marrow.Infrastructure\Marrow.Infrastructure.csproj" />
   </ItemGroup>
 </Project>

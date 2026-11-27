@@ -24,14 +24,24 @@ public sealed record WorldFrame(
     int TotalScore,
     int Pickups,
     ImmutableArray<string> ActiveCandleIds,
-    ImmutableArray<GameEvent> Events)
+    ImmutableArray<GameEvent> Events,
+    long DistanceFixed = 0,
+    bool IsOverlit = false,
+    int Bursts = 0,
+    int BurstHits = 0,
+    sbyte HeldMoveX = 0,
+    sbyte HeldMoveY = 0,
+    bool BurstLatch = false,
+    int CollectedCount = 0,
+    int LastSequence = -1)
 {
     public static WorldFrame Of(GameState state)
     {
         ArgumentNullException.ThrowIfNull(state);
         var p = state.Players[0];
         return new WorldFrame(state.Tick, p.XFixed, p.YFixed, p.Charge, p.OverlitDeadlineTick, p.MovementPoints, p.PickupPoints,
-            p.PenaltyPoints, p.TotalScore, p.Pickups, state.ActiveCandleIds, state.Events);
+            p.PenaltyPoints, p.TotalScore, p.Pickups, state.ActiveCandleIds, state.Events, p.DistanceFixed, p.IsOverlit, p.Bursts,
+            p.BurstHits, p.HeldMoveX, p.HeldMoveY, p.BurstLatch, state.Collected.Length, p.LastSequence);
     }
 }
 
@@ -40,7 +50,9 @@ public sealed record WorldFrame(
 /// current minus source score at this tick (not either final score); <see cref="IsFinal"/> only at the final tick, where
 /// the totals are the final results. <see cref="CurrentStatus"/> is Recording while the branch is still being played.
 /// </summary>
-public sealed record AlignedScore(long Tick, WorldFrame Ghost, WorldFrame Current, int Delta, bool IsFinal, HistoryStatus CurrentStatus);
+public sealed record AlignedScore(
+    long Tick, WorldFrame Ghost, WorldFrame Current, int Delta, bool IsFinal, HistoryStatus CurrentStatus,
+    string GhostStateHash = "", string CurrentStateHash = "");
 
 /// <summary>A branch that reached the final tick and whose Timeline replay reproduced the recorded hashes.</summary>
 public sealed record SoloBranchResult(
@@ -276,7 +288,7 @@ public sealed class SoloBranches(
                 var ghost = WorldFrame.Of(a.Source.State);
                 var current = WorldFrame.Of(a.Alternative.State);
                 result.Add(new AlignedScore(a.Position, ghost, current, checked(current.TotalScore - ghost.TotalScore),
-                    a.Position == GameRulesV1.RoundTicks, a.Alternative.HistoryStatus));
+                    a.Position == GameRulesV1.RoundTicks, a.Alternative.HistoryStatus, a.Source.StateHash, a.Alternative.StateHash));
             }
 
             return SoloResult.Ok<IReadOnlyList<AlignedScore>>(result);

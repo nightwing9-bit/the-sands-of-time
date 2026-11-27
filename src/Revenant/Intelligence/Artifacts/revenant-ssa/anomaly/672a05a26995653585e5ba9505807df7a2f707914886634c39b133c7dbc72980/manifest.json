@@ -1,0 +1,25 @@
+{
+  "Policy": "revenant-ssa-advisory/2",
+  "Kind": "anomaly",
+  "ArtifactSha256": "03e895da4fa4348b69b1251c6ef9c1c9e6c2deee893e83bf2a983c698281b35e",
+  "Generator": "revenant-episode-generator/4",
+  "TrainingSeriesSha256": "00f5fcdb0dcf1f91f46969bfef23f75e7e4f1df4c69a20c58952ee3cec5e43c5",
+  "Anomaly": {
+    "Transform": "Count",
+    "SeasonalWindow": 576,
+    "TrainingWindow": 1160,
+    "PValueHistory": 32,
+    "Warmup": 1152,
+    "MinimumNonzero": 8
+  },
+  "Alert": {
+    "Statistic": "PoissonSurprise",
+    "Threshold": 3.4120270786372,
+    "Allowance": 0,
+    "Window": 6,
+    "Floor": 0.02
+  },
+  "Forecast": null,
+  "Interval": null,
+  "AnomalyExpectation": "prior-bucket-ssa-state/1"
+}

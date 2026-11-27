@@ -1,0 +1,229 @@
+{
+ "meta": {
+  "generator": "scripts/build-character-atlas.py",
+  "source": "design-inputs/game-assets/kenney_shape-characters /PNG/Double (Kenney Shape Characters 1.0, CC0; note the trailing space in the folder name)",
+  "image": "characters.png",
+  "size": {
+   "w": 1024,
+   "h": 590
+  },
+  "unit": "Double-resolution source pixels. A head body is 160 x 160.",
+  "bodyCentreColours": {
+   "body_p1_yellow": "#fab839",
+   "body_p1_red": "#da5463",
+   "body_p2_pink_square": "#ff85c7",
+   "body_p3_yellow_rhombus": "#fab839",
+   "body_p4_green_squircle": "#64bf77",
+   "body_p1_orange_derived": "#fa8e39"
+  },
+  "derivations": {
+   "body_p1_orange_derived": "DERIVED, NOT SOURCE ART (APPROVED P1 body, Option C): yellow_body_circle.png with hue rotated -13 degrees (about 40 -> 27 degrees), saturation, value and alpha unchanged. The owner approved it as the P1 body; it is wired into slot 0. The Kenney source file is unchanged.",
+   "halo_circle": "halo mask for circle: body alpha, 4 px dilation, 7 px Gaussian feather, white; tinted at runtime",
+   "shadow_circle": "ground shadow mask for circle: body alpha blurred 4 px, white; tinted and offset at runtime",
+   "halo_square": "halo mask for square: body alpha, 4 px dilation, 7 px Gaussian feather, white; tinted at runtime",
+   "shadow_square": "ground shadow mask for square: body alpha blurred 4 px, white; tinted and offset at runtime",
+   "halo_diamond": "halo mask for diamond: body alpha, 4 px dilation, 7 px Gaussian feather, white; tinted at runtime",
+   "shadow_diamond": "ground shadow mask for diamond: body alpha blurred 4 px, white; tinted and offset at runtime",
+   "halo_squircle": "halo mask for squircle: body alpha, 4 px dilation, 7 px Gaussian feather, white; tinted at runtime",
+   "shadow_squircle": "ground shadow mask for squircle: body alpha blurred 4 px, white; tinted and offset at runtime",
+   "eye_sclera": "facial_part_eye_open.png: outer silhouette (alpha) filled white where the baked pupil is, so a pupil can move",
+   "eye_pupil": "facial_part_eye_open.png: ink pixels only (white-to-ink antialias becomes alpha), same 40x40 canvas so it is concentric with eye_sclera",
+   "mouth_dot": "eye_pupil trimmed to its ink disc. Scaled to an oval at runtime: the dark OPEN-MOUTH oval of the release scream, and the small alarmed oval of the fear face (the pack has no standalone oval mouth)",
+   "mouth_open_half": "lower half of the eye_pupil ink disc (flat top, round bottom), widened at runtime into the open laughing mouth of the winner face (the pack has no wide open-smile mouth)",
+   "eye_x": "face_j.png: the left X-eye connected component, cropped (right X is the same pixels)",
+   "brow_lift": "face_j.png: the left slim brow component (inner end higher), cropped; the right brow is its mirror",
+   "brow_heavy": "face_i.png: the left heavy brow component (inner end higher), cropped; flipped vertically at runtime it is the tense inward-slanted brow",
+   "mouth_flat": "NO flat neutral mouth exists in the pack. facial_part_eyebrow_a.png (a level flat dark bar with round ends) resampled to 30 x 8 px, the stroke weight of facial_part_mouth_happy.png",
+   "mouth_grin": "NO broader grin exists in the pack. facial_part_mouth_happy.png scaled uniformly x1.45 (a wider, deeper curve with a heavier stroke)",
+   "ghost_eye_brow": "face_f.png: the left angry-brow + narrowed-eye unit (x 0..53, y 0..45; the right unit is its exact mirror), mouth excluded"
+  }
+ },
+ "frames": {
+  "body_p1_orange_derived": {
+   "x": 556,
+   "y": 212,
+   "w": 160,
+   "h": 160
+  },
+  "body_p1_red": {
+   "x": 724,
+   "y": 212,
+   "w": 160,
+   "h": 160
+  },
+  "body_p1_yellow": {
+   "x": 4,
+   "y": 396,
+   "w": 160,
+   "h": 160
+  },
+  "body_p2_pink_square": {
+   "x": 172,
+   "y": 396,
+   "w": 160,
+   "h": 160
+  },
+  "body_p3_yellow_rhombus": {
+   "x": 340,
+   "y": 396,
+   "w": 160,
+   "h": 160
+  },
+  "body_p4_green_squircle": {
+   "x": 508,
+   "y": 396,
+   "w": 160,
+   "h": 160
+  },
+  "brow_a": {
+   "x": 386,
+   "y": 564,
+   "w": 40,
+   "h": 10
+  },
+  "brow_b": {
+   "x": 172,
+   "y": 564,
+   "w": 40,
+   "h": 14
+  },
+  "brow_heavy": {
+   "x": 874,
+   "y": 396,
+   "w": 50,
+   "h": 27
+  },
+  "brow_lift": {
+   "x": 124,
+   "y": 564,
+   "w": 40,
+   "h": 18
+  },
+  "eye_closed_down": {
+   "x": 966,
+   "y": 396,
+   "w": 46,
+   "h": 22
+  },
+  "eye_closed_up": {
+   "x": 4,
+   "y": 564,
+   "w": 46,
+   "h": 22
+  },
+  "eye_pupil": {
+   "x": 738,
+   "y": 396,
+   "w": 40,
+   "h": 40
+  },
+  "eye_sclera": {
+   "x": 786,
+   "y": 396,
+   "w": 40,
+   "h": 40
+  },
+  "eye_x": {
+   "x": 834,
+   "y": 396,
+   "w": 32,
+   "h": 32
+  },
+  "ghost_eye_brow": {
+   "x": 676,
+   "y": 396,
+   "w": 54,
+   "h": 46
+  },
+  "halo_circle": {
+   "x": 4,
+   "y": 4,
+   "w": 200,
+   "h": 200
+  },
+  "halo_diamond": {
+   "x": 212,
+   "y": 4,
+   "w": 200,
+   "h": 200
+  },
+  "halo_square": {
+   "x": 420,
+   "y": 4,
+   "w": 200,
+   "h": 200
+  },
+  "halo_squircle": {
+   "x": 628,
+   "y": 4,
+   "w": 200,
+   "h": 200
+  },
+  "mouth_dot": {
+   "x": 932,
+   "y": 396,
+   "w": 26,
+   "h": 26
+  },
+  "mouth_flat": {
+   "x": 434,
+   "y": 564,
+   "w": 30,
+   "h": 8
+  },
+  "mouth_grin": {
+   "x": 58,
+   "y": 564,
+   "w": 58,
+   "h": 20
+  },
+  "mouth_happy": {
+   "x": 220,
+   "y": 564,
+   "w": 40,
+   "h": 14
+  },
+  "mouth_open_half": {
+   "x": 352,
+   "y": 564,
+   "w": 26,
+   "h": 13
+  },
+  "mouth_sad": {
+   "x": 268,
+   "y": 564,
+   "w": 40,
+   "h": 14
+  },
+  "mouth_smirk": {
+   "x": 316,
+   "y": 564,
+   "w": 28,
+   "h": 14
+  },
+  "shadow_circle": {
+   "x": 836,
+   "y": 4,
+   "w": 176,
+   "h": 176
+  },
+  "shadow_diamond": {
+   "x": 4,
+   "y": 212,
+   "w": 176,
+   "h": 176
+  },
+  "shadow_square": {
+   "x": 188,
+   "y": 212,
+   "w": 176,
+   "h": 176
+  },
+  "shadow_squircle": {
+   "x": 372,
+   "y": 212,
+   "w": 176,
+   "h": 176
+  }
+ }
+}

@@ -1,3 +1,4 @@
+using GhostLapHost;
 using Marrow.Infrastructure.Hosting;
 using Marrow.Infrastructure.Identity;
 using Marrow.Infrastructure.Realtime;
@@ -13,14 +14,26 @@ builder.Services.AddMarrowIdentity(builder.Configuration, builder.Environment);
 builder.Services.AddMarrowRealtime(builder.Configuration);
 // Spec 07: revenant-run streams, authorized by the Revenant staff policy. Registered only when ConnectionStrings:RevenantLedger is set.
 builder.Services.AddRevenantRealtime(builder.Configuration);
+// Spec 10 tasks 10.1/10.2: Ghost Lap lobby owner, hub, room stream, match registry and durable process generation (registered
+// after the instance guard above holds its lock). MUST come after AddRevenantRealtime: it wraps the authorizers
+// registered so far in a kind router instead of replacing them, and the startup verifier refuses to run if anything replaces the router.
+builder.Services.AddGhostLapRealtime(builder.Configuration);
+// Spec 11 task 11.1: solo recording + the owner's private library on a dedicated login/pool. Registered only when ConnectionStrings:GhostLapSolo is set.
+builder.Services.AddGhostLapSolo(builder.Configuration);
 var app = builder.Build();
 
 // Hosts never run migrations; scripts/db/migrate.sh is the single executor.
 app.UseMarrowRealtime();
+app.UseGhostLapRealtime();
 app.UseMarrowIdentity();
 app.MapGet("/", () => Results.Ok(new { service = "hosts-realtime", status = "bootstrap" }));
 app.MapMarrowHealth("hosts-realtime");
 app.MapMarrowRealtime();
+app.MapGhostLapRealtime();
+if (app.Services.IsEnabled())
+{
+    app.MapGhostLapSolo();
+}
 // Resolved before Run, which disposes the service provider on return.
 var instanceGuard = app.Services.GetRequiredService<RealtimeInstanceGuard>();
 try

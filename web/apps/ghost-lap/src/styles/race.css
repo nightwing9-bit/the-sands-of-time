@@ -1,0 +1,58 @@
+/* Ghost Challenge and cinematic Fork (task 13.11): the preparation, the ready-to-begin card, the live race HUD and the result. Same tokens and
+   rhythm as the rest of the game. HUD sizes are container units of the stage; the dock (a Fork's rewind) lives below the stage. The cards sit in
+   the LEFT rail, clear of the west wall (x 300 of 1600 = 18.75%), so the recorded world, the head and its ghost stay visible while you read them. */
+.gl-race { position: absolute; inset: 0; pointer-events: none; font-family: var(--gl-font-ui); color: var(--gl-ink); }
+.gl-race > * { pointer-events: auto; }
+.gl-race .gl-study-top { pointer-events: auto; }
+
+.gl-race .gl-race-card, .gl-race .gl-race-ready, .gl-race .gl-race-rewind {
+  position: absolute; left: var(--gl-hud-gutter); top: calc(var(--gl-hud-top) * 2.5); transform: none; width: clamp(170px, 16cqw, 320px); /* the rail between the stage edge and the side walls (x 300 / 1300 of 1600) */
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 12px 14px; font-size: clamp(12px, 0.98cqw, 15px); line-height: 1.4;
+}
+.gl-race[data-side="right"] .gl-race-card, .gl-race[data-side="right"] .gl-race-ready, .gl-race[data-side="right"] .gl-race-rewind { left: auto; right: var(--gl-hud-gutter); top: calc(var(--gl-hud-top) * 4.4); }
+.gl-race .gl-race-card > *, .gl-race .gl-race-ready > *, .gl-race .gl-race-rewind > * { margin: 0; }
+.gl-race .gl-eyebrow { font-size: clamp(10.5px, 0.8cqw, 12.5px); letter-spacing: 0.2em; }
+.gl-race-title { font-family: var(--gl-font-display); font-weight: 500; font-size: clamp(20px, 1.9cqw, 31px); line-height: 1.12; }
+.gl-race-body { color: var(--gl-ink); }
+.gl-race-fine { font-size: clamp(10.5px, 0.82cqw, 12.5px); line-height: 1.35; color: var(--gl-muted-ink); }
+.gl-race-limit { color: #8a4a2a; font-weight: 600; }
+.gl-race-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.gl-race .gl-race-actions .gl-button, .gl-race .gl-race-ready .gl-button { width: auto; min-height: 0; padding: 7px 16px; font-size: clamp(12.5px, 1cqw, 15.5px); border-radius: 999px; }
+.gl-race .gl-race-ready .gl-button--primary { font-weight: 700; padding: 9px 20px; box-shadow: 0 0 0 3px rgba(223, 184, 125, 0.45); }
+
+/* The rewind: the tick counts back through RECORDED states. Tabular numerals so the digits do not shimmer. */
+.gl-race-rewind-tick { font-family: var(--gl-font-display); font-weight: 500; font-size: clamp(34px, 3.8cqw, 62px); line-height: 1; font-variant-numeric: tabular-nums; }
+
+/* Preparing: the server's own work, so the indicator is indeterminate and never a percentage. */
+.gl-race-wait { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; width: 100%; }
+.gl-race-wait .gl-hourglass { width: clamp(30px, 3.2cqw, 52px); height: auto; }
+.gl-race-wait i { display: block; position: relative; width: 100%; height: 3px; border-radius: 2px; background: rgba(73, 110, 134, 0.22); overflow: hidden; }
+.gl-race-wait i::after { content: ""; position: absolute; top: 0; bottom: 0; width: 34%; border-radius: 2px; background: linear-gradient(90deg, rgba(223, 184, 125, 0), var(--gl-sand-gold), rgba(223, 184, 125, 0)); animation: gl-race-wait 1.6s ease-in-out infinite; }
+@keyframes gl-race-wait { 0% { left: -34%; } 100% { left: 100%; } }
+
+/* The live HUD. The original's score at the SAME tick and the signed difference sit under the player's own score. */
+.gl-race-kind { grid-column: 1 / -1; width: fit-content; font-size: clamp(10px, 0.8cqw, 12px); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 3px 10px; border-radius: 999px; background: var(--gl-frost-surface); border: 1px solid var(--gl-frost-border); }
+.gl-race-source { display: flex; align-items: baseline; gap: 8px; font-size: clamp(12px, 0.98cqw, 15px); font-variant-numeric: tabular-nums; color: var(--gl-muted-ink); }
+.gl-race-source b { font-family: var(--gl-font-display); font-weight: 500; font-size: 1.35em; color: var(--gl-ink); }
+.gl-race-ghostmark { align-self: center; width: 9px; height: 9px; transform: rotate(45deg); border-radius: 2px; background: var(--gl-ghost-cyan); border: 1.5px solid var(--gl-ghost-cyan-ink); flex: none; }
+.gl-race-delta { margin-left: auto; font-weight: 700; color: var(--gl-ink); }
+.gl-race-delta[data-sign="1"] { text-decoration: underline; text-decoration-color: var(--gl-sand-gold-deep); text-decoration-thickness: 3px; text-underline-offset: 0.14em; }
+.gl-race-delta[data-sign="-1"] { color: #8a4a2a; }
+.gl-race-check { position: absolute; left: var(--gl-hud-gutter); bottom: calc(var(--gl-hud-bottom) * 0.45); max-width: 34cqw; padding: 3px 11px; border-radius: 999px; background: var(--gl-frost-surface); border: 1px solid var(--gl-frost-border); font-size: clamp(10px, 0.8cqw, 12px); font-weight: 600; color: var(--gl-muted-ink); pointer-events: none; }
+.gl-race-check[data-state="differs"] { background: var(--gl-slate-surface); color: var(--gl-white-ink); }
+
+/* The result. */
+.gl-race-trio { margin: 4px 0 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; text-align: left; }
+.gl-race-trio > div { display: flex; flex-direction: column; gap: 0; }
+.gl-race-trio dt { font-size: clamp(11px, 0.9cqw, 14px); font-weight: 600; color: var(--gl-muted-ink); }
+.gl-race-trio dd { margin: 0; font-family: var(--gl-font-display); font-size: clamp(28px, 2.9cqw, 46px); line-height: 1.05; font-variant-numeric: tabular-nums; }
+.gl-race-trio dd[data-sign="1"] { text-decoration: underline; text-decoration-color: var(--gl-sand-gold-deep); text-decoration-thickness: 4px; text-underline-offset: 0.12em; }
+.gl-race-trio dd[data-sign="-1"] { color: #8a4a2a; }
+
+/* A locked dock (a Fork's rewind) is watched, not driven. */
+.gl-dock[data-locked="1"] .gl-hd-rail { cursor: default; }
+.gl-dock[data-locked="1"] .gl-hd-icon:disabled { opacity: 0.4; cursor: default; }
+
+@media (prefers-reduced-motion: reduce) {
+  .gl-race-wait i::after { animation: none; left: 0; width: 100%; opacity: 0.5; }
+}

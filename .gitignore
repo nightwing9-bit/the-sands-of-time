@@ -6,6 +6,7 @@
 **/obj/
 **/node_modules/
 **/dist/
+/web/apps/revenant/dist-demo/
 **/coverage/
 **/TestResults/
 .vs/

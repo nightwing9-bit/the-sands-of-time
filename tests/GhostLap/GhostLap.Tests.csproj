@@ -19,5 +19,6 @@
     <ProjectReference Include="..\..\src\GhostLap\GhostLap.csproj" />
     <!-- Test-only host composition (shared Timeline over PostgreSQL, Spec 03 owner policy, verified actor); the domain never references Infrastructure. -->
     <ProjectReference Include="..\..\src\Marrow.Infrastructure\Marrow.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Hosts.Realtime\Hosts.Realtime.csproj" Aliases="realtime" />
   </ItemGroup>
 </Project>

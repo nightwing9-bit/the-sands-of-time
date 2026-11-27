@@ -1,10 +1,37 @@
+using System.Text.Json.Serialization;
 using Marrow.Kernel.Canonical;
+using Revenant.Contracts;
 using Revenant.Observations;
 using Revenant.Timeline;
 
 namespace Revenant.Intelligence;
 
-internal enum AdvisoryStatus : byte { Available = 1, InsufficientHistory = 2, ArtifactMissing = 3, ArtifactInvalid = 4, RuntimeUnavailable = 5 }
+internal enum AdvisoryStatus : byte
+{
+    Available = 1, InsufficientHistory = 2, ArtifactMissing = 3, ArtifactInvalid = 4, RuntimeUnavailable = 5,
+    UnobservedOrigin = 6, UnknownSubject = 7,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<AdvisoryUncertainty>))]
+internal enum AdvisoryUncertainty : byte { Uncalibrated = 1 }
+internal sealed record LiquidityProjectionStep(long BoundaryMs, long ProjectedAvailableMinor);
+internal sealed record AdvisoryLiquidityProjection(long ObservedAvailableMinor, AdvisoryUncertainty Uncertainty,
+    LiquidityProjectionStep[] Horizons)
+{
+    internal const string Method = "LiquidityPersistenceBaseline/1";
+    internal const string Schema = "liquidity-projection-evidence/1";
+
+    internal static AdvisoryEvidence Project(V4AdvisorySeries series, ScenarioRunId lineage)
+    {
+        if (series.Schema != V4AdvisorySeries.BankSchema || series.Origin is not { } origin)
+            throw new InvalidOperationException("Liquidity projection requires a completed bank seal.");
+        var available = series.Points[^1].Value;
+        var steps = Enumerable.Range(1, V4BankTargets.HorizonCount).Select(h =>
+            new LiquidityProjectionStep(checked(origin.BoundaryMs + h * ObservedFinanceVersion.BucketMs), available)).ToArray();
+        return new(series, lineage, null, Method, AdvisoryStatus.Available,
+            Liquidity: new(available, AdvisoryUncertainty.Uncalibrated, steps));
+    }
+}
 
 /// <summary>
 /// One forecast horizon in USD minor units. Under the completed-interval-change representation the native bounds are the
@@ -33,13 +60,17 @@ internal sealed record AdvisoryAnomalyV2(long Count, double ExpectedCount, doubl
 internal sealed record AdvisoryForecastV2(SsaForecastRepresentation Representation, long ReferenceMinor, long ScaleMinor,
     long SigmaMinor, long FloorMinor, int? FirstCrossingHorizon, AdvisoryForecastStep[] Horizons);
 
-internal sealed record AdvisoryEvidence(V4AdvisorySeries Series, Revenant.Contracts.ScenarioRunId Lineage, ObservedModelPin Model, string Policy,
+internal sealed record AdvisoryEvidence(V4AdvisorySeries Series, ScenarioRunId Lineage, ObservedModelPin? Model, string Policy,
     AdvisoryStatus Status, AdvisoryAnomaly? Anomaly = null, AdvisoryForecast? Forecast = null, AdvisoryAnomalyV2? AnomalyV2 = null,
-    AdvisoryForecastV2? ForecastV2 = null)
+    AdvisoryForecastV2? ForecastV2 = null, AdvisoryLiquidityProjection? Liquidity = null)
 {
-    private bool IsV2 => Policy == SsaAdvisory.Policy;
+    internal const string GlobalAnomalyPolicy = "R7-AnomalyGlobalPolicy/1";
+    private bool IsV2 => Policy == SsaAdvisory.Policy || (Policy == GlobalAnomalyPolicy && Series.Schema == V4AdvisorySeries.AccountSchema);
+    private bool IsPersistence => Policy == AdvisoryLiquidityProjection.Method;
+    internal string ProducerId => IsPersistence ? AdvisoryLiquidityProjection.Method
+        : Model?.ModelId ?? throw new InvalidOperationException("Learned advisory evidence requires a model pin.");
 
-    internal string Schema => (Series.Schema == V4AdvisorySeries.AccountSchema, IsV2) switch
+    internal string Schema => IsPersistence ? AdvisoryLiquidityProjection.Schema : (Series.Schema == V4AdvisorySeries.AccountSchema, IsV2) switch
     {
         (true, false) => "anomaly-evidence/1",
         (false, false) => "liquidity-forecast-evidence/1",
@@ -53,15 +84,35 @@ internal sealed record AdvisoryEvidence(V4AdvisorySeries Series, Revenant.Contra
         var writer = ObservationEncoding.Begin(Schema);
         seal.Write(writer);
         writer.WriteGuid(Lineage.Value).WriteString(Series.SubjectId).WriteString(Series.Unit).WriteString(Series.Schema)
-            .WriteBytes(Convert.FromHexString(Series.Digest)).WriteString(Model.ModelId)
-            .WriteBytes(Convert.FromHexString(Model.ArtifactSha256)).WriteString(Policy).WriteByte((byte)Status);
-        var outputs = (Anomaly is null ? 0 : 1) + (Forecast is null ? 0 : 1) + (AnomalyV2 is null ? 0 : 1) + (ForecastV2 is null ? 0 : 1);
+            .WriteBytes(Convert.FromHexString(Series.Digest)).WriteString(ProducerId);
+        if (!IsPersistence) writer.WriteBytes(Convert.FromHexString(Model!.ArtifactSha256));
+        else if (Model is not null || Series.Schema != V4AdvisorySeries.BankSchema)
+            throw new InvalidOperationException("Persistence evidence requires a bank series and no model artifact.");
+        writer.WriteString(Policy).WriteByte((byte)Status);
+        var outputs = (Anomaly is null ? 0 : 1) + (Forecast is null ? 0 : 1) + (AnomalyV2 is null ? 0 : 1)
+            + (ForecastV2 is null ? 0 : 1) + (Liquidity is null ? 0 : 1);
         var account = Series.Schema == V4AdvisorySeries.AccountSchema;
         if (Status != AdvisoryStatus.Available)
         {
             if (outputs != 0) throw new InvalidOperationException("Unavailable evidence has no forecast or score.");
         }
         else if (outputs != 1) throw new InvalidOperationException("Available evidence requires one matching output.");
+        else if (IsPersistence)
+        {
+            if (Liquidity is not { } projection || projection.ObservedAvailableMinor != Series.Points[^1].Value
+                || projection.Uncertainty != AdvisoryUncertainty.Uncalibrated || projection.Horizons.Length != V4BankTargets.HorizonCount)
+                throw new InvalidOperationException("Invalid persistence projection.");
+            writer.WriteInt64(projection.ObservedAvailableMinor).WriteByte((byte)projection.Uncertainty)
+                .WriteCount(projection.Horizons.Length);
+            for (var h = 0; h < projection.Horizons.Length; h++)
+            {
+                var step = projection.Horizons[h];
+                if (step.BoundaryMs != checked(seal.BoundaryMs + (h + 1) * ObservedFinanceVersion.BucketMs)
+                    || step.ProjectedAvailableMinor != projection.ObservedAvailableMinor)
+                    throw new InvalidOperationException("Persistence horizons must repeat the latest available balance.");
+                writer.WriteInt64(step.BoundaryMs).WriteInt64(step.ProjectedAvailableMinor);
+            }
+        }
         else if (!IsV2 && Anomaly is { } a && account)
         {
             writer.WriteInt64(a.Count).WriteInt32(a.HistoricalBuckets).WriteInt64(Bits(a.HistoricalMean))

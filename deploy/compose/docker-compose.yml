@@ -77,6 +77,8 @@ services:
       API_LEDGER_DB_PASSWORD: ${API_LEDGER_DB_PASSWORD:?set API_LEDGER_DB_PASSWORD in .env}
       REALTIME_LEDGER_DB_PASSWORD: ${REALTIME_LEDGER_DB_PASSWORD:?set REALTIME_LEDGER_DB_PASSWORD in .env}
       WORKER_LEDGER_DB_PASSWORD: ${WORKER_LEDGER_DB_PASSWORD:?set WORKER_LEDGER_DB_PASSWORD in .env}
+      # Optional (Spec 11 task 11.1): provisions sands_realtime_solo (Ghost Lap solo recorder and library). Unset = solo not offered.
+      REALTIME_SOLO_DB_PASSWORD: ${REALTIME_SOLO_DB_PASSWORD:-}
     volumes:
       - ../../scripts/db:/scripts/db:ro
     depends_on:
@@ -115,6 +117,8 @@ services:
       <<: *host-environment
       ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB:?set POSTGRES_DB in .env};Username=sands_realtime;Password=${REALTIME_DB_PASSWORD:?set REALTIME_DB_PASSWORD in .env};Maximum Pool Size=20;Timeout=5;Command Timeout=15"
       ConnectionStrings__RevenantLedger: "Host=postgres;Port=5432;Database=${POSTGRES_DB:?set POSTGRES_DB in .env};Username=sands_realtime_ledger;Password=${REALTIME_LEDGER_DB_PASSWORD:?set REALTIME_LEDGER_DB_PASSWORD in .env};Maximum Pool Size=10;Timeout=5;Command Timeout=15"
+      # Spec 11 task 11.1: solo recording and the owner's library, own login and pool. Empty (REALTIME_SOLO_DB_PASSWORD unset) = solo is not offered.
+      ConnectionStrings__GhostLapSolo: "${REALTIME_SOLO_DB_PASSWORD:+Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=sands_realtime_solo;Password=${REALTIME_SOLO_DB_PASSWORD};Maximum Pool Size=10;Timeout=5;Command Timeout=15}"
       # Same secret as the API: the hub validates staff access tokens and guest session cookies the API issued.
       Identity__MasterSecret: ${IDENTITY_MASTER_SECRET:?set IDENTITY_MASTER_SECRET in .env}
     depends_on: *host-depends-on

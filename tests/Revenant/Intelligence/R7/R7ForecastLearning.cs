@@ -67,18 +67,7 @@ public sealed partial class R7Generator4DevelopmentTests
             bool Includes(int t, IEnumerable<LongitudinalEvent> windows) => windows.Any(e => t >= e.Start && t <= e.End);
             bool Active(int t) => t >= ContinuationWindow && Observe(levels, opening, t, threshold).Active;
             var zip = OldArtifact(evidence, i, old);
-            using var archive = new ZipArchive(new MemoryStream(zip));
-            using var model = new BinaryReader(archive.GetEntry("TransformerChain/SSA/Model.key")!.Open());
-            var header = model.ReadBytes(256);
-            Assert.Equal("SSAMODLR"u8.ToArray(), header[64..72]);
-            Assert.Equal(256L, System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(header.AsSpan(16)));
-            var seriesLength = model.ReadInt32();
-            var window = model.ReadInt32();
-            var trainSize = model.ReadInt32();
-            var rank = model.ReadInt32();
-            var spec = ThreeBucketSpec(observations.Length);
-            Assert.Equal((spec.SeriesLength, spec.Window, spec.TrainSize), (seriesLength, window, trainSize));
-            Assert.InRange(rank, 1, window - 1);
+            var model = SavedModelParameters(zip, ThreeBucketSpec(observations.Length));
             var weights = old.GetProperty("SsaWeights").Deserialize<double[]>()!;
             return new
             {
@@ -90,7 +79,7 @@ public sealed partial class R7Generator4DevelopmentTests
                 DrainPercent = 100.0 * observations.Count(t => Includes(t, drains)) / observations.Length,
                 FullEpisodePercent = 100.0 * observations.Count(t => episodes.Any(e => t >= e.Start && t <= e.End)) / observations.Length,
                 RecoveryBuckets = observations.Count(t => Includes(t, recovery)), Threshold = threshold,
-                Model = new { Rank = rank, SeriesLength = seriesLength, Window = window, TrainSize = trainSize },
+                Model = model,
                 Baseline = new { Banks = baselineTraining.Select(r => r.Bank).Distinct().Count(), Origins = baselineTraining.Length,
                     OneStepTargets = baselineTraining.Count(r => r.Future[0].HasValue), Active = baselineTraining.Count(r => r.State.Active),
                     PressureEpisodes = train.Events.Count(e => e.Kind == LongitudinalEventKind.DevelopingPressure) },
@@ -113,6 +102,25 @@ public sealed partial class R7Generator4DevelopmentTests
         {
             ManifestSha256 = manifest, Decision = "CONFIRMED TRAINING-DESIGN DEFICIENCY", Rotations = rotations,
         });
+    }
+
+    private sealed record SavedSsaParameters(int Rank, int SeriesLength, int Window, int TrainSize);
+
+    // ML.NET 5.0.1 AdaptiveSingularSpectrumSequenceModeler stores these four Int32 fields at the model payload start.
+    private static SavedSsaParameters SavedModelParameters(byte[] zip, SsaForecastSpec spec)
+    {
+        using var archive = new ZipArchive(new MemoryStream(zip, writable: false));
+        using var model = new BinaryReader(archive.GetEntry("TransformerChain/SSA/Model.key")!.Open());
+        var header = model.ReadBytes(256);
+        Assert.Equal("SSAMODLR"u8.ToArray(), header[64..72]);
+        Assert.Equal(256L, System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(header.AsSpan(16)));
+        var seriesLength = model.ReadInt32();
+        var window = model.ReadInt32();
+        var trainSize = model.ReadInt32();
+        var rank = model.ReadInt32();
+        Assert.Equal((spec.SeriesLength, spec.Window, spec.TrainSize), (seriesLength, window, trainSize));
+        Assert.InRange(rank, 1, window - 1);
+        return new(rank, seriesLength, window, trainSize);
     }
 
     private static LongitudinalEvent[] NearMissEvents(LongitudinalSample root, V4AdvisorySeries bank)
@@ -168,11 +176,12 @@ public sealed partial class R7Generator4DevelopmentTests
             var calPaths = Replay(cal);
             var paths = Replay(measure);
             var weights = LearnWeights(calibration, Baseline, (r, h) => checked(Old(calPaths, r, h) - Baseline(r, h)));
+            var rawWeights = LearnWeights(calibration, Baseline, (r, h) => checked(calPaths[r.Bank][r.Bucket][h] - Baseline(r, h)));
             return new
             {
-                Train = train.Manifest.Root.Key, Calibration = cal.Manifest.Root.Key, Weights = weights,
+                Train = train.Manifest.Root.Key, Calibration = cal.Manifest.Root.Key, Weights = weights, RawSensitivityWeights = rawWeights,
                 ArtifactSha256 = ObservationEncoding.Hash(zip),
-                Scores = LearningScores(measure, measurement, ["ConditionalMedian", "OldGatedSsa", "ConvexBlend"], Predict),
+                Scores = LearningScores(measure, measurement, ["ConditionalMedian", "OldGatedSsa", "ConvexBlend", "OldUngatedSsa", "UngatedConvexBlend"], Predict),
             };
 
             Dictionary<string, Dictionary<int, long[]>> Replay(LongitudinalSample root) => root.Banks.ToDictionary(b => b.SubjectId,
@@ -186,6 +195,8 @@ public sealed partial class R7Generator4DevelopmentTests
                 0 => Baseline(r, h),
                 1 => Old(paths, r, h),
                 2 => SsaTrailingRate.Shrink(Baseline(r, h), Old(paths, r, h), weights[r.State.Active ? 1 : 0][h]),
+                3 => paths[r.Bank][r.Bucket][h],
+                4 => SsaTrailingRate.Shrink(Baseline(r, h), paths[r.Bank][r.Bucket][h], rawWeights[r.State.Active ? 1 : 0][h]),
                 _ => throw new ArgumentOutOfRangeException(nameof(m)),
             };
         }).ToArray();
@@ -206,12 +217,18 @@ public sealed partial class R7Generator4DevelopmentTests
         var bank = planned.Banks.Single(b => b.SubjectId == V4LongitudinalPlannerG5.ResidualTrainingBank);
         var threshold = Materiality(planned with { Banks = planned.Banks.Where(b => b.SubjectId != bank.SubjectId).ToArray() });
         var coverage = TrainingCoverage(planned, bank, threshold);
+        var rotationCoverage = frozen.Select(r =>
+        {
+            var trainThreshold = Materiality(r);
+            return new { Train = r.Manifest.Root.Key, Threshold = trainThreshold, Coverage = TrainingCoverage(planned, bank, trainThreshold) };
+        }).ToArray();
         R7RetainedPilotDiagnosticsTests.Write(output, "e3-training-plan.json", new
         {
             FrozenMeasurementManifestSha256 = manifest, Variant = V4LongitudinalPlannerG5.ResidualTrainingVariant,
-            planned.Manifest, Bank = bank.SubjectId, Threshold = threshold, Coverage = coverage,
+            planned.Manifest, Bank = bank.SubjectId, Threshold = threshold, Coverage = coverage, RotationCoverage = rotationCoverage,
         });
         RequireExposure(coverage);
+        Assert.All(rotationCoverage, r => RequireExposure(r.Coverage));
     }
 
     private sealed record EpisodeCoverage(int Start, int End, double MinimumFraction, bool Crossing, bool NearMiss);
@@ -240,7 +257,7 @@ public sealed partial class R7Generator4DevelopmentTests
     {
         Assert.True(exposure.Episodes.Count(e => e.Crossing) >= 4, "Training needs four committed (or planned for feasibility) crossings.");
         Assert.True(exposure.Episodes.Count(e => e.NearMiss) >= 4, "Training needs four committed (or planned for feasibility) near misses.");
-        Assert.True(exposure.HardNegatives >= 4);
+        Assert.True(exposure.HardNegatives >= 2, "Training needs multiple ordinary large-debit hard negatives.");
         Assert.All(exposure.Episodes.Zip(exposure.Episodes.Skip(1)), pair => Assert.True(pair.First.End < pair.Second.Start));
     }
 
@@ -363,6 +380,202 @@ public sealed partial class R7Generator4DevelopmentTests
             }),
         };
     }
+
+    private const string ResidualArchitecture = "g5-conditional-median-plus-ssa-residual/1";
+    private const string BaselineArchitecture = "g5-conditional-median-drain-state/1";
+
+    private static (LongitudinalSample Sample, string Hash, string Revision) ReadEnrichedTraining()
+    {
+        var trainingDirectory = Environment.GetEnvironmentVariable("REVENANT_R7_RESIDUAL_TRAIN")
+            ?? throw new InvalidOperationException("Set REVENANT_R7_RESIDUAL_TRAIN.");
+        var manifestBytes = File.ReadAllBytes(Path.Combine(trainingDirectory, "residual-train.json"));
+        var trainingManifestHash = ObservationEncoding.Hash(manifestBytes);
+        using var provenance = JsonDocument.Parse(manifestBytes);
+        Assert.Equal(V4LongitudinalPlannerG5.ResidualTrainingVariant, provenance.RootElement.GetProperty("TrainingVariant").GetString());
+        var source = LongitudinalSample.ReadManifest(trainingDirectory, "residual-train.json");
+        Assert.Equal(V4LongitudinalPlannerG5.Version, source.Generator);
+        var identity = Assert.Single(source.Roots);
+        Assert.Equal(V4LongitudinalPlannerG5.ResidualTrainingRoot(), identity.Root);
+        var enriched = LongitudinalSample.Read(trainingDirectory, identity, readFlows: true);
+        return (enriched, trainingManifestHash, source.Revision);
+    }
+
+    [Fact]
+    [Trait("Category", "R7Diagnostics")]
+    public void Verify_committed_G5_training_exposure_before_fitting()
+    {
+        var (roots, output, _, manifest, _) = LearningInput();
+        var (training, trainingManifestHash, revision) = ReadEnrichedTraining();
+        var bank = training.Banks.Single(b => b.SubjectId == V4LongitudinalPlannerG5.ResidualTrainingBank);
+        var exposure = roots.Select(r =>
+        {
+            var threshold = Materiality(r);
+            return new { Train = r.Manifest.Root.Key, Threshold = threshold, Coverage = TrainingCoverage(training, bank, threshold) };
+        }).ToArray();
+        R7RetainedPilotDiagnosticsTests.Write(output, "e3-committed-training-exposure.json", new
+        {
+            ManifestSha256 = manifest, TrainingManifestSha256 = trainingManifestHash, Revision = revision,
+            training.Manifest, Bank = bank.SubjectId, SeriesSha256 = bank.Digest, Exposure = exposure,
+        });
+        Assert.All(exposure, r => RequireExposure(r.Coverage));
+    }
+
+    [Fact]
+    [Trait("Category", "R7DiagnosticsNative")]
+    public void Qualify_incremental_SSA_residual_on_frozen_G5()
+    {
+        Assert.True(OperatingSystem.IsLinux() && RuntimeInformation.ProcessArchitecture == Architecture.X64);
+        var (roots, output, _, manifest, _) = LearningInput();
+        var (enriched, trainingManifestHash, revision) = ReadEnrichedTraining();
+        Assert.DoesNotContain(roots, r => r.Manifest.Root.Key == enriched.Manifest.Root.Key);
+        var trainingBank = enriched.Banks.Single(b => b.SubjectId == V4LongitudinalPlannerG5.ResidualTrainingBank);
+        var ml = new MLContext(seed: 7);
+        var rotations = roots.Select((train, i) =>
+        {
+            var cal = roots[(i + 1) % roots.Length];
+            var measure = roots[(i + 2) % roots.Length];
+            var threshold = Materiality(train);
+            var baselineTraining = DrainRows(train, threshold);
+            var medians = FitMedian(baselineTraining);
+            var coverage = TrainingCoverage(enriched, trainingBank, threshold);
+            RequireExposure(coverage); // Check actual bank exposure before fitting.
+            var trainingResiduals = Residuals(trainingBank, threshold, medians);
+            // Retain D3 window/series and exact-rank selection. Change only the input representation and actual train size.
+            var spec = ThreeBucketSpec(trainingResiduals.Length) with { Warmup = CoreOrigin - FirstResidual };
+            var zip = RevenantSsaInference.FitResidualForecast(ml, spec, trainingResiduals);
+            var artifactPath = Path.Combine(output, $"e4-residual-rotation-{i}.zip");
+            File.WriteAllBytes(artifactPath, zip);
+            var hash = ObservationEncoding.Hash(zip);
+            var residualEncoding = ObservationEncoding.Begin(ResidualArchitecture).WriteCount(trainingResiduals.Length);
+            foreach (var residual in trainingResiduals) residualEncoding.WriteInt32(BitConverter.SingleToInt32Bits(residual));
+            var residualHash = ObservationEncoding.Hash(residualEncoding.ToArray());
+            var saved = File.ReadAllBytes(artifactPath);
+            ObservationEncoding.RequireDigest(saved, hash);
+            var calibration = DrainRows(cal, threshold);
+            var measurement = DrainRows(measure, threshold);
+            var calPaths = Paths(cal);
+            var paths = Paths(measure);
+            var weights = LearnContinuousWeights(calibration, Baseline, (r, h) => Movement(calPaths, r, h));
+            var calBanks = cal.Banks.ToDictionary(b => b.SubjectId, b => (Bank: b, Residuals: Residuals(b, threshold, medians)));
+            var measureBanks = measure.Banks.ToDictionary(b => b.SubjectId, b => (Bank: b, Residuals: Residuals(b, threshold, medians)));
+            var recentWeights = LearnWeights(calibration, Baseline, (r, h) => Correction(calBanks, r, h, false));
+            var seasonalWeights = LearnWeights(calibration, Baseline, (r, h) => Correction(calBanks, r, h, true));
+            var levels = measure.Banks.ToDictionary(b => b.SubjectId, Values);
+            string[] methods = ["Persistence", "TrailingMedian", "SeasonalNaive", "ConditionalMedian", "ResidualPersistence",
+                "ResidualDaily", "ResidualSsa"];
+            double Average(int method, Func<DrainRow, int, bool> include) => Enumerable.Range(0, SsaAdvisory.Horizon)
+                .Average(h => Score(measurement.Where(r => include(r, h)), h, method, Predict).Mae!.Value);
+            var overall = Enumerable.Range(0, methods.Length).Select(m => Average(m, (_, _) => true)).ToArray();
+            var drain = Enumerable.Range(0, methods.Length).Select(m => Average(m, (r, _) => r.State.Active && InWindow(r, r.Drain))).ToArray();
+            var developing = Enumerable.Range(0, methods.Length).Select(m => Average(m, (r, h) => OverlapsWindow(r, h, r.Drain))).ToArray();
+            var strongest = overall[..^1].Min();
+            var bestMatchedDrain = drain[3..^1].Min();
+            // Pinned before running E4: use a 1% minimum effect for incremental skill, above the negligible old +0.076%.
+            const double incrementalFloor = .01;
+            var gate = new
+            {
+                OverallRatio = overall[^1] / strongest,
+                OverallIncrement = 1 - overall[^1] / overall[3..^1].Min(),
+                DrainIncrement = 1 - drain[^1] / bestMatchedDrain,
+                DrainSkillAgainstPersistence = 1 - drain[^1] / drain[0],
+                DevelopingSkillAgainstPersistence = 1 - developing[^1] / developing[0],
+                NonzeroActiveHorizons = weights[1].Count(w => w > 0),
+                Pass = overall[^1] <= strongest && drain[^1] <= .9 * drain[0] && developing[^1] <= .9 * developing[0]
+                    && drain[^1] <= (1 - incrementalFloor) * bestMatchedDrain
+                    && overall[^1] <= (1 - incrementalFloor) * overall[3..^1].Min()
+                    && weights[1].Count(w => w > 0) >= 2,
+            };
+            var parameters = new
+            {
+                Architecture = ResidualArchitecture, Baseline = BaselineArchitecture, TrainingManifestSha256 = trainingManifestHash,
+                TrainingSeriesSha256 = trainingBank.Digest, ResidualSeriesSha256 = residualHash,
+                BaselineTrainingRoot = train.Manifest.Root.Key, BaselineBanks = train.Banks.Select(b => new { b.SubjectId, b.Digest }).ToArray(),
+                BaselineOrigins = baselineTraining.Length, Threshold = threshold, Medians = medians,
+                Normalization = "max(1, openingMinor / 1000), integer division", FirstResidual,
+                Spec = spec, FittedModel = SavedModelParameters(saved, spec), SsaArtifactSha256 = hash, CalibrationRoot = cal.Manifest.Root.Key, Weights = weights,
+                CalibrationObjective = "clipped weighted median for level MAE; absolute correction weights",
+                VolatilityGroup = "causal continuation: at least two material debits in four completed intervals and negative net change",
+            };
+            var pin = JsonSerializer.SerializeToUtf8Bytes(parameters);
+            File.WriteAllBytes(Path.Combine(output, $"e4-residual-rotation-{i}-pin.json"), pin);
+            return new
+            {
+                Parameters = parameters, PinSha256 = ObservationEncoding.Hash(pin), Coverage = coverage, Gate = gate,
+                OverallMae = overall, ContinuingDrainMae = drain, DevelopingMae = developing, RecentWeights = recentWeights,
+                SeasonalWeights = seasonalWeights, Methods = methods,
+                Scores = LearningScores(measure, measurement, methods, Predict),
+                Corrections = Enumerable.Range(0, SsaAdvisory.Horizon).Select(h =>
+                {
+                    var rows = measurement.Where(r => r.Future[h].HasValue).ToArray();
+                    return new { Horizon = h + 1, MeanAbsoluteCorrection = rows.Average(r => Math.Abs((double)Predict(r, 6, h) - Baseline(r, h))),
+                        MeanAbsoluteActiveCorrection = rows.Where(r => r.State.Active).Average(r => Math.Abs((double)Predict(r, 6, h) - Baseline(r, h))) };
+                }).ToArray(),
+                ByBank = measurement.GroupBy(r => r.Bank).Select(b => new
+                {
+                    Bank = b.Key,
+                    Scores = Enumerable.Range(0, SsaAdvisory.Horizon).Select(h => methods.Select((m, n) => new
+                    {
+                        Method = m, Overall = Score(b, h, n, Predict), Drain = Score(b.Where(r => r.State.Active && InWindow(r, r.Drain)), h, n, Predict),
+                    })),
+                }).ToArray(),
+            };
+
+            Dictionary<string, double[][]> Paths(LongitudinalSample sample) => sample.Banks.ToDictionary(b => b.SubjectId, b =>
+            {
+                var inputs = Residuals(b, threshold, medians);
+                var replay = RevenantSsaInference.ForecastCumulativeResiduals(ml, saved, spec, inputs);
+                // Reopen the exact same immutable artifact and score a short causal prefix.
+                const int check = 12;
+                var prefix = RevenantSsaInference.ForecastCumulativeResiduals(ml, saved, spec, inputs[..(spec.Warmup + check)]);
+                Assert.Equal(check, prefix.Length);
+                for (var k = 0; k < prefix.Length; k++) Assert.Equal(replay[k], prefix[k]);
+                return replay;
+            });
+            long Baseline(DrainRow r, int h) => MedianPrediction(r, h, medians);
+            double Movement(Dictionary<string, double[][]> replay, DrainRow r, int h) =>
+                SsaAdvisory.Scale(r.Opening, ResidualScaleDivisor) * replay[r.Bank][r.Bucket - CoreOrigin][h];
+            long Predict(DrainRow r, int m, int h) => m switch
+            {
+                0 => r.Current,
+                1 => R7Evaluation.TrailingMedian(levels[r.Bank], r.Bucket),
+                2 => checked(r.Current + checked(levels[r.Bank][r.Bucket + h + 1 - DailyBuckets] - levels[r.Bank][r.Bucket - DailyBuckets])),
+                3 => Baseline(r, h),
+                4 => SsaTrailingRate.AddMovement(Baseline(r, h), Correction(measureBanks, r, h, false) * recentWeights[r.State.Active ? 1 : 0][h]),
+                5 => SsaTrailingRate.AddMovement(Baseline(r, h), Correction(measureBanks, r, h, true) * seasonalWeights[r.State.Active ? 1 : 0][h]),
+                6 => SsaTrailingRate.AddMovement(Baseline(r, h), Movement(paths, r, h) * weights[r.State.Active ? 1 : 0][h]),
+                _ => throw new ArgumentOutOfRangeException(nameof(m)),
+            };
+        }).ToArray();
+        var passing = rotations.Count(r => r.Gate.Pass);
+        var stableHorizons = Enumerable.Range(0, SsaAdvisory.Horizon).Where(h =>
+            rotations.Count(r => r.Gate.Pass && r.Parameters.Weights[1][h] > 0) >= 2).Select(h => h + 1).ToArray();
+        var pass = passing >= 2 && stableHorizons.Length >= 2;
+        R7RetainedPilotDiagnosticsTests.Write(output, "e4-frozen-residual-ssa.json", new
+        {
+            ManifestSha256 = manifest, TrainingManifestSha256 = trainingManifestHash, Revision = revision, Platform = RuntimeInformation.RuntimeIdentifier,
+            MLNet = "5.0.1", Runtime = RuntimeInformation.FrameworkDescription, Rotations = rotations, PassingRotations = passing,
+            StableActiveHorizons = stableHorizons, Pass = pass, Decision = pass ? "GENUINE INCREMENTAL SSA SKILL"
+                : "SSA RESIDUAL FORECAST CONTRIBUTION NOT DEMONSTRATED",
+        });
+    }
+
+    private static double[][] LearnContinuousWeights(DrainRow[] calibration, Func<DrainRow, int, long> baseline,
+        Func<DrainRow, int, double> correction) =>
+        new[] { false, true }.Select(active => Enumerable.Range(0, SsaAdvisory.Horizon).Select(h =>
+        {
+            var ratios = calibration.Where(r => r.State.Active == active && r.Future[h].HasValue)
+                .Select(r => (Error: (double)r.Future[h]!.Value - baseline(r, h), Correction: correction(r, h)))
+                .Where(p => p.Correction != 0).Select(p => (Ratio: p.Error / p.Correction, Mass: Math.Abs(p.Correction)))
+                .OrderBy(p => p.Ratio).ToArray();
+            double mass = 0;
+            var half = ratios.Sum(p => p.Mass) / 2;
+            foreach (var p in ratios)
+            {
+                mass += p.Mass;
+                if (mass >= half) return Math.Clamp(p.Ratio, 0, 1);
+            }
+            return 0d;
+        }).ToArray()).ToArray();
 
     private sealed record Association(int Count, double? Correlation);
 

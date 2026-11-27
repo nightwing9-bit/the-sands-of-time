@@ -1,0 +1,86 @@
+/* Solo Run and My Histories (task 13.9). Same tokens, panels and rhythm as the multiplayer journey; sizes are container units so the
+   composition follows the 16:9 stage. The choose screen reuses the lobby's card positions so the four approved heads and the DOM cards share one transform. */
+
+.gl-solo { position: absolute; inset: 0; pointer-events: none; font-family: var(--gl-font-ui); color: var(--gl-ink); }
+.gl-solo > * { pointer-events: auto; }
+.gl-preview-strip[data-screen="solo"], .gl-preview-strip[data-screen="histories"] { top: auto; bottom: calc(var(--gl-hud-bottom) * 0.3); }
+
+/* ---- choose a head -------------------------------------------------------------------------------------------------------------------- */
+.gl-solo-choose { position: absolute; inset: 0; pointer-events: none; animation: gl-rise var(--gl-t-menu) var(--gl-ease) both; }
+.gl-solo-choose > * { pointer-events: auto; }
+.gl-solo-choose .gl-study-top { justify-content: space-between; }
+.gl-solo-room .gl-mp-sub { min-height: 0; max-width: 34cqw; }
+.gl-solo-title { margin: 0; font-family: var(--gl-font-display); font-weight: 500; font-size: clamp(30px, 3.6cqw, 58px); line-height: 1.08; color: var(--gl-ink); text-shadow: 0 1px 0 rgba(255, 255, 255, 0.85), 0 8px 24px rgba(255, 255, 255, 0.7); }
+.gl-solo-cards { pointer-events: none; }
+.gl-solo-card { cursor: pointer; transition: box-shadow var(--gl-t-hover) var(--gl-ease), transform var(--gl-t-hover) var(--gl-ease); }
+.gl-solo-card:hover { transform: translateX(-50%) translateY(-2px); }
+.gl-solo-card[data-selected="1"] { box-shadow: 0 0 0 2px var(--gl-action-dark), var(--gl-panel-shadow); border-color: var(--gl-sand-gold-deep); }
+.gl-solo-card:has(.gl-solo-radio:focus-visible) { box-shadow: var(--gl-focus-ring), var(--gl-panel-shadow); }
+.gl-solo-radio { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.gl-solo-actions { top: 76%; }
+.gl-solo-note { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 8px 14px; border-radius: var(--gl-radius-md); background: var(--gl-frost-surface); border: 1px solid var(--gl-frost-border); font-size: clamp(12.5px, 1cqw, 15px); line-height: 1.4; color: var(--gl-ink); }
+.gl-solo-choose .gl-solo-note { position: absolute; left: 50%; bottom: 2.4cqh; transform: translateX(-50%); max-width: 56cqw; }
+
+/* ---- live HUD additions ------------------------------------------------------------------------------------------------------------- */
+.gl-solo-hud .gl-play-top .gl-button { width: auto; min-height: 0; padding: 4px 14px; font-size: clamp(12px, 0.95cqw, 14px); border-radius: 999px; background: var(--gl-frost-surface); border: 1px solid var(--gl-frost-border); }
+.gl-solo-limit { right: auto; left: var(--gl-hud-gutter); top: calc(var(--gl-hud-top) * 6.1); max-width: 20cqw; border-radius: var(--gl-radius-md); padding: 3px 10px; border-radius: 999px; background: var(--gl-frost-surface); line-height: 1.35; }
+
+/* ---- recording complete ------------------------------------------------------------------------------------------------------------- */
+.gl-solo-done { width: clamp(340px, 40cqw, 620px); }
+.gl-solo-done-head { display: flex; align-items: center; gap: 1.4cqw; }
+.gl-solo-done-head .gl-eyebrow { margin-bottom: 0.4cqh; }
+.gl-solo-glass { height: clamp(64px, 11cqh, 108px); aspect-ratio: 72 / 112; flex: none; }
+.gl-solo-glass .gl-hourglass { height: 100%; max-height: none; }
+.gl-solo-glass[data-flowing="0"] .gl-hourglass-stream { display: none; }
+.gl-solo-score { display: flex; flex-direction: column; gap: 2px; }
+.gl-solo-score-n { font-family: var(--gl-font-display); font-weight: 500; font-size: clamp(44px, 5cqw, 84px); line-height: 1; font-variant-numeric: tabular-nums; color: var(--gl-ink); }
+.gl-solo-score-cap { font-size: clamp(12.5px, 1cqw, 15px); font-weight: 600; color: var(--gl-muted-ink); }
+.gl-solo-score[data-verified="1"] .gl-solo-score-n { text-decoration: underline; text-decoration-color: var(--gl-sand-gold-deep); text-decoration-thickness: 3px; text-underline-offset: 0.12em; animation: gl-rise 420ms var(--gl-ease) both; }
+.gl-solo-score[data-verified="1"] .gl-solo-score-cap { color: var(--gl-ink); }
+.gl-hist-head[data-slot="0"] { filter: hue-rotate(-13deg) drop-shadow(var(--gl-ground-shadow)); }
+.gl-solo-done .gl-mp-results-sub { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+
+/* ---- My Histories ------------------------------------------------------------------------------------------------------------------- */
+.gl-hist-wrap { position: absolute; inset: 0; animation: gl-rise var(--gl-t-menu) var(--gl-ease) both; font-family: var(--gl-font-ui); color: var(--gl-ink); }
+.gl-hist { position: absolute; left: 50%; top: 53%; transform: translate(-50%, -50%); width: clamp(520px, 68cqw, 1100px); height: 76cqh; display: flex; flex-direction: column; gap: 1.2cqh; padding: 2.4cqh 2cqw; overflow: hidden; }
+.gl-hist-head-row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.gl-hist-head-row h2 { margin: 0; font-family: var(--gl-font-display); font-weight: 500; font-size: clamp(28px, 3.2cqw, 52px); line-height: 1.1; }
+.gl-mp-tabs.gl-hist-tabs { grid-template-columns: auto auto; justify-content: start; gap: 2.4cqw; } /* higher specificity: stylesheet load order is not guaranteed */
+.gl-mp-tabs.gl-hist-tabs button { padding: 0.9cqh 4px; }
+.gl-hist-tabs small { font-weight: 500; color: var(--gl-muted-ink); }
+.gl-hist-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 2cqw; }
+.gl-hist-list { margin: 0; padding: 0; list-style: none; overflow: auto; border-top: 1px solid var(--gl-divider); min-height: 0; }
+.gl-hist-list > li { border-bottom: 1px solid var(--gl-divider); }
+.gl-hist-row { appearance: none; width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 1.1cqh 10px; border: 0; border-left: 3px solid transparent; background: transparent; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.gl-hist-row:hover { background: rgba(255, 255, 255, 0.4); }
+.gl-hist-row[aria-pressed="true"] { background: rgba(255, 255, 255, 0.6); border-left-color: var(--gl-sand-gold-deep); }
+.gl-hist-row:focus-visible { outline: none; box-shadow: inset var(--gl-focus-ring); }
+.gl-hist-head { filter: drop-shadow(var(--gl-ground-shadow)); }
+.gl-hist-row-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.gl-hist-row-main b { font-size: clamp(14px, 1.15cqw, 18px); }
+.gl-hist-row-main small { font-size: clamp(11.5px, 0.9cqw, 14px); color: var(--gl-muted-ink); }
+.gl-hist-row-score { font-family: var(--gl-font-display); font-size: clamp(20px, 1.9cqw, 30px); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.gl-hist-row-score[data-state="unverified"], .gl-hist-row-score[data-state="verifying"], .gl-hist-row-score[data-state="failed"] { font-family: var(--gl-font-ui); font-size: clamp(11.5px, 0.9cqw, 14px); font-weight: 600; color: var(--gl-muted-ink); }
+.gl-hist-row-score[data-state="failed"] { color: #9a5a12; }
+.gl-hist-list .gl-mp-link { margin: 1cqh 10px; }
+.gl-hist-detail { display: flex; flex-direction: column; align-items: flex-start; gap: 1cqh; min-width: 0; overflow: auto; padding-right: 4px; }
+.gl-hist-detail h3 { margin: 0; font-family: var(--gl-font-display); font-weight: 500; font-size: clamp(22px, 2.2cqw, 36px); line-height: 1.15; }
+.gl-hist-detail .gl-eyebrow { margin: 0; }
+.gl-hist-detail .gl-button { width: auto; }
+.gl-hist-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.gl-hist-actions .gl-button--quiet { border: 1px solid var(--gl-divider); background: var(--gl-frost-surface); border-radius: var(--gl-radius-sm); }
+.gl-hist-identity { font-size: clamp(11.5px, 0.9cqw, 14px); color: var(--gl-muted-ink); }
+.gl-hist-identity summary { cursor: pointer; font-weight: 600; color: var(--gl-ink); }
+.gl-hist-identity summary:focus-visible { outline: none; box-shadow: var(--gl-focus-ring); border-radius: 4px; }
+.gl-hist-identity dl { margin: 0.6cqh 0 0; display: grid; gap: 4px; }
+.gl-hist-identity dl > div { display: grid; grid-template-columns: 7em minmax(0, 1fr); gap: 8px; }
+.gl-hist-identity dt { font-weight: 600; }
+.gl-hist-identity dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; word-break: break-all; user-select: all; }
+.gl-hist-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.2cqh; text-align: center; font-size: var(--gl-text-subtitle); color: var(--gl-subtitle-ink); }
+.gl-hist-empty p { margin: 0; }
+.gl-hist-empty .gl-button { width: auto; min-width: 14cqw; }
+
+@media (prefers-reduced-motion: reduce) {
+  .gl-solo-choose, .gl-hist-wrap, .gl-solo-score[data-verified="1"] .gl-solo-score-n { animation: none; }
+  .gl-solo-card:hover { transform: translateX(-50%); }
+}

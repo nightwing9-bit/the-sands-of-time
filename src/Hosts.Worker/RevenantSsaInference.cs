@@ -59,6 +59,38 @@ internal static class RevenantSsaInference
             .Select(i => SsaTrailingRate.Input(available, opening, scale, i, rateWindow)));
     }
 
+    // Offline R7 research. The input starts at the first seal whose previous seal has a full causal baseline history.
+    internal static byte[] FitResidualForecast(MLContext ml, SsaForecastSpec spec, IReadOnlyList<float> residuals)
+    {
+        RequireSupportedPlatform();
+        if (!spec.IsValid || spec.Representation != SsaForecastRepresentation.CompletedIntervalChange
+            || residuals.Count != spec.TrainSize || residuals.Any(r => !float.IsFinite(r)))
+            throw new InvalidDataException("SSA requires one complete, finite residual series.");
+        return FitForecastSeries(ml, spec, residuals);
+    }
+
+    internal static double[][] ForecastCumulativeResiduals(MLContext ml, byte[] artifact, SsaForecastSpec spec,
+        IReadOnlyList<float> residuals)
+    {
+        if (!spec.IsValid || spec.Representation != SsaForecastRepresentation.CompletedIntervalChange)
+            throw new InvalidDataException("Invalid SSA residual specification.");
+        if (residuals.Count <= spec.Warmup) return [];
+        using var stream = new MemoryStream(artifact, writable: false);
+        using var engine = Load<ForecastOutput>(ml, stream);
+        var paths = new double[residuals.Count - spec.Warmup][];
+        for (var i = 0; i < residuals.Count; i++)
+        {
+            var output = ObserveBank(engine, residuals[i]);
+            if (i < spec.Warmup) continue;
+            VerifyForecast(output, SsaAdvisory.Horizon);
+            var cumulative = new double[SsaAdvisory.Horizon];
+            double sum = 0;
+            for (var h = 0; h < cumulative.Length; h++) cumulative[h] = sum += output.Forecast[h];
+            paths[i - spec.Warmup] = cumulative;
+        }
+        return paths;
+    }
+
     private static byte[] FitForecastSeries(MLContext ml, SsaForecastSpec spec, IEnumerable<float> observations)
     {
         var data = ml.Data.LoadFromEnumerable(observations.Select(value => new SeriesPoint { Value = value }).ToArray());

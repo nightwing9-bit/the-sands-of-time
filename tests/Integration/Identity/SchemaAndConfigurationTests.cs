@@ -65,7 +65,9 @@ public sealed class IdentitySchemaTests(IdentityDatabase db)
         foreach (var output in new[] { db.FirstMigrationOutput, await db.RunMigratorAsync() })
         {
             Assert.Contains("runtime login sands_api: provisioned (marrow_identity_runtime)", output, StringComparison.Ordinal);
-            Assert.Contains("runtime login sands_realtime: provisioned (marrow_identity_runtime)", output, StringComparison.Ordinal);
+            // Spec 10 task 10.2 adds the Ghost Lap multiplayer authority role (process generation and start receipts only).
+            Assert.Contains("runtime login sands_realtime: provisioned (marrow_identity_runtime ghostlap_mp_runtime)", output, StringComparison.Ordinal);
+            Assert.Contains("runtime login sands_realtime_solo: provisioned (marrow_timeline_runtime ghostlap_runtime)", output, StringComparison.Ordinal);
             // Spec 07 task 7.5 closed the Worker's mapping: V2 Timeline projection (and the future Replay mode) only.
             Assert.Contains("runtime login sands_worker: provisioned (marrow_timeline_runtime revenant_replay_reader revenant_read_projector)", output, StringComparison.Ordinal);
             foreach (var password in db.RuntimePasswords)
@@ -74,7 +76,7 @@ public sealed class IdentitySchemaTests(IdentityDatabase db)
             }
         }
 
-        foreach (var login in new[] { IdentityDatabase.ApiLogin, IdentityDatabase.RealtimeLogin, IdentityDatabase.WorkerLogin })
+        foreach (var login in new[] { IdentityDatabase.ApiLogin, IdentityDatabase.RealtimeLogin, IdentityDatabase.WorkerLogin, IdentityDatabase.RealtimeSoloLogin })
         {
             Assert.Equal("login,inherit", await db.ScalarAsync<string>(
                 "SELECT concat_ws(',', CASE WHEN rolcanlogin THEN 'login' END, CASE WHEN rolsuper THEN 'super' END, " +
@@ -86,7 +88,8 @@ public sealed class IdentitySchemaTests(IdentityDatabase db)
             "SELECT coalesce(string_agg(g.rolname, ',' ORDER BY g.rolname), '') FROM pg_auth_members m " +
             "JOIN pg_roles g ON g.oid = m.roleid JOIN pg_roles u ON u.oid = m.member WHERE u.rolname = @n";
         Assert.Equal("marrow_identity_runtime", await db.ScalarAsync<string>(memberships, ("n", IdentityDatabase.ApiLogin)));
-        Assert.Equal("marrow_identity_runtime", await db.ScalarAsync<string>(memberships, ("n", IdentityDatabase.RealtimeLogin)));
+        Assert.Equal("ghostlap_mp_runtime,marrow_identity_runtime", await db.ScalarAsync<string>(memberships, ("n", IdentityDatabase.RealtimeLogin)));
+        Assert.Equal("ghostlap_runtime,marrow_timeline_runtime", await db.ScalarAsync<string>(memberships, ("n", IdentityDatabase.RealtimeSoloLogin)));
         Assert.Equal("marrow_timeline_runtime,revenant_read_projector,revenant_replay_reader", await db.ScalarAsync<string>(memberships, ("n", IdentityDatabase.WorkerLogin)));
 
         await using var worker = NpgsqlDataSource.Create(db.WorkerConnectionString);
@@ -101,6 +104,10 @@ public sealed class IdentitySchemaTests(IdentityDatabase db)
             (db.WorkerConnectionString, "UPDATE revenant.outbox SET status = 'pending'"),
             (db.WorkerConnectionString, "CREATE TABLE public.worker_probe (a int)"),
             (db.RealtimeConnectionString, "SELECT 1 FROM marrow_timeline.histories"),
+            (db.RealtimeConnectionString, "SELECT 1 FROM ghostlap.solo_originals"),
+            (db.RealtimeSoloConnectionString, "SELECT 1 FROM marrow_identity.guest_sessions"),
+            (db.RealtimeSoloConnectionString, "SELECT 1 FROM revenant.payment"),
+            (db.RealtimeSoloConnectionString, "DELETE FROM ghostlap.solo_originals"),
             (db.RealtimeConnectionString, "DELETE FROM marrow_identity.guest_sessions"),
             (db.RealtimeConnectionString, "CREATE SCHEMA realtime_probe"),
             (db.AppConnectionString, "INSERT INTO marrow_identity.schema_migrations (version, checksum) VALUES ('9999_x', 'x')"),

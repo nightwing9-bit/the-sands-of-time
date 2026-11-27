@@ -17,7 +17,7 @@ namespace GhostLap.Solo;
 /// Source histories are only appended while recording and only read afterwards; nothing here rewrites them.
 /// Spec 11 adds catalog/listing on top of this; the state/input codec stays the single <c>ghost-v1</c> one.
 /// </summary>
-public sealed class SoloOriginals(
+public sealed partial class SoloOriginals(
     ITimelineEngine<GameState, GameInput, GameContext> engine,
     SoloOriginalStore store,
     IResourceAuthorizer authorizer)

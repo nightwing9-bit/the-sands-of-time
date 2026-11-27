@@ -6,11 +6,15 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.json && vite build",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test test/*.test.ts"
   },
   "dependencies": {
+    "@fontsource/source-sans-3": "5.3.1",
+    "@fontsource/source-serif-4": "5.3.1",
     "@sands/contracts": "*",
     "@sands/timeline-ui": "*",
+    "pixi-filters": "6.1.5",
     "pixi.js": "8.22.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

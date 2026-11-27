@@ -136,18 +136,71 @@ public sealed partial class SoloOriginalStore(NpgsqlDataSource dataSource)
         }, ct);
     }
 
+    /// <summary>
+    /// The owner's own row for a save operation key (their <c>UNIQUE (owner_subject_id, operation_key)</c> identity), or NotFound.
+    /// The key is only ever looked up inside the owner's namespace, so another owner's key is indistinguishable from none.
+    /// </summary>
+    public Task<Result<SoloOriginalRecord, SoloError>> FindByOwnerKeyAsync(
+        string ownerSubjectId, string operationKey, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(ownerSubjectId);
+        ArgumentException.ThrowIfNullOrEmpty(operationKey);
+        return SoloResult.GuardAsync(async () =>
+        {
+            await using var select = _dataSource.CreateCommand(
+                $"SELECT {Columns} FROM ghostlap.solo_originals WHERE owner_subject_id = @owner AND operation_key = @key");
+            select.Parameters.AddWithValue("owner", ownerSubjectId);
+            select.Parameters.AddWithValue("key", operationKey);
+            var rows = await ReadRowsAsync(select, ct).ConfigureAwait(false);
+            return rows.Count == 0
+                ? SoloResult.Fail<SoloOriginalRecord>(SoloErrorCode.NotFound, "No such solo original.")
+                : SoloResult.Ok(rows[0]);
+        }, ct);
+    }
+
+    /// <summary>
+    /// The owner's <b>Complete</b> originals, newest first, at most <paramref name="limit"/>. A run that is still Recording
+    /// (including an interrupted one) is never returned: it is not an original.
+    /// </summary>
+    public Task<Result<IReadOnlyList<SoloOriginalRecord>, SoloError>> ListCompleteByOwnerAsync(
+        string ownerSubjectId, int limit, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(ownerSubjectId);
+        ArgumentOutOfRangeException.ThrowIfLessThan(limit, 1);
+        return SoloResult.GuardAsync(async () =>
+        {
+            await using var select = _dataSource.CreateCommand(
+                $"SELECT {Columns} FROM ghostlap.solo_originals WHERE owner_subject_id = @owner AND status = 'Complete' " +
+                "ORDER BY completed_at DESC, timeline_id LIMIT @limit");
+            select.Parameters.AddWithValue("owner", ownerSubjectId);
+            select.Parameters.AddWithValue("limit", limit);
+            return SoloResult.Ok<IReadOnlyList<SoloOriginalRecord>>(await ReadRowsAsync(select, ct).ConfigureAwait(false));
+        }, ct);
+    }
+
+    private static async Task<List<SoloOriginalRecord>> ReadRowsAsync(NpgsqlCommand command, CancellationToken ct)
+    {
+        var rows = new List<SoloOriginalRecord>();
+        await using var r = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        while (await r.ReadAsync(ct).ConfigureAwait(false))
+        {
+            rows.Add(Materialize(r));
+        }
+
+        return rows;
+    }
+
     /// <summary>The stored row or null. Driver failures propagate as exceptions (callers guard them).</summary>
     internal async Task<SoloOriginalRecord?> ReadAsync(TimelineId timeline, CancellationToken ct)
     {
         await using var select = _dataSource.CreateCommand($"SELECT {Columns} FROM ghostlap.solo_originals WHERE timeline_id = @id");
         select.Parameters.AddWithValue("id", timeline.Value);
         await using var r = await select.ExecuteReaderAsync(ct).ConfigureAwait(false);
-        if (!await r.ReadAsync(ct).ConfigureAwait(false))
-        {
-            return null;
-        }
+        return await r.ReadAsync(ct).ConfigureAwait(false) ? Materialize(r) : null;
+    }
 
-        return new SoloOriginalRecord(
+    private static SoloOriginalRecord Materialize(NpgsqlDataReader r) =>
+        new(
             new TimelineId(r.GetGuid(0)),
             r.GetString(1),
             Enum.Parse<PrincipalKind>(r.GetString(2), ignoreCase: false),
@@ -161,7 +214,6 @@ public sealed partial class SoloOriginalStore(NpgsqlDataSource dataSource)
             r.IsDBNull(10) ? null : r.GetInt64(10),
             r.IsDBNull(11) ? null : r.GetString(11),
             r.IsDBNull(12) ? null : r.GetString(12));
-    }
 }
 
 /// <summary>

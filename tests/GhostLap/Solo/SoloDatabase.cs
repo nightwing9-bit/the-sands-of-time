@@ -24,16 +24,26 @@ namespace GhostLap.Tests.Solo;
 /// solely to inspect rows and to prove the database guards. During initialization it records one complete solo original
 /// for <see cref="OwnerA"/> with the real recorder, keeping the live per-tick trace as the uninterrupted reference.
 /// </summary>
-public sealed class SoloDatabase : IAsyncLifetime
+public class SoloDatabase : IAsyncLifetime
 {
     private const string Image = "postgres:18.6-alpine3.24";
     private const string AppUser = "ghostlap_solo_app";
     private const string AppPassword = "ghostlap-solo-test-only";
     public const long Seed = 42;
 
-    private readonly PostgreSqlContainer _container = new PostgreSqlBuilder(Image)
-        .WithResourceMapping(new DirectoryInfo(Path.Combine(RepositoryRoot(), "scripts", "db")), "/sands/db/")
-        .Build();
+    private readonly PostgreSqlContainer _container;
+    private readonly bool _traceFixture;
+
+    public SoloDatabase() : this(false) { }
+
+    protected SoloDatabase(bool traceFixture)
+    {
+        _traceFixture = traceFixture;
+        var builder = new PostgreSqlBuilder(Image)
+            .WithResourceMapping(new DirectoryInfo(Path.Combine(RepositoryRoot(), "scripts", "db")), "/sands/db/");
+        _container = (traceFixture ? builder.WithCommand("-c", "shared_preload_libraries=pg_stat_statements") : builder)
+            .Build();
+    }
 
     private NpgsqlDataSource? _superuser;
 
@@ -80,12 +90,27 @@ public sealed class SoloDatabase : IAsyncLifetime
         await using var host = NewHost();
         var watch = Stopwatch.StartNew();
         var recording = Ok(await host.Originals.StartAsync(OwnerA, Seed, 2, "fixture-original", CancellationToken.None));
-        Run = await RecordAsync(recording, GhostLap.Rules.GameRulesV1.RoundTicks);
+        Run = await RecordAsync(recording, GhostLap.Rules.GameRulesV1.RoundTicks,
+            suppressManualBurstFrom: _traceFixture ? 1700 : null);
         Original = Ok(await recording.CompleteAsync(CancellationToken.None));
         RecordingElapsed = watch.Elapsed;
     }
 
     public string MigrationLog { get; private set; } = "";
+
+    public async Task RestartAsync()
+    {
+        await Superuser.DisposeAsync();
+        await _container.StopAsync();
+        await _container.StartAsync();
+        var connection = _container.GetConnectionString();
+        _superuser = NpgsqlDataSource.Create(connection);
+        AppConnectionString = new NpgsqlConnectionStringBuilder(connection)
+        {
+            Username = AppUser,
+            Password = AppPassword,
+        }.ConnectionString;
+    }
 
     public async Task DisposeAsync()
     {
@@ -115,7 +140,7 @@ public sealed class SoloDatabase : IAsyncLifetime
     /// Plays <paramref name="rec"/> to <paramref name="untilTick"/> with <see cref="CandleSeekingDriver"/>: every input goes
     /// through the recorder's admission and every tick (with or without inputs) is committed before the next one.
     /// </summary>
-    public static async Task<RecordedRun> RecordAsync(SoloRecording rec, long untilTick)
+    public static async Task<RecordedRun> RecordAsync(SoloRecording rec, long untilTick, long? suppressManualBurstFrom = null)
     {
         var driver = new CandleSeekingDriver(rec.Context.PlayerCount);
         var trace = new List<GameState> { rec.State };
@@ -124,6 +149,11 @@ public sealed class SoloDatabase : IAsyncLifetime
         while (rec.State.Tick < untilTick)
         {
             var inputs = driver.Inputs(rec.State, rec.Context);
+            // Keep the usual input history through T1140. Later, let an Overlit deadline expire naturally.
+            if (rec.State.Tick + 1 >= suppressManualBurstFrom)
+            {
+                inputs = inputs.Select(input => input with { RequestBurst = false }).ToArray();
+            }
             foreach (var g in inputs)
             {
                 var admitted = rec.Submit(new SubmittedInput(g.Slot, g.Sequence, g.Tick, g.MoveX, g.MoveY, g.RequestBurst));
@@ -173,6 +203,8 @@ public sealed class SoloDatabase : IAsyncLifetime
         throw new InvalidOperationException("Repository root (TheSandsOfTime.slnx) not found.");
     }
 }
+
+public sealed class SoloTraceDatabase() : SoloDatabase(traceFixture: true);
 
 /// <summary>The live run: states per tick (index = tick, 0 = initial), admitted inputs per step (index = tick - 1) and receipts.</summary>
 public sealed record RecordedRun(

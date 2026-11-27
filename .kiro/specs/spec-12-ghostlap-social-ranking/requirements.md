@@ -1,38 +1,40 @@
-# Spec 12 — Ghost Lap V2: chat, spectator, sharing and rankings
+# Spec 12 — Ghost Lap: minimal results and spectator handoff (hackathon edition)
 
-**Basket:** 4 | **Dependencies:** spec-03, spec-10, spec-11 | **Owner paths:** `src/GhostLap` messaging/standing/share application, domain migrations, `src/Hosts.Realtime` handlers, `tests/GhostLap/Social`
+**Status:** deliberately reduced replacement specification; NOT YET REVIEWED/IMPLEMENTED as this scoped handoff.  
+**Folder note:** the existing directory name `spec-12-ghostlap-social-ranking` is retained for safe in-place replacement; **the specification no longer requires social, sharing or rating features**.  
+**Prerequisites:** completed Spec 10 authoritative `ghost-mp-v2` gameplay, immutable `MatchResult`, `MatchFinalizedV1`, real rematches and spectator access. **Spec 11 is not a prerequisite**; solo source ownership/history is not part of this spec.  
+**Purpose:** make existing real multiplayer results and spectators readily consumable by the future beautiful browser game, with **almost no new backend code**.
 
-## User value and outcome
+## 1. Product scope and exclusions
 
-Complete bounded real lobby chat/emotes, spectators/read-only share, rematch/profile/eligible multiplayer ranking with exactly-once durable rating effects.
+Ghost Lap is a fast 90-second **four-player showcase** (also supports 2P/3P), not a chat or social-network product. The player should see an accurate, attractive end-of-round winner/placement and score breakdown and be able to rematch. A permitted spectator should watch the same authoritative game read-only. **The physics and gameplay from Spec 10 remain complete and untouched**: responsive movement and collisions, rapid candles, charge stages 0–4, stronger/weaker contact, manual radial Burst, eight-second Overlit auto-Burst, deterministic event resolution and full 4P support.
 
-## In scope / excluded
+**Not in hackathon scope:** room/lobby messaging, network emotes, chat presence history, public/private history-sharing URLs, share/revocation tokens, public profiles, Elo/ladder/MMR, Redis leaderboard, ranking Worker/inbox, cross-player identity verification, social feed, matchmaking, result-sharing service or full multiplayer replay archive. Existing Spec 10 spectator delivery and result/outbox persistence remain; **do not delete or rework already-working infrastructure**. In particular the outbox is allowed to have no configured rating consumer in this phase. Do not claim Redis delivery/rating occurred.
 
-**In scope:** Implement the named outcome including its authoritative state and integration tests as detailed below. **Explicitly excluded:** No rating from solo rewrites, no public enumeration of private ghost history, no mass social network features or AI matchmaking.
+**What “ranking” means in the hackathon:** match-local **competitive placement** (winner, ties, forfeits, score components) from Spec 10's immutable result. There is no new persistent global player rating. A simple personal-best/win-count view is **optional after the visual prototype**, only if explicitly requested and feasible from already-authorized persisted results; it is not a 12.x acceptance obligation.
 
-**Existing versus new:** This is a planning package, not evidence of existing implementation. A greenfield repo has none of these files. When working in an existing repo, inspect named owned paths and dependent public contracts first; adapt *private* implementation to existing real code without rewriting frozen interfaces. Public interface owner is the spec named by `docs/architecture/03-contracts.md`.
+## 2. Requirements (EARS-style)
 
-## EARS-style functional requirements and acceptance criteria
+**R12.01 — Truthful match standings.** WHEN a completed multiplayer match is shown, THE SYSTEM SHALL use the existing immutable committed Spec 10 result for final competitive placements, real ties, finisher/forfeit order and authoritative score components. Never fabricate totals from snapshots, client arithmetic, a planned Elo formula or an unconsumed outbox event. All four slots can appear correctly.
 
-**R12.01 — Lobby social.** WHEN a room member sends allowed chat/emote, THE SYSTEM SHALL broadcast with identity, time, ordering, length/rate limits and clear permission controls.
-**R12.02 — Spectator live.** WHEN a permitted watcher joins active room, THE SYSTEM SHALL receive snapshots/results and deny all participant commands independently of UI hiding controls.
-**R12.03 — History sharing.** WHEN owner creates a replay share link, THE SYSTEM SHALL issue unguessable revocable, optionally expiring token to read-only solo replay, private by default.
-**R12.04 — Share revocation.** WHEN owner revokes token or link expires, THE SYSTEM SHALL future read attempts fail with denial while owner retains source.
-**R12.05 — Public privacy.** WHEN unauthorized user enumerates history via list/ID, THE SYSTEM SHALL expose no private source without owner or valid share token.
-**R12.06 — Rating eligibility.** WHEN a valid live multiplayer match finalizes, THE SYSTEM SHALL update ranking from exactly one eligible result; never include solo/ghost/branch sessions.
-**R12.07 — Multiplayer rating.** WHEN 2–4 valid competitors finish or forfeit, THE SYSTEM SHALL use a defined multi-way rating formula with transparent tie handling and durable per-player effect audit.
-**R12.08 — Cache consistency.** WHEN Redis sorted-set cache clears or replays, THE SYSTEM SHALL rebuild from authoritative Postgres rating values, no duplicate score gain.
-**R12.09 — Profile/rematch.** WHEN finished users inspect results/profile or rematch, THE SYSTEM SHALL display actual breakdown, rating change and real invitation/new match state.
-**R12.10 — Abuse safety.** WHEN guest chat flood or fake rating messages arrive, THE SYSTEM SHALL rate-limit, authorize and reject unverified result/rating commands.
-**R12.11 — Share-token transport privacy.** WHEN a user opens a tokenized read-only replay route, THE SYSTEM SHALL prevent raw share-token leakage in app/proxy logs, traces, third-party Referer and caches, and retain expiry/revocation enforcement.
+**R12.02 — Honest lifecycle display.** WHEN a result is not durably committed, THE SYSTEM SHALL distinguish `Pending`, `Unverified` or `Aborted` from a finalized outcome per actual Spec 10 lifecycle. No fake winner, fake rated points or generic “Saved” success on a failed transaction. An unrated finalized match still has real match standings; `ratedEligible`/`ratingAlgorithmId` are retained provenance, **not a promise that ratings were applied**.
 
-## Non-functional and adversarial requirements
+**R12.03 — Safe roster reads.** WHEN a match result or current room state is requested, THE SYSTEM SHALL use existing verified guest/roster/room authorization and resource-kind checks. Knowing a match ID alone does not grant private result retrieval. Do not leak another guest's solo history, token or owner records. Use only existing authorization integration unless a demonstrated omission requires a small correction.
 
-- Relevant source/contract semantics and ownership in `docs/architecture/03-contracts.md` must hold, and no cross-domain dependency may be added. Avoid unnecessary background jobs/abstractions.
-- API/auth/realtime commands must validate untrusted input and return typed failures; do not acknowledge persistence or successful replay before actual verification/commit.
-- Deterministic or transactional properties require real unit/property/integration evidence; only measured performance can be reported as achieved.
-- Work must be done with the actual source repository and tested in the prescribed context, not with invented previous artifacts.
+**R12.04 — Existing spectator contract.** WHEN a permitted spectator is connected, THE SYSTEM SHALL preserve Spec 10's bounded, read-only snapshots/events/resync and appropriate terminal match state without occupying a competitor slot. Spectators cannot control, ready, Burst, move, change team/slot or initiate an unauthorized rematch. Slow spectators must not block play. No new spectator infrastructure or chat is required.
 
-## Exit gate
+**R12.05 — Genuine rematch.** WHEN a player initiates an authorized rematch, THE SYSTEM SHALL reuse Spec 10's actual fresh-match lifecycle: new ID, seed, tick-zero state, receipt and independent final result. The previous result remains unchanged; the user interface must not display previous snapshots/events as the new match. No new ranking effects are introduced.
 
-Multiple guests chat, spectate and share/revoke solo replay safely; live matches update transparent durable ranking once and redis cache rebuilds reliably.
+**R12.06 — Small typed browser handoff.** WHEN the later game UI consumes results, THE SYSTEM SHALL expose or document the **existing** typed status/result/placement/score/spectator/rematch contracts, including what is authoritative, versions and stable event/snapshot IDs. Add a small read-only projection only if a specific indispensable display field is actually missing; do not build duplicate result tables or a new ratings API.
+
+**R12.07 — Preservation and minimum verification.** WHEN this scoped specification exits, THE SYSTEM SHALL demonstrate that existing 4P results, authorized spectator terminal view, foreign/unknown actor denial and fresh rematch still work using **reused Spec 10 evidence** plus at most focused gap tests. Marrow, Revenant, `ghost-v1`, historical `ghost-mp-v1`, active `ghost-mp-v2`, result/outbox uniqueness and gameplay semantics remain unchanged.
+
+## 3. Exit boundary
+
+**The smallest success is allowed to be mostly documentation:** if Spec 10 already provides every necessary result/spectator contract, Spec 12 can close with a short verified mapping and a narrow smoke check, **zero new production code and zero new migrations**. The later polished browser owns the actual results screen, animations, HUD and game audio.
+
+**Do not run** rating-consumer, Redis stream/loss, share-token security, chat flood, replay-link and full four-room load suites. They test features explicitly removed from this phase. Never mark unavailable browser visuals or a nonexisting Elo ledger as implemented.
+
+## 4. Superseded earlier Spec 12 scope (explicit, not silently forgotten)
+
+The previous R12.01–R12.19 social/ranking requirements are **superseded for the hackathon**. Message chat/emotes, share grants, token redemption/revocation, pairwise Elo, rating revisions/inbox, Redis standings/recovery and combined Worker/social load move to an optional **post-hackathon product backlog**, not required dependency gates. Already completed Spec 10 results, spectator permissions and transactional outbox survive. **The later Spec 13 plan must not treat the old social/rating tasks as prerequisites.**

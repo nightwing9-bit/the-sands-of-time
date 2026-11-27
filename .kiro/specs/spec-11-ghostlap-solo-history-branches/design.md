@@ -1,56 +1,143 @@
-# Spec 11 design — Ghost Lap V2: persistent solo histories, exact ghosts and branching
+# Spec 11 design — Small integration, exact Marrow history
 
-## Preconditions, owned implementation and boundaries
+**Implementation status: PLANNED.** This document describes required behaviors and preferred composition, **not claims about methods already exported by the repository**. The very first task inspects the actual Spec 02/03/06 contracts and records any necessary adaptation. Favor the simplest proven path over new infrastructure. `ghost-v1` solo remains frozen; Spec 10 multiplayer's new default is `ghost-mp-v2` and is *not* used to decode solo history.
 
-**Prerequisites (completed observable exit gates):** spec-02, spec-03, spec-06. **This spec owns:** `src/GhostLap` solo application/persistence/catalog (consumes Spec-06 codec), `ghostlap` schema, `web/apps/ghost-lap` domain adapters, `tests/GhostLap/Replay`. **Do not implement:** No multiplayer replay archives, AI/simulated opponent, branchable MP sessions, ghost interaction with present world.
+## 0. Engineering strategy and boundaries
 
-**Consumes:** Public contracts from spec-02, spec-03, spec-06; inspect only their exported interfaces, named migrations and relevant tests. **Exposes:** The implemented behavior and stable public contract of this spec for downstream dependents. No spec may rewrite `Marrow.Timeline` public or `web/packages/timeline-ui` contracts without an approved cross-app ADR and dual-client test.
+The architecture is deliberately two-layered:
 
-**Architecture authority:** `docs/architecture/01-master.md` defines dependency direction and state authority, `03-contracts.md` defines exact conceptual interfaces. This design defines this spec's *unique implementation ownership*; prefer whichever private class names fit the repo once validated, but preserve semantics. A superior nonbreaking local algorithm is allowed; shared ABI/persistence schema/version/security authority is not a local choice.
+1. **Canonical history and physics:** existing Spec 06 `ghost-v1` deterministic reducer, state/input codec, checkpoint/replay/branch support and **frozen Marrow Timeline**. One authoritative state interpretation.
+2. **Ghost Lap product adapter:** owner authentication, a minimal record/save/catalog integration where existing Spec 06 services do not already suffice, bounded verified trace/score reads and typed challenge/fork operations. Existing API/Realtime hosts; no new independent infrastructure.
 
-## Implementation strategy, contracts and data flow
+No duplicated solo reducer in TypeScript, no clone of canonical per-tick journal, no multiplayer archive, no live solo process-generation fencing, no background repair daemon, no distributed two-phase commit and no new rating/share/messaging service. Browser visuals (sprites, Pixi filters, SFX, pause/rewind animation, smoothing) are intentionally separate; this spec supplies **verified frame/tick data and action semantics** to render them accurately.
 
-### Durable storage and canonical replay
+### One-time port inventory — 11.0, timeboxed
 
-Tables in `ghostlap`: `solo_history` (original vs child attempt type, owner, source/root/parent/fork IDs, seed/rules/layout/character/spawn, state hash, completion, visibility, pin), `solo_score_sample` verified time-aligned score trace (derived from reducer, not sprite interpolation), `solo_save_idempotency`, plus reference to the **sole authoritative** `marrow_timeline` manifest ID **by scalar identity only, not cross-schema FK**. Canonical per-tick input bytes and complete checkpoints live **only in the Marrow Timeline journal/checkpoint tables**, through the **single Spec-06-owned canonical GhostLap input/state codec/adapter**; no second copy in the game schema. The original/source records in Marrow are append-only; own metadata can be append-only with explicit pin/visibility action records as permitted. Originals are retained by default across guest reauth; if storage becomes too large, quota/retention is an ADR/user decision **not a hidden silent expiration**. Child branches store prefix ref and only suffix inputs/checkpoints; never clone and rewrite original.
+Inspect source and tests (not design assumptions):
 
-Full source checkpoints **as implemented by Spec 06** include position/velocity, charge/Overlit deadline, pair cooldown, score component counters **and fixed-point distance remainder**, last accepted/effective input/sequence and Burst edge where needed, collected/active/scheduled candle identity, layout/seed/rules, pending auto-Burst and any domain RNG state. Restore source at T using nearest checkpoint then exact reducer fold; verify hash at T even for empty ticks. History manifest refers to pinned `ghost-v1` reducer and deterministic codec; if an old reducer/codec is removed, return incompatible and allow metadata view but not fake rewind. Branch start inherits original T state; after fork new inputs only at T+1 onward. Ghost path and old score always from original verified source, unaffected by current-world candles or Burst. Time-aligned score points are canonical integer ticks; source past score at T used, not source final score.
+| Need | Actual evidence to find | Preferred handling |
+|---|---|---|
+| `ghost-v1` initial state, 30Hz reducer, complete codec and goldens | Spec 06 public services and deterministic fixture hashes | **Reuse unchanged**; verify no extra codec |
+| Original creation/append/verification and final manifest | Spec 02/06 exported Timeline ports and persistence | Reuse existing transaction/record workflow; no invented method names |
+| `Restore(source,T)`/checkpoint fold and source hash | Existing source/branch services and tests | Reuse; detect unsupported T or corrupt source honestly |
+| Branch with exact parent prefix/suffix | Existing public branch port and metadata | Reuse; if absent, identify smallest *allowed* compatible adapter, do not fabricate a fork |
+| Owner catalog/`SoloOriginals`/`SoloBranches` | Existing schema, migrations and resource authorization | Extend only missing metadata; no duplicate tables |
+| Stable save retry identity | Existing operation/source ID or preassigned ID accepted by port | Match owner+stable save key to same canonical identity; ambiguous save stays pending rather than creating a second source |
+| Web/host composition | Actual API/Realtime config, cookies, DI and roles | Reuse existing host and deny foreign history IDs |
 
-### Verified source → catalog finalization (no distributed coordinator)
+**Stop only for an actual missing indispensable canonical restore/branch contract**; report exact API evidence and the minimal compatible decision. Do not block on optional mid-run resume, cross-process takeover or Redis because none is required. If a save retry mechanism is unsupported, preserve ambiguous status and identify the smallest Ghost-Lap-owned, port-compatible resolution rather than silently minting another history.
 
-Extend existing `SoloOriginals`, `SoloBranches`, `solo_originals`/`solo_branches` verified-original and branch metadata through catalog links to their durable Timeline identities. Production solo/history/branch APIs reuse those services and the canonical codec/reducer; the test-only bridge may inform implementation but must not be a runtime dependency. Tasks 11.2/11.3 own solo loop registration and durable restoration from committed persisted state after restart, with concurrent resume attempts permitting only one authoritative loop per attempt. Independent solo recording does not depend on Spec 10's multiplayer room system.
+## 1. Minimal end-to-end data flow
 
-Spec 06 has already saved and marked the owner-tagged 2700-tick Marrow source `Verified`. Spec 11 does **not** write another Timeline log or recreate the codec: it checks the verified manifest, actor and hashes through the public Timeline port, then commits the `ghostlap.solo_history` catalog link plus save idempotency record in **one GhostLap-schema PostgreSQL transaction** with uniqueness on `(ownerId,timelineId)` and the operation key. Only after that commit does the API return “History saved.” If the catalog transaction fails, the source remains intact and discoverable by its ID; retry safely links the same verified source, does not mint a new original, and never declares success prematurely. A verified-but-unlisted source can be recovered on a retry/owner-owned recovery query without a background reconciliation daemon. For children, use the same catalog-link semantics after verified completion. Test failure injection at verification, catalog commit and acknowledgement loss. No cross-schema FK and no two-phase/distributed transaction coordinator.
+```text
+Authenticated solo player
+    |
+    +-- play real 2700-tick `ghost-v1` run (existing Spec 06 runtime)
+    |      canonical input order + seed/rules/spawn + actual 30Hz transitions
+    |
+    +-- completed original -> existing Timeline writer/verify -> immutable source ID
+    |      owner-bound operation key -> durable verified catalog link -> Saved
+    |
+    +-- list/inspect owned verified original
+    |      Timeline checkpoints + frozen codec -> exact source states/events/scores
+    |
+    +-- Challenge at tick0 --------------------------+
+    |                                                |
+    +-- Fork source at selected T -> Restore+hash -> branch prefix, inputs T+1..
+                                                     |
+                                  new living world + read-only source ghost
+                                                     |
+                          verified child + source/current same-tick comparison
+```
 
-### Solo lifecycle
+**Solo recording can use whichever route the actual Spec 06 implementation supports:** a bounded server-owned live session *or* capture of real 2700-tick accepted inputs with server-side canonical replay/verification before save. Both must employ the actual frozen reducer, not accept a client-reported path/score or create a second simulation with different rules. Keep the live control protocol as small as possible. A single Realtime host already exists; use it if needed, but **do not automatically import the Spec 10 multiplayer room/advisory-lock architecture into solo recording**.
 
-A nonexisting history shows `Create Your First History`. Only a **full newly played** solo run can become a new original. The verified completion save responds with owner-ID tied receipt; after refresh guest can challenge it infinitely. Challenge tick0 starts same location, overlap preserved; a separate ghost layer renders read-only old path. Phase 1 branches originate only from **completed verified originals** while the viewer is paused. During an active attempt, rewrite navigation opens an explicitly selected completed original's replay with truthful source/tick labels; preserve the active attempt independently. The new child inherits that original's historical state at T, never an unrelated or partially recorded active attempt's current state. With no eligible original, rewrite/fork is unavailable. Do not auto-complete a partial history; direct Recording-source fork remains Conflict. Final tick seek allowed, branch disabled. At finish child is saved as attempt with `type=Branch` and compared to source; attempts are visible but are not eligible original sources. Nested forks remain outside Phase 1; multiple independent branches from an original remain supported, with Timeline fork lifecycle unchanged.
+### Active-attempt lifecycle — intentionally minimal
 
-### Exact source branch proof
+`Ready -> Playing -> Finishing/Verifying -> Saved` or `Failed/Pending`. An unfinished `Playing` attempt interrupted by shutdown, disconnect or navigation is `Interrupted`/discarded, with an explicit **Restart run** action; it is not a completed or corrupted original. There is no silent clock progression after disconnect. A current unfinished challenge/fork may be discarded after an explicit UI action; the saved original and previous verified children remain untouched. No mandatory crash-resume, competing reconnect controllers, append-by-append durable acknowledgement or live writer generation. If the existing Spec 06 session naturally supports pause/reconnect, it may be reused without making this a new obligation.
 
-Generate a golden deterministic 2700-tick run with nonzero charge/score and collected candle at T=1140. `Restore(T)` matches original state hash including collection/cooldowns; two branches diverge after 1140 but both keep original hash unchanged, and future candle opportunity IDs and tick positions are identical even if consumption differs. Assert source ghost may cross a living candle and living collector still gets it once. Include T=0, T=2699, T=2700 (inspect-only), source unavailable, version mismatch, save retry, illegal owner and repeated challenge. Real Postgres reload tested. Use same `Marrow.Timeline` source and `TimelineScrubber` frontend component, no new local replay engine.
+Keep **the completed-save boundary strict**: a failure at `Verify`/catalog linking cannot become a green `Saved` state. Treat uncertain commit/HTTP acknowledgement using owner+operation idempotency and an authoritative read of the existing verified source/catalog. Use bounded retries; on genuinely unresolvable ambiguity, return a typed `SavePending` error rather than creating another source. No progress-beyond-last-verified-tick claim.
 
-## Permissions, concurrency and failure rules
+## 2. Source ownership and data model (reuse first)
 
-- Every publicly callable operation derives actor/session from verified server auth and uses the domain's ownership/membership/role policy; never trust a submitted principal ID.
-- Retry behavior must distinguish idempotent retry from conflicting duplicate payload. A cancellation or unreachable dependency must leave prior durable authority intact and return visible error state.
-- Persist state only in the owning module's schema and through frozen contracted ports. No direct cross-domain table mutation, no use of browser-rendered state as authority, no silent change to original source.
-- Contract/rules/codec changes are versioned; emit readable incompatibility rather than secretly reinterpret historical data.
+**Required data**, regardless of which existing schema owns it:
 
-## Testing strategy (owned by this spec)
+| Field | Purpose |
+|---|---|
+| owner principal | Private history/command authorization, never supplied as truth by client |
+| stable save operation/key | Safe duplicate HTTP request/response handling |
+| canonical Timeline source/branch ID | Exact replay source; scalar reference if cross-schema |
+| kind: Original/Challenge/Fork | Avoid presenting a completed child as an original |
+| original/root ID; parent ID; optional fork tick | Provenance and source selection |
+| seed, solo rules/codec/layout, spawn/character | Exact historical interpretation and visual mapping |
+| finalTick (2700), canonical hash and authoritative score components | Verified completion and score/trace comparison |
+| state: Pending/Verified/Saved/Interrupted/Failed/Incompatible | Honest owner-visible lifecycle |
 
-- Exact branch-prefix equality through T and old source unchanged after siblings
-- Full state at T (including charge/Overlit/cooldowns/collection) hash equals historical
-- Original 2700-tick verified Timeline source is linked once to catalog despite retries; failed catalog commit stays unlisted until idempotent retry, no false “saved” receipt
-- Current and ghost world's candle consumption independent
-- Historical score at tick T is read from source trace, not final
-- T=2700 branch denied but seek permitted; missing reducer fails closed
-- Guest cannot read/branch private foreign history
+Prefer the implemented Spec 06 source/catalog or `SoloOriginals`/`SoloBranches`. Add **one small Ghost Lap-owned metadata/unique-key table only if a concrete field/ownership gap exists**, with a forward-only migration and real runtime grants. Avoid a second set of `solo_history`, `solo_score_sample`, `solo_recording_intent` tables simply because the earlier plan proposed them. No cross-schema FK or direct write into Marrow-owned tables.
 
-## Specific implementation traps
+**Saved iff:** `source manifest is verified` AND `owner-bound visible link is durably committed`. Stable operation-key replay returns that same link/hash. Conflicting request against a used key fails. A client-provided source ID can be used to locate, but never authorize, a history. Completed source metadata is never silently expired; if quota limits creation, refuse a new attempt rather than deleting saved originals.
 
-- A syntactically present endpoint or view without real state transitions does not pass.
-- Generic framework logic cannot embed money/game rules or clone the shared Timeline engine.
-- Public interface changes require updating its producer, typed clients/consumers and corresponding architecture tests in the *same* compatible change, with ADR if consequential.
+**No outbox/Redis needed for solo:** verification and metadata creation are a small owner action, not a message-processing pipeline. Source snapshots, checkpoints and inputs reside where Timeline/Spec 06 already store them; optional precomputed trace may be an ephemeral cache only if measurement establishes need.
 
-**Kiro model routing:** Strong for durable replay correctness and privacy; economical for history listing component.
+## 3. Canonical time, replay and fork semantics
+
+`ghost-v1` initial world is **tick 0**, and each transition applies one canonical action for `tick = 1..2700`; `state(T)` means after T transitions. There must be a full 2700-tick run with legitimate gameplay and a verifiable hash.
+
+1. **Inspect:** `T` is an integer `0..2700`. Read verified source with the pinned reducer, restore full state from checkpoint+fold, verify canonical hash. No position-only shortcuts.
+2. **Challenge:** living starts in independently instantiated world at original `state(0)` and same seed/rules/layout/spawn. The original ghost is a read-only stream of source positions/charge/actions/events, never an entity in current collision/pickup/Burst logic. On completion, verify and link a new child tagged Challenge (conceptually a branch at tick0, using supported Timeline semantics).
+3. **Fork:** selected **verified original** at `T` with `0<=T<2700`. Reconstruct complete source `state(T)` and check its hash, create a supported canonical child referencing exactly that prefix, accept first new living input at **T+1**. The source timeline continues unchanged and remains a visual ghost; the child's own future becomes independently recorded. T=2700 is inspect-only, not forkable. A child-of-child fork is intentionally out of scope.
+4. **Separate worlds:** historical events are immutable read-only cue data. Current world's candle consumption, RNG/pending action state and charge come from the **current** canonical reducer only; never replay ghost pickup as a live-world mutation. Same pinned schedule and opportunity generation; independent consumption. An input ordering difference can alter scores but cannot rewrite the source.
+5. **Children:** completing challenge/fork yields verified child provenance, canonical final hash and score. Keep distinct child IDs for repeated attempts. Parent/source hash is checked again on save where the port permits. Never overwrite the original.
+
+**Full state:** all gameplay-significant fields actually used by the frozen reducer: position and resolved movement/remainders, score components, Soulfire, Overlit deadline/manual edge/auto action, deterministic candles (schedule, IDs, lifetimes and collected state), RNG stream state, previous effective input and any relevant pending sequence/cooldown fields. Avoid inventing fields absent from `ghost-v1`; the codec and golden hashes are authoritative. The same full-state rules apply to the solo 0–4 charge progression, fast candles, manual radial Burst and 240-tick Overlit auto-Burst. The ghost never acquires multiplayer contact behavior.
+
+**Proof examples:** exact T=0, T=1140 (nontrivial movement remainder, candle consumption, charge/Overlit where reachable), T=2699, T=2700; two children forked at T=1140 with different suffixes, equal source prefix/hash, independent final hashes and unchanged source final hash. One source candle crossing with a living player confirms that no collection/charge event crosses between worlds. Include a complete played original with an actual manual/auto-Burst in the pinned solo profile where achievable.
+
+## 4. Read models for a premium timeline UI (not visual implementation)
+
+Build the **smallest typed public adapter** that an actual browser can consume; names must follow the existing project style, not fictional endpoints. Suggested conceptual operations (bind to real implementation):
+
+| Operation | Result needed for the real UI |
+|---|---|
+| Start/finish/save original | run/session identity, sealed seed/rules/character, progress, verified final score and `Saved` vs `Pending/Failed` |
+| List mine / get source | owned completed originals and children, correct original/child kind, source/fork/version/hash metadata |
+| Get source trace / inspect T | source tick-indexed ghost position, Soulfire/expression triggers, relevant candle/Burst cues, **source score at each tick**, exact restored-state/hash identity |
+| Start challenge(original) | independent living start at `0`, read-only source ghost identity, active attempt ID |
+| Fork(original,T) | confirmed source+T, full restored state/provenance and new child/attempt identity; input begins T+1 |
+| Compare(source,current) | same-tick living/source score components, signed deltas, available ticks and selected-source identity |
+| Finish child | truthful final hash/score and linked original/fork metadata |
+
+Read large traces with **one bounded 0..2700 tick projection** (possibly chunked if the existing transport requires it), not hundreds of independent DB calls per scrub movement. Verify/replay the source once per request/read session and sample from that canonical sequence; if performance data supports a small cache, key it by `(sourceId, rulesVersion, sourceHash)`, never let an unverified cache override canonical state. Do not add a materialized score table by default.
+
+A frontend may interpolate positions between 30Hz ticks to draw at 60FPS+ and perform a reversible montage, but **scrub selection, branch point, charge, score and candle effects remain anchored to exact tick data**. Event IDs should be deterministic/stable within a verified source if the existing codec exposes them; use actual canonical event ordering rather than randomly-generated display events. The same Marrow Timeline UI concept/semantics should underpin Revenant's historical counterfactual and Ghost Lap's source/fork, without altering the shared UI component now.
+
+**Typed outcomes:** `Saved`, `SavePending`, `Interrupted`, `SourceNotVerified`, `FinalTickInspectOnly`, `InvalidTick`, `VersionUnsupported`, `CorruptHistory`, `NotFoundOrForbidden` as appropriate; implement only codes needed by concrete UX/API and stay consistent with existing error envelopes. No silent fallbacks that invent a history.
+
+## 5. Access, reliability and host composition
+
+- Authenticate with server-derived verified guest principal and established guest cookie/session. Every catalog, source trace, restore and fork service rechecks ownership; no public replay token and no share-derived principal. An API identity boundary protects raw Timeline IDs even if a user guesses one.
+- Use the established API/Realtime host route/DI/auth policy. Solo may run alongside MP but not use MP match receipts, ranking, `ghost-mp-v2` codec or Redis outbox. Keep Marrow and Revenant DI/policies and DB role privileges unchanged.
+- Validate input tick count, size and rules version at ingestion; a true 90-second run cannot become a verified history solely through the client claiming a final hash. Keep canonical write/verification work outside the 30Hz MP reducer thread; no new scheduler lane unless measured blocking requires it.
+- Bound active recording attempts and expensive trace/seek calls with modest existing host limits; expose typed transient errors and protect the server from unbounded payloads. Record actual 2700-tick source bytes, cold seek and trace projection timing. Do not invent performance savings or capacity claims.
+- **No new partial-session crash recovery system:** process loss during unfinished play yields Interrupted/restart. A successfully completed verified source survives process restart and can be read later. If an ACK is lost after saved catalog commit, retry reads the same record. The actual ID correlation method must be evidenced; unresolvable states remain explicit and non-destructive.
+
+## 6. Verification plan: strong where the product depends on it
+
+| Gate | Fast Kiro implementation checks | Independent technical verification |
+|---|---|---|
+| Existing ports and baseline | One source/codec inspection, a representative pinned golden | Focused frozen regression; no sweeping unrelated test suite |
+| Original and save | A full 2700-tick source verifies; save status correct | One real DB cold reload + repeated identical/conflicting save-key tests; one lost HTTP ACK path if supported |
+| Ghost and seek | T=0,1140,2699,2700 full-state/hash, noninteractive ghost | Repeat deterministic source with nonzero gameplay state and source unchanged |
+| Challenge/fork | Challenge0, two T1140 children, suffix from T+1, pinned versions | Cold reload branch verify and sibling/source immutability |
+| Read model | Signed same-tick scores and tick-accurate events | Bounded trace size/latency and foreign-owner denial |
+| Host integration | Real production DI/routes and least-privilege policy check | One MP room + representative simultaneous solo record/seek smoke; **reuse** Spec10 full load proof |
+
+Do **not** require lost-create ACK × every crash boundary × cross-process competing solo writers, three 4-room stress runs, Redis projections, extensive fairness sweeps or per-tick full persistence fault matrices. They do not improve the core verified-history promise relative to cost. **Do** treat corrupt canonical source, incorrect branch-prefix hash, history ownership leak or fake `Saved` as blocking.
+
+**Spec 11 exit certificate:** real source ID, seed/rules/codec, canonical final hash, actual exact-restore hashes (redact principals), two child IDs/fork tick and changed suffixes, unchanged original hash, same-tick source/current score samples, cold-reload ownership and measured seek/trace time, focused commands/commit evidence. Keep test logs short and true. An unexecuted assertion is not a passing test.
+
+## 7. Handoff boundaries
+
+- **To Spec 12:** no dependency for solo history. Completed solo sources are private. `MatchFinalizedV1` / multiplayer rating policies have nothing to do with solo recording.
+- **To later visual/client work:** expose verified history ticks, authored original-vs-current data, chronological effects and reliable typed errors. **Do not design sprite art, sound packs, animations or modify the user's asset direction here.** The final browser must separately verify precise seek and smooth playback with the actual Pixi renderer.
+- **To Marrow and Revenant:** no changes. Only reuse public Timeline concepts/ports; the same exact-source/branch behavior is what the demonstration needs to make visible.

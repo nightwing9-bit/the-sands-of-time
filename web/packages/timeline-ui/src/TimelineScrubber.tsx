@@ -24,6 +24,8 @@ export interface TimelineScrubberProps<TPreview = unknown> {
   position: TimelinePosition;
   /** Called only with the newest verified preview. */
   onVerified: (preview: VerifiedPreview<TPreview>) => void;
+  /** Optional visual offset in CSS pixels. Marker clicks still seek the original position. */
+  markerOffsetPx?: (position: TimelinePosition) => number;
   /** Called after the server accepted a fork. The source history is untouched. */
   onForked?: (result: { branchId: string }, position: TimelinePosition) => void;
   /** Domain-specific fork options, passed through untouched. */
@@ -345,7 +347,7 @@ export function TimelineScrubber<TPreview = unknown>(props: TimelineScrubberProp
             tabIndex={-1}
             onPointerDown={(event) => event.stopPropagation()}
             onClick={() => requestSeek(marker.position, false)}
-            style={{ position: 'absolute', left: `${marker.pct}%`, top: 0, bottom: 0, width: 8, padding: 0 }}
+            style={{ position: 'absolute', left: `${marker.pct}%`, translate: props.markerOffsetPx ? `${props.markerOffsetPx(marker.position)}px` : undefined, top: 0, bottom: 0, width: 8, padding: 0 }}
           />
         ))}
       </div>

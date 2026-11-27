@@ -10,18 +10,13 @@ using Revenant.Timeline;
 
 namespace Hosts.Worker;
 
-/// <summary>
-/// Published R7/2 advisory scoring. The Worker composes verified causal series, a pinned manifest and artifact, and the shared
-/// <see cref="RevenantSsaInference"/> implementation used by research and qualification. It returns the output at the requested
-/// completed seal and persists it as immutable advisory evidence. Advisory outputs never enter Screening or alter balances.
-/// </summary>
+/// <summary>Scores a verified causal prefix and persists advisory evidence separately from financial dispatch.</summary>
 internal sealed class RevenantAdvisoryWorker(V4SimulationStore store, V4BranchExecution branch,
     RevenantLedgerOptions options)
 {
-    internal const string Policy = SsaAdvisory.Policy;
-    private const int Horizon = V4BankTargets.HorizonCount;
-    private const string AnomalyArtifact = "anomaly.zip";
-    private const string ForecastArtifact = "forecast.zip";
+    internal static readonly ObservedModelPin SupportedAnomaly = new(
+        "revenant-ssa-anomaly/672a05a26995653585e5ba9505807df7a2f707914886634c39b133c7dbc72980",
+        "03e895da4fa4348b69b1251c6ef9c1c9e6c2deee893e83bf2a983c698281b35e");
     private static readonly string[] Banks = ["BANK-A", "BANK-B", "BANK-C", "BANK-D", "BANK-E", "BANK-F"];
 
     internal static readonly JsonSerializerOptions ManifestJson = new()
@@ -29,14 +24,19 @@ internal sealed class RevenantAdvisoryWorker(V4SimulationStore store, V4BranchEx
         Converters = { new JsonStringEnumConverter() }, NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
     };
 
-    internal sealed record Receipt(Guid Execution, long BoundaryMs, string Subject, string Status, string? ModelId,
-        string? SeriesSha256, string? EvidenceSha256, AdvisoryAnomalyV2? Anomaly, AdvisoryForecastV2? Forecast);
+    internal enum AdvisoryKind { LearnedAnomaly, StatisticalLiquidityProjection }
+    internal sealed record Origin(long BoundaryMs, long FactSequence, string PrefixSha256);
+    internal sealed record Receipt(Guid Execution, Guid Lineage, long BoundaryMs, string Subject, string Unit,
+        [property: JsonConverter(typeof(JsonStringEnumConverter<AdvisoryStatus>))] AdvisoryStatus Status,
+        [property: JsonConverter(typeof(JsonStringEnumConverter<AdvisoryKind>))] AdvisoryKind Kind,
+        string Schema, string ProducerId, string PolicyId, string? ModelId, string? ArtifactSha256,
+        Origin? CausalOrigin, string? SeriesSha256, string? EvidenceSha256, AdvisoryAnomalyV2? Anomaly,
+        AdvisoryLiquidityProjection? Liquidity);
 
     internal async Task<Receipt[]> ScoreAsync(ScenarioRunId execution, long boundary, string? account, CancellationToken ct)
     {
         var history = await branch.ReadProjectionHistoryAsync(options.TenantId, execution, ct);
         var projection = V4ObservationProjector.Project(history);
-        var context = history.Segments[^1].Context;
         var lineage = history.Genesis.RunId;
         var series = account is null
             ? Banks.Select(bank => projection.BankAvailableSeries(bank, boundary))
@@ -44,96 +44,85 @@ internal sealed class RevenantAdvisoryWorker(V4SimulationStore store, V4BranchEx
         var results = new List<Receipt>();
         foreach (var input in series)
         {
-            var isAccount = input.Schema == V4AdvisorySeries.AccountSchema;
-            var pins = isAccount ? context.AnomalyModels : context.LiquidityModels;
-            if (input.Origin is null)
-            {
-                results.Add(new(execution.Value, boundary, input.SubjectId, input.Coverage.ToString(), null, null, null, null, null));
-                continue;
-            }
-            if (pins.Length != 1)
-            {
-                results.Add(new(execution.Value, boundary, input.SubjectId,
-                    (pins.IsEmpty ? AdvisoryStatus.ArtifactMissing : AdvisoryStatus.ArtifactInvalid).ToString(),
-                    null, input.Digest, null, null, null));
-                continue;
-            }
-
-            var evidence = Score(input, lineage, pins[0], isAccount, ArtifactRoot);
+            // Context model pins are historical lineage data, not a selector for the supported advisory workload.
+            var evidence = ScoreSupported(input, lineage, ArtifactRoot);
             var digest = evidence.Status == AdvisoryStatus.Available
                 ? await store.PersistAdvisoryAsync(options.TenantId, evidence, ct) : null;
-            results.Add(new(execution.Value, boundary, input.SubjectId, evidence.Status.ToString(), evidence.Model.ModelId,
-                input.Digest, digest, evidence.AnomalyV2, evidence.ForecastV2));
+            results.Add(Describe(evidence, digest));
         }
         return results.ToArray();
     }
 
-    private static string ArtifactRoot => Path.Combine(AppContext.BaseDirectory, "Intelligence", "Artifacts", "revenant-ssa");
-
-    /// <summary>
-    /// Scores one verified causal series with one pinned artifact. The artifact directory is
-    /// <c>{root}/{anomaly|forecast}/{manifest-sha256}/</c>; the manifest hash is the model ID suffix and binds the ZIP hash.
-    /// </summary>
-    internal static AdvisoryEvidence Score(V4AdvisorySeries series, ScenarioRunId lineage, ObservedModelPin pin, bool account,
-        string artifactRoot)
+    internal static Receipt Describe(AdvisoryEvidence evidence, string? digest)
     {
-        AdvisoryEvidence Unavailable(AdvisoryStatus status) => new(series, lineage, pin, Policy, status);
+        var input = evidence.Series;
+        var seal = input.Origin;
+        var liquidity = input.Schema == V4AdvisorySeries.BankSchema;
+        return new(input.ExecutionRunId.Value, evidence.Lineage.Value, input.RequestedBoundaryMs, input.SubjectId, input.Unit,
+            evidence.Status, liquidity ? AdvisoryKind.StatisticalLiquidityProjection : AdvisoryKind.LearnedAnomaly, evidence.Schema,
+            evidence.ProducerId, evidence.Policy, evidence.Model?.ModelId, evidence.Model?.ArtifactSha256,
+            seal is null ? null : new(seal.BoundaryMs, seal.FactSequence, seal.PrefixDigest),
+            seal is null ? null : input.Digest, digest, evidence.AnomalyV2, evidence.Liquidity);
+    }
 
+    internal static string ArtifactRoot => Path.Combine(AppContext.BaseDirectory, "Intelligence", "Artifacts", "revenant-ssa");
+
+    internal static AdvisoryEvidence ScoreSupported(V4AdvisorySeries series, ScenarioRunId lineage, string artifactRoot)
+    {
+        var bank = series.Schema == V4AdvisorySeries.BankSchema;
+        if (series.Origin is null)
+        {
+            var status = series.Coverage == AdvisorySeriesCoverage.UnknownSubject
+                ? AdvisoryStatus.UnknownSubject : AdvisoryStatus.UnobservedOrigin;
+            return bank ? new(series, lineage, null, AdvisoryLiquidityProjection.Method, status)
+                : new(series, lineage, SupportedAnomaly, AdvisoryEvidence.GlobalAnomalyPolicy, status);
+        }
+        return bank ? AdvisoryLiquidityProjection.Project(series, lineage)
+            : ScoreAnomaly(series, lineage, SupportedAnomaly, artifactRoot, AdvisoryEvidence.GlobalAnomalyPolicy);
+    }
+
+    internal static AdvisoryEvidence ScoreAnomaly(V4AdvisorySeries series, ScenarioRunId lineage, ObservedModelPin pin,
+        string artifactRoot, string policy)
+    {
+        AdvisoryEvidence Unavailable(AdvisoryStatus status) => new(series, lineage, pin, policy, status);
         try
         {
-            var kind = account ? "anomaly" : "forecast";
-            var slash = pin.ModelId.IndexOf('/');
-            if (slash <= 0 || pin.ModelId[..slash] != $"revenant-ssa-{kind}"
-                || !ObservedFinanceEncoding.IsHash(pin.ModelId[(slash + 1)..]))
+            const string prefix = "revenant-ssa-anomaly/";
+            if (series.Schema != V4AdvisorySeries.AccountSchema || !pin.ModelId.StartsWith(prefix, StringComparison.Ordinal)
+                || !ObservedFinanceEncoding.IsHash(pin.ModelId[prefix.Length..]))
                 return Unavailable(AdvisoryStatus.ArtifactInvalid);
-            var directory = Path.Combine(artifactRoot, kind, pin.ModelId[(slash + 1)..]);
+            var manifestHash = pin.ModelId[prefix.Length..];
+            var directory = Path.Combine(artifactRoot, "anomaly", manifestHash);
             var manifestBytes = File.ReadAllBytes(Path.Combine(directory, "manifest.json"));
-            if (ObservationEncoding.Hash(manifestBytes) != pin.ModelId[(slash + 1)..])
+            if (ObservationEncoding.Hash(manifestBytes) != manifestHash)
                 return Unavailable(AdvisoryStatus.ArtifactInvalid);
             var manifest = JsonSerializer.Deserialize<SsaAdvisoryManifest>(manifestBytes, ManifestJson);
-            if (manifest is null || !manifest.IsValidFor(kind) || manifest.ArtifactSha256 != pin.ArtifactSha256)
+            if (manifest is null || !manifest.IsValidFor("anomaly") || manifest.ArtifactSha256 != pin.ArtifactSha256)
                 return Unavailable(AdvisoryStatus.ArtifactInvalid);
-            var artifact = File.ReadAllBytes(Path.Combine(directory, account ? AnomalyArtifact : ForecastArtifact));
+            var artifact = File.ReadAllBytes(Path.Combine(directory, "anomaly.zip"));
             if (ObservationEncoding.Hash(artifact) != pin.ArtifactSha256)
                 return Unavailable(AdvisoryStatus.ArtifactInvalid);
             var values = series.Points.Select(p => p.Value).ToArray();
-            var ml = new MLContext(seed: 7);
-            if (account)
-            {
-                var spec = manifest.Anomaly!;
-                var alert = manifest.Alert!;
-                if (!SsaAdvisory.EligibleAccount(spec, values)) return Unavailable(AdvisoryStatus.InsufficientHistory);
-                var last = RevenantSsaInference.ScoreAccount(ml, artifact, spec, alert, values)[^1];
-                if (last.Bucket != values.Length - 1) throw new InvalidDataException("Anomaly output is not at the requested seal.");
-                return new(series, lineage, pin, Policy, AdvisoryStatus.Available, AnomalyV2: new(last.Count, last.ExpectedCount,
-                    last.Residual, alert.Statistic, last.Statistic, alert.Threshold, last.Alert, last.NativeAlert, last.NativePValue,
-                    spec.SeasonalWindow, alert.Window));
-            }
-
-            var forecastSpec = manifest.Forecast!;
-            var reference = series.ReferenceMinor!.Value;
-            if (values.Length <= forecastSpec.Warmup) return Unavailable(AdvisoryStatus.InsufficientHistory);
-            var step = RevenantSsaInference.ForecastBank(ml, artifact, forecastSpec, manifest.Interval, reference, values)[^1];
-            if (step.Bucket != values.Length - 1) throw new InvalidDataException("Forecast output is not at the requested seal.");
-            var floor = reference / 10;
-            var path = Enumerable.Range(0, Horizon).Select(h => new AdvisoryForecastStep(
-                checked(series.RequestedBoundaryMs + (h + 1) * ObservedFinanceVersion.BucketMs), step.Central[h], step.NativeLower[h],
-                step.NativeUpper[h], step.CalibratedLower[h], step.CalibratedUpper[h])).ToArray();
-            var first = Array.FindIndex(path, p => p.CentralMinor < floor);
-            int? crossing = values[^1] >= floor && first >= 0 ? first + 1 : null;
-            return new(series, lineage, pin, Policy, AdvisoryStatus.Available, ForecastV2: new(forecastSpec.Representation, reference,
-                SsaAdvisory.Scale(reference, forecastSpec.ScaleDivisor), step.Sigma, floor, crossing, path));
+            var spec = manifest.Anomaly!;
+            var alert = manifest.Alert!;
+            if (!SsaAdvisory.EligibleAccount(spec, values)) return Unavailable(AdvisoryStatus.InsufficientHistory);
+            var last = RevenantSsaInference.ScoreAccount(new MLContext(seed: 7), artifact, spec, alert, values)[^1];
+            if (last.Bucket != values.Length - 1) throw new InvalidDataException("Anomaly output is not at the requested seal.");
+            return new(series, lineage, pin, policy, AdvisoryStatus.Available, AnomalyV2: new(last.Count, last.ExpectedCount,
+                last.Residual, alert.Statistic, last.Statistic, alert.Threshold, last.Alert, last.NativeAlert, last.NativePValue,
+                spec.SeasonalWindow, alert.Window));
         }
         catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
         {
             return Unavailable(AdvisoryStatus.ArtifactMissing);
         }
-        catch (Exception ex) when (ex is PlatformNotSupportedException or DllNotFoundException or BadImageFormatException)
+        catch (Exception ex) when (ex.GetBaseException() is PlatformNotSupportedException or DllNotFoundException or BadImageFormatException
+            or EntryPointNotFoundException)
         {
             return Unavailable(AdvisoryStatus.RuntimeUnavailable);
         }
         catch (Exception ex) when (ex is IOException or JsonException or ArgumentException or InvalidOperationException
-            or OverflowException or NotSupportedException)
+            or OverflowException or NotSupportedException or UnauthorizedAccessException)
         {
             return Unavailable(AdvisoryStatus.ArtifactInvalid);
         }

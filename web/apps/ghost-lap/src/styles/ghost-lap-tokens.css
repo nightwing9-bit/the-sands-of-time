@@ -1,0 +1,93 @@
+/* Ghost Lap visual tokens (Spec 13, task 13.1). The ONLY place colours, type, radii, blur and motion numbers live.
+   Palette = approved snow image + frost/slate + warm candle/sand + spectral cyan + the four Kenney shape hues.
+   Values marked SAMPLED were measured from the approved source files; the rest are DIRECTOR BASELINE art direction (skill ref 02)
+   and may be revised as a whole after human review. Nothing here is a gameplay fact. */
+:root {
+  /* Type: two families only (self-hosted Fontsource WOFF2, SIL OFL 1.1). */
+  --gl-font-display: "Source Serif 4", Georgia, serif;
+  --gl-font-ui: "Source Sans 3", system-ui, Arial, sans-serif;
+
+  /* Snow and monster shadow. Edge colours SAMPLED from backgrounds/snow_arena.webp (top #dbebfb, centre #eef7fe, shadow #94b2d8..#abc6e4). */
+  --gl-snow-white: #eef7fe;
+  --gl-snow-blue: #d8e8f4;
+  --gl-snow-top: #dbebfb;
+  --gl-snow-shadow: #a9c3e3;
+  --gl-snow-shadow-deep: #94b2d8;
+
+  /* Reading size. Design preference (human review of 13.1): Ghost Lap favors generous, effortless readability over tiny minimalist
+     labels, while keeping hierarchy (title > menu label > subtitle > secondary text). Stage-relative like the rest of the stage, not zoom-keyed.
+     --gl-text-label is the menu/button label size; reuse it for primary actionable labels on later screens.
+     Before refinement labels and subtitle were both clamp(15px, 1.12cqw, 18px). Other text sizes are unchanged. */
+  --gl-text-label: clamp(17.5px, 1.31cqw, 21px);
+  --gl-text-subtitle: clamp(16.5px, 1.2cqw, 19.5px);
+
+  /* Ink on snow. Contrast on --gl-snow-white: ink 10.6:1, muted 5.6:1. Muted ink must not sit on the monster shadow (3.4:1): use ink there. */
+  --gl-ink: #263c4b;
+  --gl-muted-ink: #4d6577;
+  --gl-white-ink: #f5fbff;
+  --gl-subtitle-ink: #3f586a; /* subtitle only: 7.2:1 on snow-white (muted ink stays 5.6:1 for other secondary text) */
+
+  /* Frost and slate (UI materials). */
+  --gl-stone: #717c8d;
+  --gl-stone-dark: #444f61;
+  --gl-night-ink: #162c40;
+  --gl-frost-surface: rgba(239, 249, 252, 0.72);
+  --gl-frost-border: rgba(255, 255, 255, 0.62);
+  --gl-slate-surface: rgba(27, 51, 70, 0.78);
+  --gl-slate-border: rgba(160, 200, 225, 0.22);
+  --gl-divider: rgba(73, 110, 134, 0.2);
+  --gl-action-dark: #254a5b;
+  --gl-action-dark-hover: #1d3d4c;
+  --gl-action-light: #f2faff;
+
+  /* Warm: hourglass sand and fork diamond (gold), candle flame (orange). Candle flame SAMPLED ~#ffbc62 from haunted_candle.png. */
+  --gl-sand-gold: #dfb87d;
+  --gl-sand-gold-deep: #c4975a;
+  --gl-candle: #f4a340;
+  --gl-candle-glow: rgba(244, 163, 64, 0.32);
+
+  /* Memory: the historical ghost and the source history. Cyan is never used for living things. */
+  --gl-ghost-cyan: #83e4eb;
+  --gl-ghost-cyan-ink: #2a8a94;
+  /* 13.10: the pale ice of an original's recorded line on the history rail (skill ref 08: "pale icy-blue original time"). DIRECTOR BASELINE. */
+  --gl-ice: #a9cbe0;
+  --gl-ice-deep: #6c98b4;
+
+  /* The four shape hues, SAMPLED from the Kenney Default PNG centres. P1 (circle) is the unconfirmed orange CANDIDATE
+     yellow_body_circle.png, and in the pack it is the SAME #fab839 as the P3 rhombus. Do not recolour; see docs/architecture/19. */
+  --gl-hue-p1-circle: #fab839;
+  --gl-hue-p2-square: #ff85c7;
+  --gl-hue-p3-diamond: #fab839;
+  --gl-hue-p4-squircle: #64bf77;
+
+  /* Shape. */
+  --gl-radius-sm: 8px;
+  --gl-radius-md: 14px;
+  --gl-radius-lg: 20px;
+  --gl-space: 8px;
+  --gl-panel-blur: 12px;
+  --gl-panel-shadow: 0 10px 30px rgba(24, 49, 66, 0.1);
+  --gl-ground-shadow: 2px 3px 3px rgba(38, 60, 75, 0.22); /* the small bottom-right ground shadow of characters.md, reused on the shape marks */
+  --gl-focus-ring: 0 0 0 2px var(--gl-snow-white), 0 0 0 4px var(--gl-action-dark);
+
+  /* Motion (DIRECTOR BASELINE, skill ref 02 section 6). */
+  --gl-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --gl-t-hover: 130ms;
+  --gl-t-menu: 220ms;
+
+  /* The 16:9 stage. All sizes below are container-query units of the stage, so the same composition holds at any desktop window size.
+     HUD-safe space: thin rails and gutters at the stage edge. The arena (world 1600x900) fills the whole stage; these rails are the only
+     places live HUD may sit. The centre stays free for players, walls and the baked monster shadow. */
+  --gl-hud-gutter: 2.2cqw;
+  --gl-hud-top: 5.4cqh;
+  --gl-hud-bottom: 6cqh;
+  --gl-stage-gap: clamp(8px, 1.2vmin, 20px);
+  --gl-dock-height: clamp(116px, 17vh, 160px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --gl-t-hover: 0ms;
+    --gl-t-menu: 0ms;
+  }
+}

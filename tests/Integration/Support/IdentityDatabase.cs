@@ -18,13 +18,17 @@ public sealed class IdentityDatabase : IAsyncLifetime
     public const string ApiLogin = "sands_api";
     public const string RealtimeLogin = "sands_realtime";
     public const string WorkerLogin = "sands_worker";
+    /// <summary>Spec 11 task 11.1: the Realtime host's dedicated solo login (<c>marrow_timeline_runtime</c> + <c>ghostlap_runtime</c> only).</summary>
+    public const string RealtimeSoloLogin = "sands_realtime_solo";
 
     // Per-fixture random test passwords (letters/digits only, as the executor requires). Never committed.
     private readonly string _apiPassword = NewPassword();
     private readonly string _realtimePassword = NewPassword();
     private readonly string _workerPassword = NewPassword();
+    private readonly string _realtimeSoloPassword = NewPassword();
 
     private readonly PostgreSqlContainer _container = new PostgreSqlBuilder(Image)
+        .WithCommand("-c", "shared_preload_libraries=pg_stat_statements")
         .WithResourceMapping(new DirectoryInfo(Path.Combine(RepositoryRoot(), "scripts", "db")), "/sands/db/")
         .Build();
 
@@ -40,8 +44,11 @@ public sealed class IdentityDatabase : IAsyncLifetime
     /// <summary>The Worker host's login (no schema role).</summary>
     public string WorkerConnectionString { get; private set; } = "";
 
+    /// <summary>The Realtime host's solo login (<c>ConnectionStrings:GhostLapSolo</c>).</summary>
+    public string RealtimeSoloConnectionString { get; private set; } = "";
+
     /// <summary>Every runtime password, so tests can assert none of them is ever printed.</summary>
-    public IReadOnlyList<string> RuntimePasswords => [_apiPassword, _realtimePassword, _workerPassword];
+    public IReadOnlyList<string> RuntimePasswords => [_apiPassword, _realtimePassword, _workerPassword, _realtimeSoloPassword];
 
     public async Task InitializeAsync()
     {
@@ -52,6 +59,7 @@ public sealed class IdentityDatabase : IAsyncLifetime
         AppConnectionString = Login(owner, ApiLogin, _apiPassword);
         RealtimeConnectionString = Login(owner, RealtimeLogin, _realtimePassword);
         WorkerConnectionString = Login(owner, WorkerLogin, _workerPassword);
+        RealtimeSoloConnectionString = Login(owner, RealtimeSoloLogin, _realtimeSoloPassword);
     }
 
     public async Task DisposeAsync()
@@ -64,7 +72,8 @@ public sealed class IdentityDatabase : IAsyncLifetime
     public async Task<string> RunMigratorAsync()
     {
         var (exitCode, output) = await TryRunMigratorAsync(
-            $"API_DB_PASSWORD={_apiPassword}", $"REALTIME_DB_PASSWORD={_realtimePassword}", $"WORKER_DB_PASSWORD={_workerPassword}");
+            $"API_DB_PASSWORD={_apiPassword}", $"REALTIME_DB_PASSWORD={_realtimePassword}", $"WORKER_DB_PASSWORD={_workerPassword}",
+            $"REALTIME_SOLO_DB_PASSWORD={_realtimeSoloPassword}");
         return exitCode == 0 ? output : throw new InvalidOperationException($"migrate.sh exited {exitCode}:\n{output}");
     }
 

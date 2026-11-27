@@ -1,5 +1,7 @@
 using System.Net;
 using System.Runtime.InteropServices;
+using System.Diagnostics;
+using Npgsql;
 namespace Sands.E2E.Backend;
 /// <summary>
 /// Process entry point started by Playwright (<c>tests/E2E/playwright.real.config.ts</c>): starts PostgreSQL, applies the
@@ -36,8 +38,10 @@ public static class E2eBackendEntry
         Console.WriteLine("E2E_BACKEND_STARTING postgres container");
         await using var database = await E2eDatabase.StartAsync(stop.Token);
         await using var factory = new E2eBackendFactory(database, token);
-        factory.UseKestrel(options => options.Listen(IPAddress.Loopback, port));
+        factory.UseKestrel(options => options.Listen(Environment.GetEnvironmentVariable("E2E_R8_LISTEN_ANY") == "1" && database.R8Ledger.Length > 0 ? IPAddress.Any : IPAddress.Loopback, port));
         factory.StartServer();
+        using var ghostLap = GhostLapRealtimeProcess.Start(database, factory.MasterSecret);
+        using var replay = database.R8Ledger.Length > 0 ? await StartR8Async(database, stop.Token) : null;
         Console.WriteLine($"E2E_BACKEND_READY http://127.0.0.1:{port}");
         try
         {
@@ -46,7 +50,30 @@ public static class E2eBackendEntry
         catch (OperationCanceledException)
         {
         }
+        if (replay is { HasExited: false }) replay.Kill(entireProcessTree: true);
         Console.WriteLine("E2E_BACKEND_STOPPING");
         return 0;
+    }
+
+    private static async Task<Process> StartR8Async(E2eDatabase db, CancellationToken ct)
+    {
+        await using (var restricted = NpgsqlDataSource.Create(db.R8Replay))
+        await using (var forbidden = restricted.CreateCommand("UPDATE revenant.ledger_entry SET amount_minor=amount_minor"))
+        {
+            try
+            {
+                await forbidden.ExecuteNonQueryAsync(ct);
+                throw new InvalidOperationException("Replay credential has live ledger write authority.");
+            }
+            catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.InsufficientPrivilege) { }
+        }
+        var worker = Path.Combine(E2eDatabase.RepositoryRoot(), "src", "Hosts.Worker", "bin", "Debug", "net10.0", "Hosts.Worker.dll");
+        var start = new ProcessStartInfo("dotnet") { UseShellExecute = false };
+        start.ArgumentList.Add(worker);
+        start.ArgumentList.Add("--replay");
+        start.Environment["ConnectionStrings__RevenantReplay"] = db.R8Replay;
+        start.Environment["Revenant__Ledger__TenantId"] = R8FixtureStartup.Tenant;
+        start.Environment.Remove("ConnectionStrings__RevenantLedger");
+        return Process.Start(start) ?? throw new InvalidOperationException("Cannot start the Replay worker.");
     }
 }
